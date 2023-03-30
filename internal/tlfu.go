@@ -78,7 +78,7 @@ func (t *TinyLfu) Set(entry *Entry) *Entry {
 	if entry.list(LIST) == nil {
 		if evicted := t.lru.insert(entry); evicted != nil {
 			if victim := t.slru.victim(); victim != nil {
-				evictedCount := t.sketch.Estimate(xxh3.HashString(evicted.key))
+				evictedCount := t.sketch.Estimate(xxh3.HashString(evicted.key)) + uint(t.lruFactor)
 				victimCount := t.sketch.Estimate(xxh3.HashString(victim.key))
 				if evictedCount <= victimCount {
 					return evicted

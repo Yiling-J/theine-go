@@ -104,10 +104,15 @@ func (s *Store) Get(key string) (interface{}, bool) {
 	new := s.readCounter.Add(1)
 	shard.mu.RLock()
 	entry, ok := shard.get(key)
-	shard.mu.RUnlock()
-	if ok && entry.expire != 0 && entry.expire <= s.timerwheel.clock.nowNano() {
-		ok = false
+	var value interface{}
+	if ok {
+		if entry.expire != 0 && entry.expire <= s.timerwheel.clock.nowNano() {
+			ok = false
+		} else {
+			value = entry.value
+		}
 	}
+	shard.mu.RUnlock()
 	switch {
 	case new < MAX_READ_BUFF_SIZE:
 		if ok {
@@ -119,10 +124,7 @@ func (s *Store) Get(key string) (interface{}, bool) {
 		s.readChan <- MAINTANCE
 	default:
 	}
-	if ok {
-		return entry.value, ok
-	}
-	return nil, ok
+	return value, ok
 }
 
 func (s *Store) Set(key string, value interface{}, ttl time.Duration) {

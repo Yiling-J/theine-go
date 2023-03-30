@@ -153,7 +153,7 @@ func (s *Store) Set(key string, value interface{}, ttl time.Duration) {
 	// update set counter
 	new := s.setCounter.Add(1)
 	s.writebuf.Push(entry)
-	if new%MAX_WRITE_BUFF_SIZE == 0 {
+	if new == MAX_WRITE_BUFF_SIZE {
 		s.writeChan <- MAINTANCE
 	}
 }
@@ -248,6 +248,7 @@ func (s *Store) drainWrite() {
 			shard.mu.Unlock()
 		}
 	}
+	s.setCounter.Store(0)
 
 }
 

@@ -73,7 +73,7 @@ func parallelZipf() {
 	for i := 1; i <= 32; i++ {
 		wg.Add(1)
 		go func() {
-			zipf := NewZipfian(1.0001, 1, 1000000)
+			zipf := NewZipfian(1.0001, 1, 10000000)
 			defer wg.Done()
 			for i := 0; i < 500000; i++ {
 				n, _ := zipf()
@@ -82,7 +82,7 @@ func parallelZipf() {
 				if ok {
 					read.Add(1)
 					if key != v.(string) {
-						_ = 1
+						panic("")
 					}
 				} else {
 					write.Add(1)
@@ -108,7 +108,7 @@ func parallelZipfR() {
 	for i := 1; i <= 32; i++ {
 		wg.Add(1)
 		go func() {
-			zipf := NewZipfian(1.0001, 1, 1000000)
+			zipf := NewZipfian(1.0001, 1, 10000000)
 			defer wg.Done()
 			for i := 0; i < 500000; i++ {
 				n, _ := zipf()

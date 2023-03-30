@@ -240,14 +240,12 @@ func (s *Store) drainWrite() {
 			if evicted == nil {
 				continue
 			}
-			evicted.status = RETIRED
+			evicted.status = REMOVED
 			index := s.index(evicted.key)
 			shard := s.shards[index]
 			shard.mu.Lock()
 			shard.delete(evicted.key)
 			shard.mu.Unlock()
-		case RETIRED:
-			// s.policy.Remove(entry)
 		}
 	}
 
@@ -262,8 +260,6 @@ func (s *Store) maintance() {
 		case <-s.writeChan:
 			s.drainWrite()
 		case <-ticker.C:
-			s.drainRead()
-			s.drainWrite()
 		}
 	}
 

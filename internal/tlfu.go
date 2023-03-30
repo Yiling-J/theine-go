@@ -95,6 +95,9 @@ func (t *TinyLfu) Access(entry interface{}) {
 	t.total += 1
 	switch v := entry.(type) {
 	case *Entry: // hit
+		if v.status != ALIVE {
+			return
+		}
 		t.sketch.Add(xxh3.HashString(v.key))
 		t.hit += 1
 		switch v.list(1) {

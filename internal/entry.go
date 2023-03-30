@@ -3,7 +3,6 @@ package internal
 const (
 	NEW int8 = iota
 	ALIVE
-	RETIRED
 	REMOVED
 )
 

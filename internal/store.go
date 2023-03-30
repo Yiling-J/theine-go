@@ -113,7 +113,7 @@ func (s *Store) Get(key string) (interface{}, bool) {
 		if ok {
 			s.readbuf.Push(entry)
 		} else {
-			s.readbuf.Push(key)
+			s.readbuf.Push(xxh3.HashString(key))
 		}
 	case new == MAX_READ_BUFF_SIZE:
 		s.readChan <- MAINTANCE

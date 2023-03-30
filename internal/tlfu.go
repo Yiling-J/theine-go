@@ -1,7 +1,7 @@
 package internal
 
 import (
-	"github.com/cespare/xxhash/v2"
+	"github.com/zeebo/xxh3"
 )
 
 type TinyLfu struct {
@@ -78,8 +78,8 @@ func (t *TinyLfu) Set(entry *Entry) *Entry {
 	if entry.list(LIST) == nil {
 		if evicted := t.lru.insert(entry); evicted != nil {
 			if victim := t.slru.victim(); victim != nil {
-				evictedCount := t.sketch.Estimate(xxhash.Sum64String(evicted.key))
-				victimCount := t.sketch.Estimate(xxhash.Sum64String(victim.key))
+				evictedCount := t.sketch.Estimate(xxh3.HashString(evicted.key))
+				victimCount := t.sketch.Estimate(xxh3.HashString(victim.key))
 				if evictedCount <= victimCount {
 					return evicted
 				}
@@ -95,7 +95,7 @@ func (t *TinyLfu) Access(entry interface{}) {
 	t.total += 1
 	switch v := entry.(type) {
 	case *Entry: // hit
-		t.sketch.Add(xxhash.Sum64String(v.key))
+		t.sketch.Add(xxh3.HashString(v.key))
 		t.hit += 1
 		switch v.list(1) {
 		case t.lru.list:
@@ -104,8 +104,8 @@ func (t *TinyLfu) Access(entry interface{}) {
 			t.slru.access(v)
 		}
 
-	case string: // miss
-		t.sketch.Add(xxhash.Sum64String(v))
+	case uint64: // miss
+		t.sketch.Add(v)
 	}
 }
 

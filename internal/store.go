@@ -7,7 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/cespare/xxhash/v2"
+	"github.com/tidwall/hashmap"
+	"github.com/zeebo/xxh3"
 )
 
 type OPCODE int8
@@ -27,7 +28,7 @@ type Writer struct {
 }
 
 type Shard struct {
-	hashmap   map[string]*Entry
+	hashmap   *hashmap.Map[string, *Entry]
 	mu        sync.RWMutex
 	writeMu   sync.Mutex
 	maintance bool
@@ -35,25 +36,25 @@ type Shard struct {
 
 func NewShard(size uint) *Shard {
 	return &Shard{
-		hashmap: make(map[string]*Entry, size),
+		hashmap: hashmap.New[string, *Entry](int(size)),
 	}
 }
 
 func (s *Shard) set(key string, entry *Entry) {
-	s.hashmap[key] = entry
+	s.hashmap.Set(key, entry)
 }
 
 func (s *Shard) get(key string) (entry *Entry, ok bool) {
-	entry, ok = s.hashmap[key]
+	entry, ok = s.hashmap.Get(key)
 	return
 }
 
 func (s *Shard) delete(key string) {
-	delete(s.hashmap, key)
+	s.hashmap.Delete(key)
 }
 
 func (s *Shard) len() int {
-	return len(s.hashmap)
+	return s.hashmap.Len()
 }
 
 type Store struct {
@@ -147,7 +148,7 @@ func (s *Store) Set(key string, value interface{}, ttl time.Duration) {
 	index := s.index(key)
 	shard := s.shards[index]
 	shard.mu.Lock()
-	entry, ok := shard.hashmap[key]
+	entry, ok := shard.get(key)
 	if ok {
 		entry.value = value
 		if ttl != 0 {
@@ -161,7 +162,7 @@ func (s *Store) Set(key string, value interface{}, ttl time.Duration) {
 		if ttl != 0 {
 			entry.expire = s.timerwheel.clock.expireNano(ttl)
 		}
-		shard.hashmap[key] = entry
+		shard.set(key, entry)
 		shard.mu.Unlock()
 
 	}
@@ -177,7 +178,7 @@ func (s *Store) Set(key string, value interface{}, ttl time.Duration) {
 func (s *Store) SetSync(key string, value interface{}, ttl time.Duration) {
 	index := s.index(key)
 	shard := s.shards[index]
-	exist, ok := shard.hashmap[key]
+	exist, ok := shard.get(key)
 	if ok {
 		exist.value = value
 		if ttl != 0 {
@@ -191,10 +192,10 @@ func (s *Store) SetSync(key string, value interface{}, ttl time.Duration) {
 		if ttl != 0 {
 			entry.expire = s.timerwheel.clock.expireNano(ttl)
 		}
-		shard.hashmap[key] = entry
+		shard.set(key, entry)
 		evicted := s.policy.Set(entry)
 		if evicted != nil {
-			delete(s.shards[s.index(evicted.key)].hashmap, evicted.key)
+			s.shards[s.index(evicted.key)].delete(evicted.key)
 		}
 	}
 }
@@ -203,10 +204,10 @@ func (s *Store) Delete(key string) {
 	index := s.index(key)
 	shard := s.shards[index]
 	shard.mu.Lock()
-	entry, ok := shard.hashmap[key]
+	entry, ok := shard.get(key)
 	if ok {
 		s.writebuf.Push(Writer{key: key, code: DELETE, entry: entry})
-		delete(shard.hashmap, key)
+		shard.delete(key)
 	}
 	var maintance bool
 	new := s.setCounter.Add(1)
@@ -223,7 +224,7 @@ func (s *Store) Len() int {
 	total := 0
 	for _, s := range s.shards {
 		s.mu.RLock()
-		total += len(s.hashmap)
+		total += s.len()
 		s.mu.RUnlock()
 	}
 	return total
@@ -233,9 +234,7 @@ func (s *Store) Data() string {
 	all := []string{}
 	for _, s := range s.shards {
 		s.mu.RLock()
-		for k := range s.hashmap {
-			all = append(all, k)
-		}
+		all = append(all, s.hashmap.Keys()...)
 		s.mu.RUnlock()
 	}
 	return strings.Join(all, "/")
@@ -252,7 +251,7 @@ func (s *Store) WriteBufLen() int {
 }
 
 func (s *Store) index(key string) int {
-	return int(xxhash.Sum64String(key) & uint64(s.shardCount-1))
+	return int(xxh3.HashString(key) & uint64(s.shardCount-1))
 }
 
 func (s *Store) Maintance() {
@@ -290,7 +289,7 @@ func (s *Store) drainWrite() {
 			index := s.index(evicted.key)
 			shard := s.shards[index]
 			shard.mu.Lock()
-			delete(shard.hashmap, evicted.key)
+			shard.delete(evicted.key)
 			shard.mu.Unlock()
 		case RETIRED:
 			// s.policy.Remove(entry)

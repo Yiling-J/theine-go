@@ -89,12 +89,12 @@ func parallelZipf() {
 	write := &atomic.Int64{}
 	client, _ := theine.New(3000)
 	var wg sync.WaitGroup
-	for i := 1; i <= 36; i++ {
+	for i := 1; i <= 32; i++ {
 		wg.Add(1)
 		go func() {
 			zipf := NewZipfian(1.0001, 1, 1000000)
 			defer wg.Done()
-			for i := 0; i < 100000; i++ {
+			for i := 0; i < 500000; i++ {
 				n, _ := zipf()
 				key := fmt.Sprintf("key:%d", n)
 				v, ok := client.Get(key)
@@ -124,12 +124,12 @@ func parallelZipfR() {
 		BufferItems: 64,
 	})
 	var wg sync.WaitGroup
-	for i := 1; i <= 36; i++ {
+	for i := 1; i <= 32; i++ {
 		wg.Add(1)
 		go func() {
 			zipf := NewZipfian(1.0001, 1, 1000000)
 			defer wg.Done()
-			for i := 0; i < 100000; i++ {
+			for i := 0; i < 500000; i++ {
 				n, _ := zipf()
 				key := fmt.Sprintf("key:%d", n)
 				v, ok := client.Get(key)

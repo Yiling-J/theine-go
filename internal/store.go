@@ -58,17 +58,17 @@ func (s *Shard) len() int {
 }
 
 type Store struct {
-	cap         uint
-	shards      []*Shard
-	shardCount  uint
-	readChan    chan int
-	writeChan   chan int
-	policy      *TinyLfu
-	timerwheel  *TimerWheel
-	setCounter  *atomic.Int64
-	readbuf     *Queue
-	readCounter *atomic.Uint32
-	writebuf    *Queue
+	cap          uint
+	shards       []*Shard
+	shardCount   uint
+	readChan     chan int
+	writeChan    chan int
+	policy       *TinyLfu
+	timerwheel   *TimerWheel
+	writeCounter *atomic.Uint32
+	readbuf      *Queue
+	readCounter  *atomic.Uint32
+	writebuf     *Queue
 }
 
 // New returns a new data struct with the specified capacity
@@ -90,7 +90,7 @@ func NewStore(cap uint) *Store {
 	s.policy = NewTinyLfu(cap)
 	s.readChan = make(chan int)
 	s.writeChan = make(chan int)
-	s.setCounter = &atomic.Int64{}
+	s.writeCounter = &atomic.Uint32{}
 	s.readCounter = &atomic.Uint32{}
 	s.readbuf = NewQueue()
 	s.writebuf = NewQueue()
@@ -151,7 +151,7 @@ func (s *Store) Set(key string, value interface{}, ttl time.Duration) {
 	}
 
 	// update set counter
-	new := s.setCounter.Add(1)
+	new := s.writeCounter.Add(1)
 	s.writebuf.Push(entry)
 	if new == MAX_WRITE_BUFF_SIZE {
 		s.writeChan <- MAINTANCE
@@ -168,7 +168,7 @@ func (s *Store) Delete(key string) {
 		shard.delete(key)
 	}
 	var maintance bool
-	new := s.setCounter.Add(1)
+	new := s.writeCounter.Add(1)
 	if new > MAX_WRITE_BUFF_SIZE {
 		maintance = true
 	}
@@ -248,7 +248,7 @@ func (s *Store) drainWrite() {
 			shard.mu.Unlock()
 		}
 	}
-	s.setCounter.Store(0)
+	s.writeCounter.Store(0)
 
 }
 

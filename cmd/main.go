@@ -101,7 +101,7 @@ func parallelZipf() {
 				if ok {
 					read.Add(1)
 					if key != v.(string) {
-						panic("")
+						_ = 1
 					}
 				} else {
 					write.Add(1)

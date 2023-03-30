@@ -98,25 +98,6 @@ func NewStore(cap uint) *Store {
 	return s
 }
 
-func NewStoreSync(cap uint) *Store {
-	s := &Store{cap: cap}
-	s.shardCount = 1
-	for int(s.shardCount) < runtime.NumCPU()*8 {
-		s.shardCount *= 2
-	}
-	shardSize := cap / s.shardCount
-	if shardSize < 50 {
-		shardSize = 50
-	}
-	s.shards = make([]*Shard, 0, s.shardCount)
-	for i := 0; i < int(s.shardCount); i++ {
-		s.shards = append(s.shards, NewShard(shardSize))
-	}
-	s.policy = NewTinyLfu(cap)
-	s.setCounter = &atomic.Int64{}
-	return s
-}
-
 func (s *Store) Get(key string) (interface{}, bool) {
 	index := s.index(key)
 	shard := s.shards[index]
@@ -175,31 +156,6 @@ func (s *Store) Set(key string, value interface{}, ttl time.Duration) {
 	}
 }
 
-func (s *Store) SetSync(key string, value interface{}, ttl time.Duration) {
-	index := s.index(key)
-	shard := s.shards[index]
-	exist, ok := shard.get(key)
-	if ok {
-		exist.value = value
-		if ttl != 0 {
-			exist.expire = s.timerwheel.clock.expireNano(ttl)
-		}
-		s.policy.Set(exist)
-	} else {
-		entry := &Entry{}
-		entry.key = key
-		entry.value = value
-		if ttl != 0 {
-			entry.expire = s.timerwheel.clock.expireNano(ttl)
-		}
-		shard.set(key, entry)
-		evicted := s.policy.Set(entry)
-		if evicted != nil {
-			s.shards[s.index(evicted.key)].delete(evicted.key)
-		}
-	}
-}
-
 func (s *Store) Delete(key string) {
 	index := s.index(key)
 	shard := s.shards[index]
@@ -252,9 +208,6 @@ func (s *Store) WriteBufLen() int {
 
 func (s *Store) index(key string) int {
 	return int(xxh3.HashString(key) & uint64(s.shardCount-1))
-}
-
-func (s *Store) Maintance() {
 }
 
 func (s *Store) drainRead() {

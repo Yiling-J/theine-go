@@ -19,25 +19,6 @@ import (
 var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to `file`")
 var memprofile = flag.String("memprofile", "", "write memory profile to `file`")
 
-func fullSyncRun() {
-	client, _ := theine.NewSync(100)
-	for i := 0; i < 50000; i++ {
-		key := fmt.Sprintf("key:%d", rand.Intn(100000))
-		client.SetSync(key, key)
-	}
-	fmt.Println(client.Len())
-}
-
-func syncRun() {
-	client, _ := theine.New(100)
-	for i := 0; i < 3000000; i++ {
-		key := fmt.Sprintf("key:%d", rand.Intn(100000))
-		client.Set(key, key)
-	}
-	time.Sleep(1 * time.Second)
-	fmt.Println(client.Len())
-}
-
 func parallelRun() {
 	client, _ := theine.New(3000)
 	var wg sync.WaitGroup

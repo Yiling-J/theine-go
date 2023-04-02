@@ -69,6 +69,7 @@ type Store struct {
 	readbuf      *Queue
 	readCounter  *atomic.Uint32
 	writebuf     *Queue
+	closeChan    chan int
 }
 
 // New returns a new data struct with the specified capacity
@@ -94,6 +95,7 @@ func NewStore(cap uint) *Store {
 	s.readCounter = &atomic.Uint32{}
 	s.readbuf = NewQueue()
 	s.writebuf = NewQueue()
+	s.closeChan = make(chan int)
 	go s.maintance()
 	return s
 }
@@ -209,7 +211,11 @@ func (s *Store) WriteBufLen() int {
 }
 
 func (s *Store) index(key string) int {
-	return int(xxh3.HashString(key) & uint64(s.shardCount-1))
+	h := xxh3.HashString(key)
+	h = ((h >> 16) ^ h) * 0x45d9f3b
+	h = ((h >> 16) ^ h) * 0x45d9f3b
+	h = (h >> 16) ^ h
+	return int(h & uint64(s.shardCount-1))
 }
 
 func (s *Store) drainRead() {
@@ -261,7 +267,13 @@ func (s *Store) maintance() {
 		case <-s.writeChan:
 			s.drainWrite()
 		case <-ticker.C:
+		case <-s.closeChan:
+			return
 		}
 	}
 
+}
+
+func (s *Store) Close() {
+	close(s.closeChan)
 }

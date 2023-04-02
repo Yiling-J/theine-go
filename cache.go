@@ -44,3 +44,7 @@ func (c *Cache) Delete(key string) {
 func (c *Cache) Len() int {
 	return c.store.Len()
 }
+
+func (c *Cache) Close() {
+	c.store.Close()
+}

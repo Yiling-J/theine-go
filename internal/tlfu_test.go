@@ -18,7 +18,7 @@ func TestTlfu(t *testing.T) {
 
 	entries := []*Entry{}
 	for i := 0; i < 200; i++ {
-		e := &Entry{key: fmt.Sprintf("%d", i)}
+		e := &Entry{key: fmt.Sprintf("%d", i), status: ALIVE}
 		evicted := tlfu.Set(e)
 		entries = append(entries, e)
 		require.Nil(t, evicted)
@@ -30,6 +30,7 @@ func TestTlfu(t *testing.T) {
 	require.Equal(t, 190, tlfu.slru.probation.len)
 	require.Equal(t, 0, tlfu.slru.protected.len)
 
+	// probation -> protected
 	tlfu.Access(entries[11])
 	require.Equal(t, 10, tlfu.lru.list.len)
 	require.Equal(t, 189, tlfu.slru.probation.len)
@@ -40,11 +41,12 @@ func TestTlfu(t *testing.T) {
 	require.Equal(t, 1, tlfu.slru.protected.len)
 
 	for i := 200; i < 1000; i++ {
-		e := &Entry{key: fmt.Sprintf("%d", i)}
+		e := &Entry{key: fmt.Sprintf("%d", i), status: ALIVE}
 		entries = append(entries, e)
 		evicted := tlfu.Set(e)
 		require.Nil(t, evicted)
 	}
+	// access protected
 	tlfu.Access(entries[11])
 	require.Equal(t, 10, tlfu.lru.list.len)
 	require.Equal(t, 989, tlfu.slru.probation.len)
@@ -70,7 +72,7 @@ func TestTlfu(t *testing.T) {
 
 	entries2 := []*Entry{}
 	for i := 0; i < 1000; i++ {
-		e := &Entry{key: fmt.Sprintf("%d*", i)}
+		e := &Entry{key: fmt.Sprintf("%d*", i), status: ALIVE}
 		tlfu.Set(e)
 		entries2 = append(entries2, e)
 	}

@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/Yiling-J/theine-go"
+	"github.com/dgraph-io/ristretto"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/hashmap"
 )
 
 func TestSet(t *testing.T) {
@@ -174,4 +176,56 @@ func TestSetWithTTLAutoExpire(t *testing.T) {
 		_, ok := client.Get(key)
 		require.False(t, ok)
 	}
+}
+
+func BenchmarkSet(b *testing.B) {
+	client, err := theine.New[string, string](100)
+	if err != nil {
+		panic(err)
+	}
+	keys := []string{}
+	for i := 0; i < 10000; i++ {
+		keys = append(keys, fmt.Sprintf("%d", i))
+	}
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			client.Set(keys[rand.Intn(10000)], "")
+		}
+	})
+}
+
+func BenchmarkSetR(b *testing.B) {
+	client, err := ristretto.NewCache(&ristretto.Config{
+		NumCounters: 1000,
+		MaxCost:     100,
+		BufferItems: 64,
+	})
+	if err != nil {
+		panic(err)
+	}
+	keys := []string{}
+	for i := 0; i < 10000; i++ {
+		keys = append(keys, fmt.Sprintf("%d", i))
+	}
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			client.Set(keys[rand.Intn(10000)], "", 1)
+		}
+	})
+}
+
+func BenchmarkSetRobin(b *testing.B) {
+	hm := hashmap.New[string, string](10000)
+	keys := []string{}
+	for i := 0; i < 10000; i++ {
+		keys = append(keys, fmt.Sprintf("%d", i))
+	}
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			hm.Set(keys[rand.Intn(10000)], "")
+		}
+	})
 }

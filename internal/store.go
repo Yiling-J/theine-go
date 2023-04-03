@@ -135,9 +135,9 @@ func (s *Store[K, V]) Set(key K, value V, ttl time.Duration) {
 	// update set counter
 	new := s.writeCounter.Add(1)
 	if ok {
-		s.writebuf.Push(&BufItem[K, V]{entry: exist, code: RETIRED})
+		s.writebuf.Push(BufItem[K, V]{entry: exist, code: RETIRED})
 	}
-	s.writebuf.Push(&BufItem[K, V]{entry: entry, code: ALIVE})
+	s.writebuf.Push(BufItem[K, V]{entry: entry, code: ALIVE})
 	if new == MAX_WRITE_BUFF_SIZE {
 		s.writeChan <- MAINTANCE
 	}
@@ -149,7 +149,7 @@ func (s *Store[K, V]) Delete(key K) {
 	shard.mu.Lock()
 	entry, ok := shard.get(key)
 	if ok {
-		s.writebuf.Push(&BufItem[K, V]{entry: entry, code: RETIRED})
+		s.writebuf.Push(BufItem[K, V]{entry: entry, code: RETIRED})
 		shard.delete(key)
 	}
 	var maintance bool
@@ -218,7 +218,7 @@ func (s *Store[K, V]) drainWrite() {
 		if v == nil {
 			break
 		}
-		item := v.(*BufItem[K, V])
+		item := v.(BufItem[K, V])
 		entry := item.entry
 
 		// no lock when updating policy,

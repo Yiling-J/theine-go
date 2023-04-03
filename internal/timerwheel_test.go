@@ -95,7 +95,7 @@ func TestAdvance(t *testing.T) {
 		if k == nil {
 			break
 		}
-		keys = append(keys, k.(*BufItem[string, string]).entry.key)
+		keys = append(keys, k.(BufItem[string, string]).entry.key)
 	}
 	require.ElementsMatch(t, []string{"k1", "k2", "k3"}, keys)
 
@@ -106,7 +106,7 @@ func TestAdvance(t *testing.T) {
 		if k == nil {
 			break
 		}
-		keys = append(keys, k.(*BufItem[string, string]).entry.key)
+		keys = append(keys, k.(BufItem[string, string]).entry.key)
 	}
 	require.ElementsMatch(t, []string{"k4"}, keys)
 
@@ -117,7 +117,7 @@ func TestAdvance(t *testing.T) {
 		if k == nil {
 			break
 		}
-		keys = append(keys, k.(*BufItem[string, string]).entry.key)
+		keys = append(keys, k.(BufItem[string, string]).entry.key)
 	}
 	require.ElementsMatch(t, []string{"k5"}, keys)
 
@@ -128,7 +128,7 @@ func TestAdvance(t *testing.T) {
 		if k == nil {
 			break
 		}
-		keys = append(keys, k.(*BufItem[string, string]).entry.key)
+		keys = append(keys, k.(BufItem[string, string]).entry.key)
 	}
 	require.ElementsMatch(t, []string{"k6"}, keys)
 
@@ -139,7 +139,7 @@ func TestAdvance(t *testing.T) {
 		if k == nil {
 			break
 		}
-		keys = append(keys, k.(*BufItem[string, string]).entry.key)
+		keys = append(keys, k.(BufItem[string, string]).entry.key)
 	}
 	require.ElementsMatch(t, []string{"k7"}, keys)
 }

@@ -136,7 +136,7 @@ func (tw *TimerWheel[K, V]) expire(index int, prevTicks int64, delta int64) {
 			next := entry.Next(WHEEL_LIST)
 			if entry.expire <= tw.nanos {
 				tw.deschedule(entry)
-				tw.writebuf.Push(&BufItem[K, V]{entry: entry, code: EXPIRED})
+				tw.writebuf.Push(BufItem[K, V]{entry: entry, code: EXPIRED})
 			} else {
 				tw.schedule(entry)
 			}

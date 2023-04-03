@@ -7,6 +7,7 @@ package internal
 // This implementation is based on http://www.1024cores.net/home/lock-free-algorithms/queues/non-intrusive-mpsc-node-based-queue
 
 import (
+	"sync"
 	"sync/atomic"
 	"unsafe"
 )
@@ -18,10 +19,13 @@ type node struct {
 
 type Queue struct {
 	head, tail *node
+	nodePool   sync.Pool
 }
 
 func NewQueue() *Queue {
-	q := &Queue{}
+	q := &Queue{nodePool: sync.Pool{New: func() any {
+		return new(node)
+	}}}
 	stub := &node{}
 	q.head = stub
 	q.tail = stub
@@ -32,7 +36,7 @@ func NewQueue() *Queue {
 //
 // Push can be safely called from multiple goroutines
 func (q *Queue) Push(x interface{}) {
-	n := new(node)
+	n := q.nodePool.Get().(*node)
 	n.val = x
 	// current producer acquires head node
 	prev := (*node)(atomic.SwapPointer((*unsafe.Pointer)(unsafe.Pointer(&q.head)), unsafe.Pointer(n)))
@@ -51,6 +55,8 @@ func (q *Queue) Pop() interface{} {
 		q.tail = next
 		v := next.val
 		next.val = nil
+		tail.next = nil
+		q.nodePool.Put(tail)
 		return v
 	}
 	return nil

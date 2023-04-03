@@ -60,12 +60,3 @@ func (s *Slru) access(entry *Entry) {
 		s.protected.MoveToFront(entry)
 	}
 }
-
-func (s *Slru) remove(entry *Entry) {
-	switch entry.list(LIST) {
-	case s.probation:
-		s.probation.remove(entry)
-	case s.protected:
-		s.protected.remove(entry)
-	}
-}

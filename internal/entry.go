@@ -3,8 +3,15 @@ package internal
 const (
 	NEW int8 = iota
 	ALIVE
+	EXPIRED
+	RETIRED
 	REMOVED
 )
+
+type BufItem struct {
+	entry *Entry
+	code  int8
+}
 
 type MetaData struct {
 	prev       *Entry
@@ -16,11 +23,12 @@ type MetaData struct {
 }
 
 type Entry struct {
-	status int8 // 1 wait remove, 2 removed
-	key    string
-	value  any
-	expire int64
-	meta   MetaData
+	removed bool
+	shard   uint16
+	key     string
+	value   any
+	expire  int64
+	meta    MetaData
 }
 
 func (e *Entry) Clean() {
@@ -64,13 +72,6 @@ func (e *Entry) list(listType uint8) *List {
 		return e.meta._wheelList
 	}
 	return e.meta._list
-}
-
-func (e *Entry) setList(list *List, listType uint8) {
-	if listType == WHEEL_LIST {
-		e.meta._wheelList = list
-	}
-	e.meta._list = list
 }
 
 func (e *Entry) prev(listType uint8) *Entry {

@@ -30,15 +30,16 @@ func (c *Clock) expireNano(ttl time.Duration) int64 {
 }
 
 type TimerWheel struct {
-	buckets []uint
-	spans   []uint
-	shift   []uint
-	wheel   [][]*List
-	clock   *Clock
-	nanos   int64
+	buckets  []uint
+	spans    []uint
+	shift    []uint
+	wheel    [][]*List
+	clock    *Clock
+	nanos    int64
+	writebuf *Queue
 }
 
-func NewTimerWheel(size uint) *TimerWheel {
+func NewTimerWheel(size uint, writebuf *Queue) *TimerWheel {
 	clock := &Clock{start: time.Now()}
 	buckets := []uint{64, 64, 32, 4, 1}
 	spans := []uint{
@@ -68,12 +69,13 @@ func NewTimerWheel(size uint) *TimerWheel {
 	}
 
 	return &TimerWheel{
-		buckets: buckets,
-		spans:   spans,
-		shift:   shift,
-		wheel:   wheel,
-		nanos:   clock.nowNano(),
-		clock:   clock,
+		buckets:  buckets,
+		spans:    spans,
+		shift:    shift,
+		wheel:    wheel,
+		nanos:    clock.nowNano(),
+		clock:    clock,
+		writebuf: writebuf,
 	}
 
 }
@@ -81,7 +83,7 @@ func NewTimerWheel(size uint) *TimerWheel {
 func (tw *TimerWheel) findIndex(expire int64) (int, int) {
 	duration := expire - tw.nanos
 	for i := 0; i < 5; i++ {
-		if duration < int64(tw.spans[i]) {
+		if duration < int64(tw.spans[i+1]) {
 			ticks := expire >> int(tw.shift[i])
 			slot := int(ticks) & (int(tw.buckets[i]) - 1)
 			return i, slot
@@ -98,9 +100,6 @@ func (tw *TimerWheel) deschedule(entry *Entry) {
 
 func (tw *TimerWheel) schedule(entry *Entry) {
 	tw.deschedule(entry)
-	if entry.expire > 0 {
-		return
-	}
 	x, y := tw.findIndex(entry.expire)
 	tw.wheel[x][y].PushFront(entry)
 }
@@ -129,12 +128,15 @@ func (tw *TimerWheel) expire(index int, prevTicks int64, delta int64) {
 	end := start + int64(steps)
 	for i := start; i < end; i++ {
 		list := tw.wheel[index][i&int64(mask)]
-		for e := list.Front(); e != nil; e = e.Next(WHEEL_LIST) {
-			if e.expire <= tw.nanos {
-				tw.deschedule(e)
+		entry := list.Front()
+		for entry != nil {
+			next := entry.Next(WHEEL_LIST)
+			if entry.expire <= tw.nanos {
+				tw.writebuf.Push(&BufItem{entry: entry, code: EXPIRED})
 			} else {
-				tw.schedule(e)
+				tw.schedule(entry)
 			}
+			entry = next
 
 		}
 		list.Reset()

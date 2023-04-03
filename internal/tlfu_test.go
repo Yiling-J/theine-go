@@ -18,7 +18,7 @@ func TestTlfu(t *testing.T) {
 
 	entries := []*Entry{}
 	for i := 0; i < 200; i++ {
-		e := &Entry{key: fmt.Sprintf("%d", i), status: ALIVE}
+		e := &Entry{key: fmt.Sprintf("%d", i)}
 		evicted := tlfu.Set(e)
 		entries = append(entries, e)
 		require.Nil(t, evicted)
@@ -41,7 +41,7 @@ func TestTlfu(t *testing.T) {
 	require.Equal(t, 1, tlfu.slru.protected.len)
 
 	for i := 200; i < 1000; i++ {
-		e := &Entry{key: fmt.Sprintf("%d", i), status: ALIVE}
+		e := &Entry{key: fmt.Sprintf("%d", i)}
 		entries = append(entries, e)
 		evicted := tlfu.Set(e)
 		require.Nil(t, evicted)
@@ -72,7 +72,7 @@ func TestTlfu(t *testing.T) {
 
 	entries2 := []*Entry{}
 	for i := 0; i < 1000; i++ {
-		e := &Entry{key: fmt.Sprintf("%d*", i), status: ALIVE}
+		e := &Entry{key: fmt.Sprintf("%d*", i)}
 		tlfu.Set(e)
 		entries2 = append(entries2, e)
 	}

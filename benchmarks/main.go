@@ -150,7 +150,7 @@ func bench(client clients.Client, cap int, gen func(keyChan chan key)) float64 {
 	return hr
 }
 
-func benchParallel(client clients.Client, cap int, gen func(keyChan chan key)) {
+func benchParallel(client clients.Client, cap int, gen func(keyChan chan key)) float64 {
 	counter := &atomic.Uint32{}
 	miss := &atomic.Uint32{}
 	keyChan := make(chan key)
@@ -193,10 +193,11 @@ func benchParallel(client clients.Client, cap int, gen func(keyChan chan key)) {
 
 	c := counter.Load()
 	m := miss.Load()
-	hr := float32(c-m) / float32(c)
+	hr := float64(c-m) / float64(c)
 	fmt.Printf("\n--- %s parallel hit ratio: %.3f\n", client.Name(), hr)
 	client.Close()
 	time.Sleep(time.Second)
+	return hr
 }
 
 func benchAndPlot(title string, caps []int, gen func(keyChan chan key)) {
@@ -211,8 +212,8 @@ func benchAndPlot(title string, caps []int, gen func(keyChan chan key)) {
 		tdot := plotter.XY{X: float64(cap)}
 		rdot := plotter.XY{X: float64(cap)}
 		fmt.Printf("======= %s cache size: %d =======\n", strings.ToLower(title), cap)
-		tdot.Y = bench(&clients.Theine{}, cap, gen)
-		rdot.Y = bench(&clients.Ristretto{}, cap, gen)
+		tdot.Y = benchParallel(&clients.Theine{}, cap, gen)
+		rdot.Y = benchParallel(&clients.Ristretto{}, cap, gen)
 		tdata = append(tdata, tdot)
 		rdata = append(rdata, rdot)
 	}

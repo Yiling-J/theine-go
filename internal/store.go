@@ -21,17 +21,9 @@ const (
 	MAINTANCE                  = 1
 )
 
-type Writer struct {
-	key   string
-	code  OPCODE
-	entry *Entry
-}
-
 type Shard struct {
-	hashmap   *hashmap.Map[string, *Entry]
-	mu        sync.RWMutex
-	writeMu   sync.Mutex
-	maintance bool
+	hashmap *hashmap.Map[string, *Entry]
+	mu      sync.RWMutex
 }
 
 func NewShard(size uint) *Shard {
@@ -96,6 +88,7 @@ func NewStore(cap uint) *Store {
 	s.readbuf = NewQueue()
 	s.writebuf = NewQueue()
 	s.closeChan = make(chan int)
+	s.timerwheel = NewTimerWheel(cap, s.writebuf)
 	go s.maintance()
 	return s
 }
@@ -133,28 +126,20 @@ func (s *Store) Set(key string, value interface{}, ttl time.Duration) {
 	index := s.index(key)
 	shard := s.shards[index]
 	shard.mu.Lock()
-	entry, ok := shard.get(key)
-	if ok {
-		entry.value = value
-		if ttl != 0 {
-			entry.expire = s.timerwheel.clock.expireNano(ttl)
-		}
-		shard.mu.Unlock()
-	} else {
-		entry = &Entry{status: ALIVE}
-		entry.key = key
-		entry.value = value
-		if ttl != 0 {
-			entry.expire = s.timerwheel.clock.expireNano(ttl)
-		}
-		shard.set(key, entry)
-		shard.mu.Unlock()
-
+	exist, ok := shard.get(key)
+	entry := &Entry{shard: uint16(index), key: key, value: value}
+	if ttl != 0 {
+		entry.expire = s.timerwheel.clock.expireNano(ttl)
 	}
+	shard.set(key, entry)
+	shard.mu.Unlock()
 
 	// update set counter
 	new := s.writeCounter.Add(1)
-	s.writebuf.Push(entry)
+	if ok {
+		s.writebuf.Push(&BufItem{entry: exist, code: RETIRED})
+	}
+	s.writebuf.Push(&BufItem{entry: entry, code: ALIVE})
 	if new == MAX_WRITE_BUFF_SIZE {
 		s.writeChan <- MAINTANCE
 	}
@@ -166,7 +151,7 @@ func (s *Store) Delete(key string) {
 	shard.mu.Lock()
 	entry, ok := shard.get(key)
 	if ok {
-		s.writebuf.Push(Writer{key: key, code: DELETE, entry: entry})
+		s.writebuf.Push(&BufItem{entry: entry, code: RETIRED})
 		shard.delete(key)
 	}
 	var maintance bool
@@ -229,29 +214,58 @@ func (s *Store) drainRead() {
 	s.readCounter.Store(0)
 }
 
+// remove entry from cache/policy/timingwheel
+func (s *Store) removeEntry(entry *Entry) {
+	shard := s.shards[entry.shard]
+	shard.mu.Lock()
+	shard.delete(entry.key)
+	shard.mu.Unlock()
+	s.timerwheel.deschedule(entry)
+}
+
 func (s *Store) drainWrite() {
 	for {
 		v := s.writebuf.Pop()
 		if v == nil {
 			break
 		}
-		entry := v.(*Entry)
+		item := v.(*BufItem)
+		entry := item.entry
 
 		// no lock when updating policy,
 		// because store API never read/modify entry metadata
 		// all metadata related operations are done in maintance period
-		switch entry.status {
+		switch item.code {
 		case ALIVE:
+			if entry.removed {
+				continue
+			}
+			if entry.expire != 0 {
+				s.timerwheel.schedule(entry)
+			}
 			evicted := s.policy.Set(entry)
 			if evicted == nil {
 				continue
 			}
-			evicted.status = REMOVED
-			index := s.index(evicted.key)
-			shard := s.shards[index]
+			s.removeEntry(evicted)
+			evicted.removed = true
+		case RETIRED: // remove from policy and wheel
+			if entry.removed || entry.list(LIST) == nil {
+				continue
+			}
+			s.policy.Remove(entry)
+			s.timerwheel.deschedule(entry)
+			entry.removed = true
+		case EXPIRED: // remove from cache and policy
+			if entry.removed {
+				continue
+			}
+			s.policy.Remove(entry)
+			shard := s.shards[entry.shard]
 			shard.mu.Lock()
-			shard.delete(evicted.key)
+			shard.delete(entry.key)
 			shard.mu.Unlock()
+			entry.removed = true
 		}
 	}
 	s.writeCounter.Store(0)
@@ -259,7 +273,7 @@ func (s *Store) drainWrite() {
 }
 
 func (s *Store) maintance() {
-	ticker := time.NewTicker(5000 * time.Millisecond)
+	ticker := time.NewTicker(500 * time.Millisecond)
 	for {
 		select {
 		case <-s.readChan:
@@ -267,6 +281,9 @@ func (s *Store) maintance() {
 		case <-s.writeChan:
 			s.drainWrite()
 		case <-ticker.C:
+			s.drainRead()
+			s.drainWrite()
+			s.timerwheel.advance()
 		case <-s.closeChan:
 			return
 		}

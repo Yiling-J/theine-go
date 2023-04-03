@@ -12,7 +12,7 @@ import (
 )
 
 func TestSet(t *testing.T) {
-	client, err := theine.New(1000)
+	client, err := theine.New[string, string](1000)
 	require.Nil(t, err)
 	for i := 0; i < 20000; i++ {
 		key := fmt.Sprintf("key:%d", rand.Intn(100000))
@@ -23,7 +23,7 @@ func TestSet(t *testing.T) {
 }
 
 func TestSetParallel(t *testing.T) {
-	client, err := theine.New(1000)
+	client, err := theine.New[string, string](1000)
 	require.Nil(t, err)
 	var wg sync.WaitGroup
 	for i := 1; i <= 12; i++ {
@@ -43,7 +43,7 @@ func TestSetParallel(t *testing.T) {
 }
 
 func TestGetSet(t *testing.T) {
-	client, err := theine.New(1000)
+	client, err := theine.New[string, string](1000)
 	require.Nil(t, err)
 	for i := 0; i < 20000; i++ {
 		key := fmt.Sprintf("key:%d", rand.Intn(3000))
@@ -51,7 +51,7 @@ func TestGetSet(t *testing.T) {
 		if !ok {
 			client.Set(key, key)
 		} else {
-			require.Equal(t, key, v.(string))
+			require.Equal(t, key, v)
 		}
 	}
 	time.Sleep(300 * time.Millisecond)
@@ -59,7 +59,7 @@ func TestGetSet(t *testing.T) {
 }
 
 func TestGetSetParallel(t *testing.T) {
-	client, err := theine.New(1000)
+	client, err := theine.New[string, string](1000)
 	require.Nil(t, err)
 	var wg sync.WaitGroup
 	for i := 1; i <= 12; i++ {
@@ -72,7 +72,7 @@ func TestGetSetParallel(t *testing.T) {
 				if !ok {
 					client.Set(key, key)
 				} else {
-					require.Equal(t, key, v.(string))
+					require.Equal(t, key, v)
 				}
 			}
 		}()
@@ -83,7 +83,7 @@ func TestGetSetParallel(t *testing.T) {
 }
 
 func TestSetWithTTL(t *testing.T) {
-	client, err := theine.New(500)
+	client, err := theine.New[string, string](500)
 	require.Nil(t, err)
 	client.SetWithTTL("foo", "foo", 3600*time.Second)
 	require.Equal(t, 1, client.Len())
@@ -97,7 +97,7 @@ func TestSetWithTTL(t *testing.T) {
 }
 
 func TestSetWithTTLAutoExpire(t *testing.T) {
-	client, err := theine.New(500)
+	client, err := theine.New[string, string](500)
 	require.Nil(t, err)
 	for i := 0; i < 30; i++ {
 		key1 := fmt.Sprintf("key:%d", i)

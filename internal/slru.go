@@ -1,39 +1,39 @@
 package internal
 
-type Lru struct {
-	list *List
+type Lru[K comparable, V any] struct {
+	list *List[K, V]
 }
 
-func NewLru(size uint) *Lru {
-	return &Lru{
-		list: NewList(size, LIST),
+func NewLru[K comparable, V any](size uint) *Lru[K, V] {
+	return &Lru[K, V]{
+		list: NewList[K, V](size, LIST),
 	}
 }
 
-func (s *Lru) insert(entry *Entry) *Entry {
+func (s *Lru[K, V]) insert(entry *Entry[K, V]) *Entry[K, V] {
 	return s.list.PushFront(entry)
 }
 
-func (s *Lru) access(entry *Entry) {
+func (s *Lru[K, V]) access(entry *Entry[K, V]) {
 	s.list.MoveToFront(entry)
 }
 
-type Slru struct {
-	probation *List
-	protected *List
+type Slru[K comparable, V any] struct {
+	probation *List[K, V]
+	protected *List[K, V]
 	maxsize   uint
 }
 
-func NewSlru(size uint) *Slru {
-	return &Slru{
+func NewSlru[K comparable, V any](size uint) *Slru[K, V] {
+	return &Slru[K, V]{
 		maxsize:   size,
-		probation: NewList(size, LIST),
-		protected: NewList(uint(float32(size)*0.8), LIST),
+		probation: NewList[K, V](size, LIST),
+		protected: NewList[K, V](uint(float32(size)*0.8), LIST),
 	}
 }
 
-func (s *Slru) insert(entry *Entry) *Entry {
-	var evicted *Entry
+func (s *Slru[K, V]) insert(entry *Entry[K, V]) *Entry[K, V] {
+	var evicted *Entry[K, V]
 	if s.probation.Len()+s.protected.Len() >= int(s.maxsize) {
 		evicted = s.probation.PopTail()
 	}
@@ -41,14 +41,14 @@ func (s *Slru) insert(entry *Entry) *Entry {
 	return evicted
 }
 
-func (s *Slru) victim() *Entry {
+func (s *Slru[K, V]) victim() *Entry[K, V] {
 	if s.probation.Len()+s.protected.Len() < int(s.maxsize) {
 		return nil
 	}
 	return s.probation.Back()
 }
 
-func (s *Slru) access(entry *Entry) {
+func (s *Slru[K, V]) access(entry *Entry[K, V]) {
 	switch entry.list(LIST) {
 	case s.probation:
 		s.probation.remove(entry)

@@ -29,17 +29,17 @@ func (c *Clock) expireNano(ttl time.Duration) int64 {
 	return c.nowNano() + ttl.Nanoseconds()
 }
 
-type TimerWheel struct {
+type TimerWheel[K comparable, V any] struct {
 	buckets  []uint
 	spans    []uint
 	shift    []uint
-	wheel    [][]*List
+	wheel    [][]*List[K, V]
 	clock    *Clock
 	nanos    int64
 	writebuf *Queue
 }
 
-func NewTimerWheel(size uint, writebuf *Queue) *TimerWheel {
+func NewTimerWheel[K comparable, V any](size uint, writebuf *Queue) *TimerWheel[K, V] {
 	clock := &Clock{start: time.Now()}
 	buckets := []uint{64, 64, 32, 4, 1}
 	spans := []uint{
@@ -59,16 +59,16 @@ func NewTimerWheel(size uint, writebuf *Queue) *TimerWheel {
 		uint(bits.TrailingZeros(spans[4])),
 	}
 
-	wheel := [][]*List{}
+	wheel := [][]*List[K, V]{}
 	for i := 0; i < 5; i++ {
-		tmp := []*List{}
+		tmp := []*List[K, V]{}
 		for j := 0; j < int(buckets[i]); j++ {
-			tmp = append(tmp, NewList(size, WHEEL_LIST))
+			tmp = append(tmp, NewList[K, V](size, WHEEL_LIST))
 		}
 		wheel = append(wheel, tmp)
 	}
 
-	return &TimerWheel{
+	return &TimerWheel[K, V]{
 		buckets:  buckets,
 		spans:    spans,
 		shift:    shift,
@@ -80,7 +80,7 @@ func NewTimerWheel(size uint, writebuf *Queue) *TimerWheel {
 
 }
 
-func (tw *TimerWheel) findIndex(expire int64) (int, int) {
+func (tw *TimerWheel[K, V]) findIndex(expire int64) (int, int) {
 	duration := expire - tw.nanos
 	for i := 0; i < 5; i++ {
 		if duration < int64(tw.spans[i+1]) {
@@ -92,19 +92,19 @@ func (tw *TimerWheel) findIndex(expire int64) (int, int) {
 	return 4, 0
 }
 
-func (tw *TimerWheel) deschedule(entry *Entry) {
+func (tw *TimerWheel[K, V]) deschedule(entry *Entry[K, V]) {
 	if list := entry.list(WHEEL_LIST); list != nil {
 		list.remove(entry)
 	}
 }
 
-func (tw *TimerWheel) schedule(entry *Entry) {
+func (tw *TimerWheel[K, V]) schedule(entry *Entry[K, V]) {
 	tw.deschedule(entry)
 	x, y := tw.findIndex(entry.expire)
 	tw.wheel[x][y].PushFront(entry)
 }
 
-func (tw *TimerWheel) advance(now int64) {
+func (tw *TimerWheel[K, V]) advance(now int64) {
 	if now == 0 {
 		now = tw.clock.nowNano()
 	}
@@ -121,7 +121,7 @@ func (tw *TimerWheel) advance(now int64) {
 	}
 }
 
-func (tw *TimerWheel) expire(index int, prevTicks int64, delta int64) {
+func (tw *TimerWheel[K, V]) expire(index int, prevTicks int64, delta int64) {
 	mask := tw.buckets[index] - 1
 	steps := tw.buckets[index]
 	if delta < int64(steps) {
@@ -136,7 +136,7 @@ func (tw *TimerWheel) expire(index int, prevTicks int64, delta int64) {
 			next := entry.Next(WHEEL_LIST)
 			if entry.expire <= tw.nanos {
 				tw.deschedule(entry)
-				tw.writebuf.Push(&BufItem{entry: entry, code: EXPIRED})
+				tw.writebuf.Push(&BufItem[K, V]{entry: entry, code: EXPIRED})
 			} else {
 				tw.schedule(entry)
 			}

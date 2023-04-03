@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"fmt"
 	"strings"
 )
 
@@ -11,16 +12,16 @@ const (
 
 // List represents a doubly linked list.
 // The zero value for List is an empty list ready to use.
-type List struct {
-	listType uint8 // 1 tinylfu list, 2 timerwheel list
-	root     Entry // sentinel list element, only &root, root.prev, and root.next are used
-	len      int   // current list length excluding (this) sentinel element
+type List[K comparable, V any] struct {
+	listType uint8       // 1 tinylfu list, 2 timerwheel list
+	root     Entry[K, V] // sentinel list element, only &root, root.prev, and root.next are used
+	len      int         // current list length excluding (this) sentinel element
 	capacity uint
 }
 
 // New returns an initialized list.
-func NewList(size uint, listType uint8) *List {
-	l := &List{listType: listType, capacity: size, root: Entry{key: "__root__"}}
+func NewList[K comparable, V any](size uint, listType uint8) *List[K, V] {
+	l := &List[K, V]{listType: listType, capacity: size, root: Entry[K, V]{}}
 	l.root.setNext(&l.root, l.listType)
 	l.root.setPrev(&l.root, l.listType)
 	l.len = 0
@@ -28,7 +29,7 @@ func NewList(size uint, listType uint8) *List {
 	return l
 }
 
-func (l *List) Reset() {
+func (l *List[K, V]) Reset() {
 	l.root.setNext(&l.root, l.listType)
 	l.root.setPrev(&l.root, l.listType)
 	l.len = 0
@@ -36,26 +37,26 @@ func (l *List) Reset() {
 
 // Len returns the number of elements of list l.
 // The complexity is O(1).
-func (l *List) Len() int { return l.len }
+func (l *List[K, V]) Len() int { return l.len }
 
-func (l *List) display(listType uint8) string {
+func (l *List[K, V]) display(listType uint8) string {
 	var s []string
 	for e := l.Front(); e != nil; e = e.Next(listType) {
-		s = append(s, e.key)
+		s = append(s, fmt.Sprintf("%v", e.key))
 	}
 	return strings.Join(s, "/")
 }
 
-func (l *List) displayReverse(listType uint8) string {
+func (l *List[K, V]) displayReverse(listType uint8) string {
 	var s []string
 	for e := l.Back(); e != nil; e = e.Prev(listType) {
-		s = append(s, e.key)
+		s = append(s, fmt.Sprintf("%v", e.key))
 	}
 	return strings.Join(s, "/")
 }
 
 // Front returns the first element of list l or nil if the list is empty.
-func (l *List) Front() *Entry {
+func (l *List[K, V]) Front() *Entry[K, V] {
 	if l.len == 0 {
 		return nil
 	}
@@ -63,7 +64,7 @@ func (l *List) Front() *Entry {
 }
 
 // Back returns the last element of list l or nil if the list is empty.
-func (l *List) Back() *Entry {
+func (l *List[K, V]) Back() *Entry[K, V] {
 	if l.len == 0 {
 		return nil
 	}
@@ -71,8 +72,8 @@ func (l *List) Back() *Entry {
 }
 
 // insert inserts e after at, increments l.len, and evicted entry if capacity exceed
-func (l *List) insert(e, at *Entry) *Entry {
-	var evicted *Entry
+func (l *List[K, V]) insert(e, at *Entry[K, V]) *Entry[K, V] {
+	var evicted *Entry[K, V]
 	if l.len == int(l.capacity) {
 		evicted = l.PopTail()
 	}
@@ -91,12 +92,12 @@ func (l *List) insert(e, at *Entry) *Entry {
 }
 
 // PushFront push entry to list head
-func (l *List) PushFront(e *Entry) *Entry {
+func (l *List[K, V]) PushFront(e *Entry[K, V]) *Entry[K, V] {
 	return l.insert(e, &l.root)
 }
 
 // remove removes e from its list, decrements l.len
-func (l *List) remove(e *Entry) {
+func (l *List[K, V]) remove(e *Entry[K, V]) {
 	e.prev(l.listType).setNext(e.next(l.listType), l.listType)
 	e.next(l.listType).setPrev(e.prev(l.listType), l.listType)
 	e.setNext(nil, l.listType)
@@ -111,7 +112,7 @@ func (l *List) remove(e *Entry) {
 }
 
 // move moves e to next to at.
-func (l *List) move(e, at *Entry) {
+func (l *List[K, V]) move(e, at *Entry[K, V]) {
 	if e == at {
 		return
 	}
@@ -127,7 +128,7 @@ func (l *List) move(e, at *Entry) {
 // Remove removes e from l if e is an element of list l.
 // It returns the element value e.Value.
 // The element must not be nil.
-func (l *List) Remove(e *Entry) {
+func (l *List[K, V]) Remove(e *Entry[K, V]) {
 	if e.list(l.listType) == l {
 		// if e.list == l, l must have been initialized when e was inserted
 		// in l or l == nil (e is a zero Element) and l.remove will crash
@@ -138,7 +139,7 @@ func (l *List) Remove(e *Entry) {
 // MoveToFront moves element e to the front of list l.
 // If e is not an element of l, the list is not modified.
 // The element must not be nil.
-func (l *List) MoveToFront(e *Entry) {
+func (l *List[K, V]) MoveToFront(e *Entry[K, V]) {
 	if e.list(l.listType) != l || l.root.next(l.listType) == e {
 		return
 	}
@@ -149,7 +150,7 @@ func (l *List) MoveToFront(e *Entry) {
 // MoveToBack moves element e to the back of list l.
 // If e is not an element of l, the list is not modified.
 // The element must not be nil.
-func (l *List) MoveToBack(e *Entry) {
+func (l *List[K, V]) MoveToBack(e *Entry[K, V]) {
 	if e.list(l.listType) != l || l.root.prev(l.listType) == e {
 		return
 	}
@@ -160,7 +161,7 @@ func (l *List) MoveToBack(e *Entry) {
 // MoveBefore moves element e to its new position before mark.
 // If e or mark is not an element of l, or e == mark, the list is not modified.
 // The element and mark must not be nil.
-func (l *List) MoveBefore(e, mark *Entry) {
+func (l *List[K, V]) MoveBefore(e, mark *Entry[K, V]) {
 	if e.list(l.listType) != l || e == mark || mark.list(l.listType) != l {
 		return
 	}
@@ -170,14 +171,14 @@ func (l *List) MoveBefore(e, mark *Entry) {
 // MoveAfter moves element e to its new position after mark.
 // If e or mark is not an element of l, or e == mark, the list is not modified.
 // The element and mark must not be nil.
-func (l *List) MoveAfter(e, mark *Entry) {
+func (l *List[K, V]) MoveAfter(e, mark *Entry[K, V]) {
 	if e.list(l.listType) != l || e == mark || mark.list(l.listType) != l {
 		return
 	}
 	l.move(e, mark)
 }
 
-func (l *List) PopTail() *Entry {
+func (l *List[K, V]) PopTail() *Entry[K, V] {
 	entry := l.root.prev(l.listType)
 	if entry != nil && entry != &l.root {
 		l.remove(entry)

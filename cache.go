@@ -11,40 +11,40 @@ const (
 	ZERO_TTL = 0 * time.Second
 )
 
-type Cache struct {
-	store *internal.Store
+type Cache[K comparable, V any] struct {
+	store *internal.Store[K, V]
 }
 
-func New(size uint) (*Cache, error) {
+func New[K comparable, V any](size uint) (*Cache[K, V], error) {
 	if size == 0 {
 		return nil, errors.New("size must be positive")
 	}
 
-	return &Cache{
-		store: internal.NewStore(size),
+	return &Cache[K, V]{
+		store: internal.NewStore[K, V](size),
 	}, nil
 }
 
-func (c *Cache) Get(key string) (interface{}, bool) {
+func (c *Cache[K, V]) Get(key K) (V, bool) {
 	return c.store.Get(key)
 }
 
-func (c *Cache) SetWithTTL(key string, value interface{}, ttl time.Duration) {
+func (c *Cache[K, V]) SetWithTTL(key K, value V, ttl time.Duration) {
 	c.store.Set(key, value, ttl)
 }
 
-func (c *Cache) Set(key string, value interface{}) {
+func (c *Cache[K, V]) Set(key K, value V) {
 	c.SetWithTTL(key, value, ZERO_TTL)
 }
 
-func (c *Cache) Delete(key string) {
+func (c *Cache[K, V]) Delete(key K) {
 	c.store.Delete(key)
 }
 
-func (c *Cache) Len() int {
+func (c *Cache[K, V]) Len() int {
 	return c.store.Len()
 }
 
-func (c *Cache) Close() {
+func (c *Cache[K, V]) Close() {
 	c.store.Close()
 }

@@ -8,7 +8,7 @@ import (
 )
 
 func TestFindBucket(t *testing.T) {
-	tw := NewTimerWheel(1000, NewQueue())
+	tw := NewTimerWheel[string, string](1000, NewQueue())
 	// max 1.14m
 	for _, i := range []int{0, 10, 30, 68} {
 		x, _ := tw.findIndex(tw.clock.nowNano() + (time.Second * time.Duration(i)).Nanoseconds())
@@ -37,8 +37,8 @@ func TestFindBucket(t *testing.T) {
 }
 
 func TestSchedule(t *testing.T) {
-	tw := NewTimerWheel(1000, NewQueue())
-	entries := []*Entry{
+	tw := NewTimerWheel[string, string](1000, NewQueue())
+	entries := []*Entry[string, string]{
 		{key: "k1", expire: tw.clock.nowNano() + (time.Second * time.Duration(1)).Nanoseconds()},
 		{key: "k2", expire: tw.clock.nowNano() + (time.Second * time.Duration(69)).Nanoseconds()},
 		{key: "k3", expire: tw.clock.nowNano() + (time.Second * time.Duration(4399)).Nanoseconds()},
@@ -74,8 +74,8 @@ func TestSchedule(t *testing.T) {
 
 func TestAdvance(t *testing.T) {
 	q := NewQueue()
-	tw := NewTimerWheel(1000, q)
-	entries := []*Entry{
+	tw := NewTimerWheel[string, string](1000, q)
+	entries := []*Entry[string, string]{
 		{key: "k1", expire: tw.clock.nowNano() + (time.Second * time.Duration(1)).Nanoseconds()},
 		{key: "k2", expire: tw.clock.nowNano() + (time.Second * time.Duration(10)).Nanoseconds()},
 		{key: "k3", expire: tw.clock.nowNano() + (time.Second * time.Duration(30)).Nanoseconds()},
@@ -95,7 +95,7 @@ func TestAdvance(t *testing.T) {
 		if k == nil {
 			break
 		}
-		keys = append(keys, k.(*BufItem).entry.key)
+		keys = append(keys, k.(*BufItem[string, string]).entry.key)
 	}
 	require.ElementsMatch(t, []string{"k1", "k2", "k3"}, keys)
 
@@ -106,7 +106,7 @@ func TestAdvance(t *testing.T) {
 		if k == nil {
 			break
 		}
-		keys = append(keys, k.(*BufItem).entry.key)
+		keys = append(keys, k.(*BufItem[string, string]).entry.key)
 	}
 	require.ElementsMatch(t, []string{"k4"}, keys)
 
@@ -117,7 +117,7 @@ func TestAdvance(t *testing.T) {
 		if k == nil {
 			break
 		}
-		keys = append(keys, k.(*BufItem).entry.key)
+		keys = append(keys, k.(*BufItem[string, string]).entry.key)
 	}
 	require.ElementsMatch(t, []string{"k5"}, keys)
 
@@ -128,7 +128,7 @@ func TestAdvance(t *testing.T) {
 		if k == nil {
 			break
 		}
-		keys = append(keys, k.(*BufItem).entry.key)
+		keys = append(keys, k.(*BufItem[string, string]).entry.key)
 	}
 	require.ElementsMatch(t, []string{"k6"}, keys)
 
@@ -139,7 +139,7 @@ func TestAdvance(t *testing.T) {
 		if k == nil {
 			break
 		}
-		keys = append(keys, k.(*BufItem).entry.key)
+		keys = append(keys, k.(*BufItem[string, string]).entry.key)
 	}
 	require.ElementsMatch(t, []string{"k7"}, keys)
 }

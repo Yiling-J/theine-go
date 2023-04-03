@@ -283,7 +283,7 @@ func (s *Store) maintance() {
 		case <-ticker.C:
 			s.drainRead()
 			s.drainWrite()
-			s.timerwheel.advance()
+			s.timerwheel.advance(0)
 		case <-s.closeChan:
 			return
 		}

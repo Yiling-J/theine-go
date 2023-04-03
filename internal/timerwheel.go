@@ -104,9 +104,12 @@ func (tw *TimerWheel) schedule(entry *Entry) {
 	tw.wheel[x][y].PushFront(entry)
 }
 
-func (tw *TimerWheel) advance() {
+func (tw *TimerWheel) advance(now int64) {
+	if now == 0 {
+		now = tw.clock.nowNano()
+	}
 	previous := tw.nanos
-	tw.nanos = tw.clock.nowNano()
+	tw.nanos = now
 
 	for i := 0; i < 5; i++ {
 		prevTicks := previous >> int64(tw.shift[i])
@@ -132,6 +135,7 @@ func (tw *TimerWheel) expire(index int, prevTicks int64, delta int64) {
 		for entry != nil {
 			next := entry.Next(WHEEL_LIST)
 			if entry.expire <= tw.nanos {
+				tw.deschedule(entry)
 				tw.writebuf.Push(&BufItem{entry: entry, code: EXPIRED})
 			} else {
 				tw.schedule(entry)

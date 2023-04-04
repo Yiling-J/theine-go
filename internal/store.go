@@ -53,21 +53,19 @@ func (s *Shard[K, V]) len() int {
 }
 
 type Store[K comparable, V any] struct {
-	cap          uint
-	shards       []*Shard[K, V]
-	shardCount   uint
-	readChan     chan int
-	writeChan    chan int
-	policy       *TinyLfu[K, V]
-	timerwheel   *TimerWheel[K, V]
-	writeCounter *atomic.Uint32
-	readbuf      *Queue
-	readCounter  *atomic.Uint32
-	writebuf     *LockedBuf[K, V]
-	closeChan    chan int
-	hasher       *Hasher[K]
-	entryPool    sync.Pool
-	removeBuf    []*Entry[K, V]
+	cap         uint
+	shards      []*Shard[K, V]
+	shardCount  uint
+	policy      *TinyLfu[K, V]
+	timerwheel  *TimerWheel[K, V]
+	readbuf     *Queue
+	readCounter *atomic.Uint32
+	writebuf    *LockedBuf[K, V]
+	closeChan   chan int
+	hasher      *Hasher[K]
+	entryPool   sync.Pool
+	removeBuf   []*Entry[K, V]
+	drainLock   sync.Mutex
 }
 
 // New returns a new data struct with the specified capacity
@@ -75,9 +73,8 @@ func NewStore[K comparable, V any](cap uint) *Store[K, V] {
 	hasher := NewHasher[K]()
 	s := &Store[K, V]{
 		cap: cap, hasher: hasher, policy: NewTinyLfu[K, V](cap, hasher),
-		readChan: make(chan int), writeChan: make(chan int),
-		readCounter: &atomic.Uint32{}, writeCounter: &atomic.Uint32{},
-		readbuf: NewQueue(), writebuf: NewLockedBuf[K, V](MAX_WRITE_BUFF_SIZE),
+		readCounter: &atomic.Uint32{},
+		readbuf:     NewQueue(), writebuf: NewLockedBuf[K, V](MAX_WRITE_BUFF_SIZE),
 		entryPool: sync.Pool{New: func() any { return &Entry[K, V]{} }},
 		removeBuf: make([]*Entry[K, V], 0, MAX_WRITE_BUFF_SIZE*2),
 	}
@@ -123,7 +120,7 @@ func (s *Store[K, V]) Get(key K) (V, bool) {
 			s.readbuf.Push(s.hasher.hash(key))
 		}
 	case new == MAX_READ_BUFF_SIZE:
-		s.readChan <- MAINTANCE
+		s.drainRead()
 	default:
 	}
 	return value, ok
@@ -147,12 +144,12 @@ func (s *Store[K, V]) Set(key K, value V, ttl time.Duration) {
 	if ok {
 		full := s.writebuf.Push(BufItem[K, V]{entry: exist, code: RETIRED})
 		if full {
-			s.writeChan <- MAINTANCE
+			s.drainWrite()
 		}
 	}
 	full := s.writebuf.Push(BufItem[K, V]{entry: entry, code: ALIVE})
 	if full {
-		s.writeChan <- MAINTANCE
+		s.drainWrite()
 	}
 }
 
@@ -162,17 +159,12 @@ func (s *Store[K, V]) Delete(key K) {
 	shard.mu.Lock()
 	entry, ok := shard.get(key)
 	if ok {
-		s.writebuf.Push(BufItem[K, V]{entry: entry, code: RETIRED})
 		shard.delete(entry)
 	}
-	var maintance bool
-	new := s.writeCounter.Add(1)
-	if new > MAX_WRITE_BUFF_SIZE {
-		maintance = true
-	}
 	shard.mu.Unlock()
-	if maintance {
-		s.writeChan <- MAINTANCE
+	full := s.writebuf.Push(BufItem[K, V]{entry: entry, code: RETIRED})
+	if full {
+		s.drainWrite()
 	}
 }
 
@@ -206,6 +198,7 @@ func (s *Store[K, V]) index(key K) int {
 }
 
 func (s *Store[K, V]) drainRead() {
+	s.drainLock.Lock()
 	for {
 		v := s.readbuf.Pop()
 		if v == nil {
@@ -214,6 +207,7 @@ func (s *Store[K, V]) drainRead() {
 		s.policy.Access(v)
 	}
 	s.readCounter.Store(0)
+	s.drainLock.Unlock()
 }
 
 // remove entry from cache/policy/timingwheel and add back to pool
@@ -272,29 +266,28 @@ func (s *Store[K, V]) processWriteBuf(buf []BufItem[K, V]) {
 }
 
 func (s *Store[K, V]) drainWrite() {
+	s.drainLock.Lock()
 	s.processWriteBuf(s.writebuf.buf)
 	s.processWriteBuf(s.writebuf.extra)
 	// reset counter and buf slice and extra
 	s.writebuf.counter.Store(0)
 	s.writebuf.extra = s.writebuf.extra[:0]
 	s.writebuf.lock.Unlock()
+	s.drainLock.Unlock()
 }
 
 func (s *Store[K, V]) maintance() {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	for {
 		select {
-		case <-s.readChan:
-			s.drainRead()
-		case <-s.writeChan:
-			s.drainWrite()
 		case <-ticker.C:
-			locked := s.writebuf.lock.TryLock()
-			if locked {
+			if s.writebuf.lock.TryLock() {
 				s.drainRead()
 				s.drainWrite()
 			}
+			s.drainLock.Lock()
 			s.timerwheel.advance(0, s.drainWrite)
+			s.drainLock.Unlock()
 		case <-s.closeChan:
 			return
 		}

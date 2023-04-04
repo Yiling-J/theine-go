@@ -16,11 +16,11 @@ type Client interface {
 }
 
 type Theine struct {
-	client *theine.Cache
+	client *theine.Cache[string, string]
 }
 
 func (c *Theine) Init(cap int) {
-	client, err := theine.New(uint(cap))
+	client, err := theine.New[string, string](uint(cap))
 	if err != nil {
 		panic(err)
 	}
@@ -30,7 +30,7 @@ func (c *Theine) Init(cap int) {
 func (c *Theine) GetSet(key string) (string, bool) {
 	v, ok := c.client.Get(key)
 	if ok {
-		return v.(string), true
+		return v, true
 	}
 	c.client.Set(key, key)
 	return key, false

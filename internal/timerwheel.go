@@ -36,10 +36,10 @@ type TimerWheel[K comparable, V any] struct {
 	wheel    [][]*List[K, V]
 	clock    *Clock
 	nanos    int64
-	writebuf *Queue
+	writebuf *LockedBuf[K, V]
 }
 
-func NewTimerWheel[K comparable, V any](size uint, writebuf *Queue) *TimerWheel[K, V] {
+func NewTimerWheel[K comparable, V any](size uint, writebuf *LockedBuf[K, V]) *TimerWheel[K, V] {
 	clock := &Clock{start: time.Now()}
 	buckets := []uint{64, 64, 32, 4, 1}
 	spans := []uint{
@@ -104,7 +104,7 @@ func (tw *TimerWheel[K, V]) schedule(entry *Entry[K, V]) {
 	tw.wheel[x][y].PushFront(entry)
 }
 
-func (tw *TimerWheel[K, V]) advance(now int64) {
+func (tw *TimerWheel[K, V]) advance(now int64, drain func()) {
 	if now == 0 {
 		now = tw.clock.nowNano()
 	}
@@ -117,11 +117,11 @@ func (tw *TimerWheel[K, V]) advance(now int64) {
 		if currentTicks <= prevTicks {
 			break
 		}
-		tw.expire(i, prevTicks, currentTicks-prevTicks)
+		tw.expire(i, prevTicks, currentTicks-prevTicks, drain)
 	}
 }
 
-func (tw *TimerWheel[K, V]) expire(index int, prevTicks int64, delta int64) {
+func (tw *TimerWheel[K, V]) expire(index int, prevTicks int64, delta int64, drain func()) {
 	mask := tw.buckets[index] - 1
 	steps := tw.buckets[index]
 	if delta < int64(steps) {
@@ -136,7 +136,10 @@ func (tw *TimerWheel[K, V]) expire(index int, prevTicks int64, delta int64) {
 			next := entry.Next(WHEEL_LIST)
 			if entry.expire <= tw.nanos {
 				tw.deschedule(entry)
-				tw.writebuf.Push(BufItem[K, V]{entry: entry, code: EXPIRED})
+				full := tw.writebuf.Push(BufItem[K, V]{entry: entry, code: EXPIRED})
+				if full {
+					drain()
+				}
 			} else {
 				tw.schedule(entry)
 			}

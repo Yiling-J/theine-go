@@ -58,7 +58,7 @@ type Store[K comparable, V any] struct {
 	writeCounter *atomic.Uint32
 	readbuf      *Queue
 	readCounter  *atomic.Uint32
-	writebuf     *Queue
+	writebuf     *LockedBuf[K, V]
 	closeChan    chan int
 	hasher       *Hasher[K]
 }
@@ -70,7 +70,7 @@ func NewStore[K comparable, V any](cap uint) *Store[K, V] {
 		cap: cap, hasher: hasher, policy: NewTinyLfu[K, V](cap, hasher),
 		readChan: make(chan int), writeChan: make(chan int),
 		readCounter: &atomic.Uint32{}, writeCounter: &atomic.Uint32{},
-		readbuf: NewQueue(), writebuf: NewQueue(),
+		readbuf: NewQueue(), writebuf: NewLockedBuf[K, V](MAX_WRITE_BUFF_SIZE),
 	}
 	s.shardCount = 1
 	for int(s.shardCount) < runtime.NumCPU()*8 {
@@ -86,7 +86,7 @@ func NewStore[K comparable, V any](cap uint) *Store[K, V] {
 	}
 
 	s.closeChan = make(chan int)
-	s.timerwheel = NewTimerWheel[K, V](cap, s.writebuf)
+	s.timerwheel = NewTimerWheel(cap, s.writebuf)
 	go s.maintance()
 	return s
 }
@@ -132,13 +132,14 @@ func (s *Store[K, V]) Set(key K, value V, ttl time.Duration) {
 	shard.set(key, entry)
 	shard.mu.Unlock()
 
-	// update set counter
-	new := s.writeCounter.Add(1)
 	if ok {
-		s.writebuf.Push(BufItem[K, V]{entry: exist, code: RETIRED})
+		full := s.writebuf.Push(BufItem[K, V]{entry: exist, code: RETIRED})
+		if full {
+			s.writeChan <- MAINTANCE
+		}
 	}
-	s.writebuf.Push(BufItem[K, V]{entry: entry, code: ALIVE})
-	if new == MAX_WRITE_BUFF_SIZE {
+	full := s.writebuf.Push(BufItem[K, V]{entry: entry, code: ALIVE})
+	if full {
 		s.writeChan <- MAINTANCE
 	}
 }
@@ -212,14 +213,12 @@ func (s *Store[K, V]) removeEntry(entry *Entry[K, V]) {
 	s.timerwheel.deschedule(entry)
 }
 
-func (s *Store[K, V]) drainWrite() {
-	for {
-		v := s.writebuf.Pop()
-		if v == nil {
-			break
-		}
-		item := v.(BufItem[K, V])
+func (s *Store[K, V]) processWriteBuf(buf []BufItem[K, V]) {
+	for _, item := range buf {
 		entry := item.entry
+		if entry == nil {
+			continue
+		}
 
 		// no lock when updating policy,
 		// because store API never read/modify entry metadata
@@ -256,9 +255,17 @@ func (s *Store[K, V]) drainWrite() {
 			shard.mu.Unlock()
 			entry.removed = true
 		}
+		item.entry = nil
 	}
-	s.writeCounter.Store(0)
+}
 
+func (s *Store[K, V]) drainWrite() {
+	s.processWriteBuf(s.writebuf.buf)
+	s.processWriteBuf(s.writebuf.extra)
+	// reset counter and buf slice and extra
+	s.writebuf.counter.Store(0)
+	s.writebuf.extra = s.writebuf.extra[:0]
+	s.writebuf.lock.Unlock()
 }
 
 func (s *Store[K, V]) maintance() {
@@ -270,9 +277,12 @@ func (s *Store[K, V]) maintance() {
 		case <-s.writeChan:
 			s.drainWrite()
 		case <-ticker.C:
-			s.drainRead()
-			s.drainWrite()
-			s.timerwheel.advance(0)
+			locked := s.writebuf.lock.TryLock()
+			if locked {
+				s.drainRead()
+				s.drainWrite()
+			}
+			s.timerwheel.advance(0, s.drainWrite)
 		case <-s.closeChan:
 			return
 		}

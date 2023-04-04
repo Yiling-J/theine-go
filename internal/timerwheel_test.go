@@ -1,11 +1,18 @@
 package internal
 
 import (
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 )
+
+func atomicExpire(now int64, expire int64) atomic.Int64 {
+	var num atomic.Int64
+	num.Store(now + (time.Second * time.Duration(expire)).Nanoseconds())
+	return num
+}
 
 func TestFindBucket(t *testing.T) {
 	tw := NewTimerWheel(1000, NewLockedBuf[string, string](64))
@@ -39,9 +46,9 @@ func TestFindBucket(t *testing.T) {
 func TestSchedule(t *testing.T) {
 	tw := NewTimerWheel(1000, NewLockedBuf[string, string](64))
 	entries := []*Entry[string, string]{
-		{key: "k1", expire: tw.clock.nowNano() + (time.Second * time.Duration(1)).Nanoseconds()},
-		{key: "k2", expire: tw.clock.nowNano() + (time.Second * time.Duration(69)).Nanoseconds()},
-		{key: "k3", expire: tw.clock.nowNano() + (time.Second * time.Duration(4399)).Nanoseconds()},
+		{key: "k1", expire: atomicExpire(tw.clock.nowNano(), 1)},
+		{key: "k2", expire: atomicExpire(tw.clock.nowNano(), 69)},
+		{key: "k3", expire: atomicExpire(tw.clock.nowNano(), 4399)},
 	}
 
 	for _, entry := range entries {
@@ -76,13 +83,13 @@ func TestAdvance(t *testing.T) {
 	q := NewLockedBuf[string, string](64)
 	tw := NewTimerWheel(1000, q)
 	entries := []*Entry[string, string]{
-		{key: "k1", expire: tw.clock.nowNano() + (time.Second * time.Duration(1)).Nanoseconds()},
-		{key: "k2", expire: tw.clock.nowNano() + (time.Second * time.Duration(10)).Nanoseconds()},
-		{key: "k3", expire: tw.clock.nowNano() + (time.Second * time.Duration(30)).Nanoseconds()},
-		{key: "k4", expire: tw.clock.nowNano() + (time.Second * time.Duration(120)).Nanoseconds()},
-		{key: "k5", expire: tw.clock.nowNano() + (time.Second * time.Duration(6500)).Nanoseconds()},
-		{key: "k6", expire: tw.clock.nowNano() + (time.Second * time.Duration(142000)).Nanoseconds()},
-		{key: "k7", expire: tw.clock.nowNano() + (time.Second * time.Duration(1420000)).Nanoseconds()},
+		{key: "k1", expire: atomicExpire(tw.clock.nowNano(), 1)},
+		{key: "k2", expire: atomicExpire(tw.clock.nowNano(), 10)},
+		{key: "k3", expire: atomicExpire(tw.clock.nowNano(), 30)},
+		{key: "k4", expire: atomicExpire(tw.clock.nowNano(), 120)},
+		{key: "k5", expire: atomicExpire(tw.clock.nowNano(), 6500)},
+		{key: "k6", expire: atomicExpire(tw.clock.nowNano(), 142000)},
+		{key: "k7", expire: atomicExpire(tw.clock.nowNano(), 1420000)},
 	}
 
 	for _, entry := range entries {

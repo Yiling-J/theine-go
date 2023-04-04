@@ -100,7 +100,7 @@ func (tw *TimerWheel[K, V]) deschedule(entry *Entry[K, V]) {
 
 func (tw *TimerWheel[K, V]) schedule(entry *Entry[K, V]) {
 	tw.deschedule(entry)
-	x, y := tw.findIndex(entry.expire)
+	x, y := tw.findIndex(entry.expire.Load())
 	tw.wheel[x][y].PushFront(entry)
 }
 
@@ -134,7 +134,7 @@ func (tw *TimerWheel[K, V]) expire(index int, prevTicks int64, delta int64, drai
 		entry := list.Front()
 		for entry != nil {
 			next := entry.Next(WHEEL_LIST)
-			if entry.expire <= tw.nanos {
+			if entry.expire.Load() <= tw.nanos {
 				tw.deschedule(entry)
 				full := tw.writebuf.Push(BufItem[K, V]{entry: entry, code: EXPIRED})
 				if full {

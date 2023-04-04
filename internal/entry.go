@@ -1,5 +1,7 @@
 package internal
 
+import "sync/atomic"
+
 const (
 	NEW int8 = iota
 	ALIVE
@@ -27,7 +29,7 @@ type Entry[K comparable, V any] struct {
 	shard   uint16
 	key     K
 	value   V
-	expire  int64
+	expire  atomic.Int64
 	meta    MetaData[K, V]
 }
 

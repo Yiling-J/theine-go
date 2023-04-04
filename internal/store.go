@@ -105,7 +105,8 @@ func (s *Store[K, V]) Get(key K) (V, bool) {
 	entry, ok := shard.get(key)
 	var value V
 	if ok {
-		if entry.expire != 0 && entry.expire <= s.timerwheel.clock.nowNano() {
+		expire := entry.expire.Load()
+		if expire != 0 && expire <= s.timerwheel.clock.nowNano() {
 			ok = false
 		} else {
 			value = entry.value
@@ -129,24 +130,27 @@ func (s *Store[K, V]) Get(key K) (V, bool) {
 func (s *Store[K, V]) Set(key K, value V, ttl time.Duration) {
 	index := s.index(key)
 	shard := s.shards[index]
+	var expire int64
+	if ttl != 0 {
+		expire = s.timerwheel.clock.expireNano(ttl)
+	}
 	shard.mu.Lock()
 	exist, ok := shard.get(key)
+	if ok {
+		exist.value = value
+		if expire > 0 {
+			exist.expire.Store(expire)
+		}
+		shard.mu.Unlock()
+		return
+	}
 	entry := s.entryPool.Get().(*Entry[K, V])
 	entry.shard = uint16(index)
 	entry.key = key
 	entry.value = value
-	if ttl != 0 {
-		entry.expire = s.timerwheel.clock.expireNano(ttl)
-	}
+	entry.expire.Store(expire)
 	shard.set(key, entry)
 	shard.mu.Unlock()
-
-	if ok {
-		full := s.writebuf.Push(BufItem[K, V]{entry: exist, code: RETIRED})
-		if full {
-			s.drainWrite()
-		}
-	}
 	full := s.writebuf.Push(BufItem[K, V]{entry: entry, code: ALIVE})
 	if full {
 		s.drainWrite()
@@ -240,7 +244,7 @@ func (s *Store[K, V]) processWriteBuf(buf []BufItem[K, V]) {
 		// all metadata related operations are done in maintance period
 		switch item.code {
 		case ALIVE:
-			if entry.expire != 0 {
+			if entry.expire.Load() != 0 {
 				s.timerwheel.schedule(entry)
 			}
 			evicted := s.policy.Set(entry)
@@ -249,9 +253,6 @@ func (s *Store[K, V]) processWriteBuf(buf []BufItem[K, V]) {
 			}
 			evicted.removed = true
 			s.removeBuf = append(s.removeBuf, evicted)
-		case RETIRED: // remove from policy and wheel
-			entry.removed = true
-			s.removeBuf = append(s.removeBuf, entry)
 		case EXPIRED: // remove from cache and policy
 			s.removeBuf = append(s.removeBuf, entry)
 		}

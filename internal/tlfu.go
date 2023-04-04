@@ -79,7 +79,7 @@ func (t *TinyLfu[K, V]) Set(entry *Entry[K, V]) *Entry[K, V] {
 				evictedCount := t.sketch.Estimate(
 					t.hasher.hash(evicted.key),
 				) + uint(t.lruFactor)
-				victimCount := t.hasher.hash(victim.key)
+				victimCount := t.sketch.Estimate(t.hasher.hash(victim.key))
 				if evictedCount <= uint(victimCount) {
 					return evicted
 				}

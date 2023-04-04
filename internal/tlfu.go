@@ -95,7 +95,7 @@ func (t *TinyLfu[K, V]) Access(entry interface{}) {
 	t.total += 1
 	switch v := entry.(type) {
 	case *Entry[K, V]: // hit
-		if v.removed {
+		if v.list(LIST) == nil {
 			return
 		}
 		t.sketch.Add(t.hasher.hash(v.key))

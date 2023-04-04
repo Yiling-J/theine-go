@@ -39,8 +39,13 @@ func (s *Shard[K, V]) get(key K) (entry *Entry[K, V], ok bool) {
 	return
 }
 
-func (s *Shard[K, V]) delete(key K) {
-	s.hashmap.Delete(key)
+func (s *Shard[K, V]) delete(entry *Entry[K, V]) bool {
+	var deleted bool
+	exist, ok := s.hashmap.Get(entry.key)
+	if ok && exist == entry {
+		_, deleted = s.hashmap.Delete(entry.key)
+	}
+	return deleted
 }
 
 func (s *Shard[K, V]) len() int {
@@ -61,6 +66,8 @@ type Store[K comparable, V any] struct {
 	writebuf     *LockedBuf[K, V]
 	closeChan    chan int
 	hasher       *Hasher[K]
+	entryPool    sync.Pool
+	removeBuf    []*Entry[K, V]
 }
 
 // New returns a new data struct with the specified capacity
@@ -71,6 +78,8 @@ func NewStore[K comparable, V any](cap uint) *Store[K, V] {
 		readChan: make(chan int), writeChan: make(chan int),
 		readCounter: &atomic.Uint32{}, writeCounter: &atomic.Uint32{},
 		readbuf: NewQueue(), writebuf: NewLockedBuf[K, V](MAX_WRITE_BUFF_SIZE),
+		entryPool: sync.Pool{New: func() any { return &Entry[K, V]{} }},
+		removeBuf: make([]*Entry[K, V], 0, MAX_WRITE_BUFF_SIZE*2),
 	}
 	s.shardCount = 1
 	for int(s.shardCount) < runtime.NumCPU()*8 {
@@ -125,7 +134,10 @@ func (s *Store[K, V]) Set(key K, value V, ttl time.Duration) {
 	shard := s.shards[index]
 	shard.mu.Lock()
 	exist, ok := shard.get(key)
-	entry := &Entry[K, V]{shard: uint16(index), key: key, value: value}
+	entry := s.entryPool.Get().(*Entry[K, V])
+	entry.shard = uint16(index)
+	entry.key = key
+	entry.value = value
 	if ttl != 0 {
 		entry.expire = s.timerwheel.clock.expireNano(ttl)
 	}
@@ -151,7 +163,7 @@ func (s *Store[K, V]) Delete(key K) {
 	entry, ok := shard.get(key)
 	if ok {
 		s.writebuf.Push(BufItem[K, V]{entry: entry, code: RETIRED})
-		shard.delete(key)
+		shard.delete(entry)
 	}
 	var maintance bool
 	new := s.writeCounter.Add(1)
@@ -204,19 +216,28 @@ func (s *Store[K, V]) drainRead() {
 	s.readCounter.Store(0)
 }
 
-// remove entry from cache/policy/timingwheel
+// remove entry from cache/policy/timingwheel and add back to pool
 func (s *Store[K, V]) removeEntry(entry *Entry[K, V]) {
+	if entry.list(LIST) != nil {
+		s.policy.Remove(entry)
+	}
+	if entry.list(WHEEL_LIST) != nil {
+		s.timerwheel.deschedule(entry)
+	}
 	shard := s.shards[entry.shard]
 	shard.mu.Lock()
-	shard.delete(entry.key)
+	deleted := shard.delete(entry)
 	shard.mu.Unlock()
-	s.timerwheel.deschedule(entry)
+	if deleted {
+		entry.removed = false
+		s.entryPool.Put(entry)
+	}
 }
 
 func (s *Store[K, V]) processWriteBuf(buf []BufItem[K, V]) {
 	for _, item := range buf {
 		entry := item.entry
-		if entry == nil {
+		if entry == nil || entry.removed {
 			continue
 		}
 
@@ -225,9 +246,6 @@ func (s *Store[K, V]) processWriteBuf(buf []BufItem[K, V]) {
 		// all metadata related operations are done in maintance period
 		switch item.code {
 		case ALIVE:
-			if entry.removed {
-				continue
-			}
 			if entry.expire != 0 {
 				s.timerwheel.schedule(entry)
 			}
@@ -235,28 +253,22 @@ func (s *Store[K, V]) processWriteBuf(buf []BufItem[K, V]) {
 			if evicted == nil {
 				continue
 			}
-			s.removeEntry(evicted)
 			evicted.removed = true
+			s.removeBuf = append(s.removeBuf, evicted)
 		case RETIRED: // remove from policy and wheel
-			if entry.removed || entry.list(LIST) == nil {
-				continue
-			}
-			s.policy.Remove(entry)
-			s.timerwheel.deschedule(entry)
 			entry.removed = true
+			s.removeBuf = append(s.removeBuf, entry)
 		case EXPIRED: // remove from cache and policy
-			if entry.removed {
-				continue
-			}
-			s.policy.Remove(entry)
-			shard := s.shards[entry.shard]
-			shard.mu.Lock()
-			shard.delete(entry.key)
-			shard.mu.Unlock()
-			entry.removed = true
+			s.removeBuf = append(s.removeBuf, entry)
 		}
 		item.entry = nil
 	}
+
+	for i, entry := range s.removeBuf {
+		s.removeEntry(entry)
+		s.removeBuf[i] = nil
+	}
+	s.removeBuf = s.removeBuf[:0]
 }
 
 func (s *Store[K, V]) drainWrite() {

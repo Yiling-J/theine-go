@@ -20,7 +20,7 @@ type Theine struct {
 }
 
 func (c *Theine) Init(cap int) {
-	client, err := theine.New[string, string](uint(cap))
+	client, err := theine.New[string, string](&theine.Config{MaximumSize: int64(cap)})
 	if err != nil {
 		panic(err)
 	}

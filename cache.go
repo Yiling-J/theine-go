@@ -11,17 +11,21 @@ const (
 	ZERO_TTL = 0 * time.Second
 )
 
+type Config struct {
+	MaximumSize int64
+}
+
 type Cache[K comparable, V any] struct {
 	store *internal.Store[K, V]
 }
 
-func New[K comparable, V any](size uint) (*Cache[K, V], error) {
-	if size == 0 {
+func New[K comparable, V any](config *Config) (*Cache[K, V], error) {
+	if config.MaximumSize <= 0 {
 		return nil, errors.New("size must be positive")
 	}
 
 	return &Cache[K, V]{
-		store: internal.NewStore[K, V](size),
+		store: internal.NewStore[K, V](uint(config.MaximumSize)),
 	}, nil
 }
 

@@ -12,7 +12,7 @@ import (
 )
 
 func TestSet(t *testing.T) {
-	client, err := theine.New[string, string](1000)
+	client, err := theine.New[string, string](&theine.Config{MaximumSize: 1000})
 	require.Nil(t, err)
 	for i := 0; i < 20000; i++ {
 		key := fmt.Sprintf("key:%d", rand.Intn(100000))
@@ -23,7 +23,7 @@ func TestSet(t *testing.T) {
 }
 
 func TestSetParallel(t *testing.T) {
-	client, err := theine.New[string, string](1000)
+	client, err := theine.New[string, string](&theine.Config{MaximumSize: 1000})
 	require.Nil(t, err)
 	var wg sync.WaitGroup
 	for i := 1; i <= 12; i++ {
@@ -43,7 +43,7 @@ func TestSetParallel(t *testing.T) {
 }
 
 func TestGetSet(t *testing.T) {
-	client, err := theine.New[string, string](1000)
+	client, err := theine.New[string, string](&theine.Config{MaximumSize: 1000})
 	require.Nil(t, err)
 	for i := 0; i < 20000; i++ {
 		key := fmt.Sprintf("key:%d", rand.Intn(3000))
@@ -63,7 +63,7 @@ type foo struct {
 }
 
 func TestGeneric(t *testing.T) {
-	client, err := theine.New[foo, int](100)
+	client, err := theine.New[foo, int](&theine.Config{MaximumSize: 100})
 	require.Nil(t, err)
 	key := foo{id: 1}
 	client.Set(key, 1)
@@ -78,7 +78,7 @@ func TestGeneric(t *testing.T) {
 	_, ok = client.Get(foo{id: 2})
 	require.False(t, ok)
 
-	clientp, err := theine.New[*foo, int](100)
+	clientp, err := theine.New[*foo, int](&theine.Config{MaximumSize: 100})
 	require.Nil(t, err)
 	key = foo{id: 1}
 	clientp.Set(&key, 1)
@@ -91,7 +91,7 @@ func TestGeneric(t *testing.T) {
 }
 
 func TestDelete(t *testing.T) {
-	client, err := theine.New[string, string](100)
+	client, err := theine.New[string, string](&theine.Config{MaximumSize: 100})
 	require.Nil(t, err)
 	client.Set("foo", "foo")
 	v, ok := client.Get("foo")
@@ -111,7 +111,7 @@ func TestDelete(t *testing.T) {
 }
 
 func TestGetSetParallel(t *testing.T) {
-	client, err := theine.New[string, string](1000)
+	client, err := theine.New[string, string](&theine.Config{MaximumSize: 1000})
 	require.Nil(t, err)
 	var wg sync.WaitGroup
 	for i := 1; i <= 12; i++ {
@@ -135,7 +135,7 @@ func TestGetSetParallel(t *testing.T) {
 }
 
 func TestSetWithTTL(t *testing.T) {
-	client, err := theine.New[string, string](500)
+	client, err := theine.New[string, string](&theine.Config{MaximumSize: 500})
 	require.Nil(t, err)
 	client.SetWithTTL("foo", "foo", 3600*time.Second)
 	require.Equal(t, 1, client.Len())
@@ -149,7 +149,7 @@ func TestSetWithTTL(t *testing.T) {
 }
 
 func TestSetWithTTLAutoExpire(t *testing.T) {
-	client, err := theine.New[string, string](500)
+	client, err := theine.New[string, string](&theine.Config{MaximumSize: 500})
 	require.Nil(t, err)
 	for i := 0; i < 30; i++ {
 		key1 := fmt.Sprintf("key:%d", i)
@@ -177,7 +177,7 @@ func TestSetWithTTLAutoExpire(t *testing.T) {
 }
 
 func TestGetSetDeleteNoRace(t *testing.T) {
-	client, err := theine.New[string, string](500)
+	client, err := theine.New[string, string](&theine.Config{MaximumSize: 500})
 	require.Nil(t, err)
 	var wg sync.WaitGroup
 	keys := []string{}

@@ -4,13 +4,15 @@ import "sync/atomic"
 
 const (
 	NEW int8 = iota
-	ALIVE
-	EXPIRED
-	RETIRED
-	REMOVED
+	REMOVE
+	EXPIRE
 )
 
-type BufItem[K comparable, V any] struct {
+type ReadBufItem[K comparable, V any] struct {
+	entry *Entry[K, V]
+	hash  uint64
+}
+type WriteBufItem[K comparable, V any] struct {
 	entry *Entry[K, V]
 	code  int8
 }

@@ -12,21 +12,21 @@ import (
 	"unsafe"
 )
 
-type node struct {
-	next *node
-	val  interface{}
+type node[V any] struct {
+	next *node[V]
+	val  V
 }
 
-type Queue struct {
-	head, tail *node
+type Queue[V any] struct {
+	head, tail *node[V]
 	nodePool   sync.Pool
 }
 
-func NewQueue() *Queue {
-	q := &Queue{nodePool: sync.Pool{New: func() any {
-		return new(node)
+func NewQueue[V any]() *Queue[V] {
+	q := &Queue[V]{nodePool: sync.Pool{New: func() any {
+		return new(node[V])
 	}}}
-	stub := &node{}
+	stub := &node[V]{}
 	q.head = stub
 	q.tail = stub
 	return q
@@ -35,11 +35,11 @@ func NewQueue() *Queue {
 // Push adds x to the back of the queue.
 //
 // Push can be safely called from multiple goroutines
-func (q *Queue) Push(x interface{}) {
-	n := q.nodePool.Get().(*node)
+func (q *Queue[V]) Push(x V) {
+	n := q.nodePool.Get().(*node[V])
 	n.val = x
 	// current producer acquires head node
-	prev := (*node)(atomic.SwapPointer((*unsafe.Pointer)(unsafe.Pointer(&q.head)), unsafe.Pointer(n)))
+	prev := (*node[V])(atomic.SwapPointer((*unsafe.Pointer)(unsafe.Pointer(&q.head)), unsafe.Pointer(n)))
 
 	// release node to consumer
 	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&prev.next)), unsafe.Pointer(n))
@@ -48,13 +48,14 @@ func (q *Queue) Push(x interface{}) {
 // Pop removes the item from the front of the queue or nil if the queue is empty
 //
 // Pop must be called from a single, consumer goroutine
-func (q *Queue) Pop() interface{} {
+func (q *Queue[V]) Pop() interface{} {
 	tail := q.tail
-	next := (*node)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&tail.next)))) // acquire
+	next := (*node[V])(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&tail.next)))) // acquire
 	if next != nil {
+		var null V
 		q.tail = next
 		v := next.val
-		next.val = nil
+		next.val = null
 		tail.next = nil
 		q.nodePool.Put(tail)
 		return v
@@ -65,8 +66,8 @@ func (q *Queue) Pop() interface{} {
 // Empty returns true if the queue is empty
 //
 // Empty must be called from a single, consumer goroutine
-func (q *Queue) Empty() bool {
+func (q *Queue[V]) Empty() bool {
 	tail := q.tail
-	next := (*node)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&tail.next))))
+	next := (*node[V])(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&tail.next))))
 	return next == nil
 }

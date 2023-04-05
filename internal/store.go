@@ -12,11 +12,10 @@ import (
 type OPCODE int8
 
 const (
-	SET                 OPCODE = 1
-	DELETE              OPCODE = 2
-	MAX_READ_BUFF_SIZE         = 128
-	MAX_WRITE_BUFF_SIZE        = 64
-	MAINTANCE                  = 1
+	MAX_READ_BUFF_SIZE  = 64
+	MIN_WRITE_BUFF_SIZE = 4
+	MAX_WRITE_BUFF_SIZE = 1024
+	MAINTANCE           = 1
 )
 
 type Shard[K comparable, V any] struct {
@@ -58,25 +57,30 @@ type Store[K comparable, V any] struct {
 	shardCount  uint
 	policy      *TinyLfu[K, V]
 	timerwheel  *TimerWheel[K, V]
-	readbuf     *Queue
+	readbuf     *Queue[ReadBufItem[K, V]]
 	readCounter *atomic.Uint32
-	writebuf    *LockedBuf[K, V]
+	writebuf    chan WriteBufItem[K, V]
+	readChan    chan int
 	closeChan   chan int
 	hasher      *Hasher[K]
 	entryPool   sync.Pool
-	removeBuf   []*Entry[K, V]
-	drainLock   sync.Mutex
 }
 
 // New returns a new data struct with the specified capacity
 func NewStore[K comparable, V any](cap uint) *Store[K, V] {
 	hasher := NewHasher[K]()
+	writeBufSize := cap / 100
+	if writeBufSize < MIN_WRITE_BUFF_SIZE {
+		writeBufSize = MIN_WRITE_BUFF_SIZE
+	}
+	if writeBufSize > MAX_WRITE_BUFF_SIZE {
+		writeBufSize = MAX_WRITE_BUFF_SIZE
+	}
 	s := &Store[K, V]{
 		cap: cap, hasher: hasher, policy: NewTinyLfu[K, V](cap, hasher),
-		readCounter: &atomic.Uint32{},
-		readbuf:     NewQueue(), writebuf: NewLockedBuf[K, V](MAX_WRITE_BUFF_SIZE),
+		readCounter: &atomic.Uint32{}, readChan: make(chan int),
+		readbuf: NewQueue[ReadBufItem[K, V]](), writebuf: make(chan WriteBufItem[K, V], writeBufSize),
 		entryPool: sync.Pool{New: func() any { return &Entry[K, V]{} }},
-		removeBuf: make([]*Entry[K, V], 0, MAX_WRITE_BUFF_SIZE*2),
 	}
 	s.shardCount = 1
 	for int(s.shardCount) < runtime.NumCPU()*8 {
@@ -92,7 +96,7 @@ func NewStore[K comparable, V any](cap uint) *Store[K, V] {
 	}
 
 	s.closeChan = make(chan int)
-	s.timerwheel = NewTimerWheel(cap, s.writebuf)
+	s.timerwheel = NewTimerWheel[K, V](cap)
 	go s.maintance()
 	return s
 }
@@ -115,13 +119,15 @@ func (s *Store[K, V]) Get(key K) (V, bool) {
 	shard.mu.RUnlock()
 	switch {
 	case new < MAX_READ_BUFF_SIZE:
+		var send ReadBufItem[K, V]
 		if ok {
-			s.readbuf.Push(entry)
+			send.entry = entry
 		} else {
-			s.readbuf.Push(s.hasher.hash(key))
+			send.hash = s.hasher.hash(key)
 		}
+		s.readbuf.Push(send)
 	case new == MAX_READ_BUFF_SIZE:
-		s.drainRead()
+		s.readChan <- 1
 	default:
 	}
 	return value, ok
@@ -139,7 +145,10 @@ func (s *Store[K, V]) Set(key K, value V, ttl time.Duration) {
 	if ok {
 		exist.value = value
 		if expire > 0 {
-			exist.expire.Store(expire)
+			old := exist.expire.Swap(expire)
+			if old != expire {
+				s.writebuf <- WriteBufItem[K, V]{entry: exist, code: EXPIRE}
+			}
 		}
 		shard.mu.Unlock()
 		return
@@ -151,10 +160,7 @@ func (s *Store[K, V]) Set(key K, value V, ttl time.Duration) {
 	entry.expire.Store(expire)
 	shard.set(key, entry)
 	shard.mu.Unlock()
-	full := s.writebuf.Push(BufItem[K, V]{entry: entry, code: ALIVE})
-	if full {
-		s.drainWrite()
-	}
+	s.writebuf <- WriteBufItem[K, V]{entry: entry, code: NEW}
 }
 
 func (s *Store[K, V]) Delete(key K) {
@@ -166,10 +172,7 @@ func (s *Store[K, V]) Delete(key K) {
 		shard.delete(entry)
 	}
 	shard.mu.Unlock()
-	full := s.writebuf.Push(BufItem[K, V]{entry: entry, code: RETIRED})
-	if full {
-		s.drainWrite()
-	}
+	s.writebuf <- WriteBufItem[K, V]{entry: entry, code: REMOVE}
 }
 
 func (s *Store[K, V]) Len() int {
@@ -201,19 +204,6 @@ func (s *Store[K, V]) index(key K) int {
 	return int(h & uint64(s.shardCount-1))
 }
 
-func (s *Store[K, V]) drainRead() {
-	s.drainLock.Lock()
-	for {
-		v := s.readbuf.Pop()
-		if v == nil {
-			break
-		}
-		s.policy.Access(v)
-	}
-	s.readCounter.Store(0)
-	s.drainLock.Unlock()
-}
-
 // remove entry from cache/policy/timingwheel and add back to pool
 func (s *Store[K, V]) removeEntry(entry *Entry[K, V]) {
 	if entry.list(LIST) != nil {
@@ -227,73 +217,52 @@ func (s *Store[K, V]) removeEntry(entry *Entry[K, V]) {
 	deleted := shard.delete(entry)
 	shard.mu.Unlock()
 	if deleted {
-		entry.removed = false
 		s.entryPool.Put(entry)
 	}
-}
-
-func (s *Store[K, V]) processWriteBuf(buf []BufItem[K, V]) {
-	for _, item := range buf {
-		entry := item.entry
-		if entry == nil || entry.removed {
-			continue
-		}
-
-		// no lock when updating policy,
-		// because store API never read/modify entry metadata
-		// all metadata related operations are done in maintance period
-		switch item.code {
-		case ALIVE:
-			if entry.expire.Load() != 0 {
-				s.timerwheel.schedule(entry)
-			}
-			evicted := s.policy.Set(entry)
-			if evicted == nil {
-				continue
-			}
-			evicted.removed = true
-			s.removeBuf = append(s.removeBuf, evicted)
-		case EXPIRED: // remove from cache and policy
-			s.removeBuf = append(s.removeBuf, entry)
-		}
-		item.entry = nil
-	}
-
-	for i, entry := range s.removeBuf {
-		s.removeEntry(entry)
-		s.removeBuf[i] = nil
-	}
-	s.removeBuf = s.removeBuf[:0]
-}
-
-func (s *Store[K, V]) drainWrite() {
-	s.drainLock.Lock()
-	s.processWriteBuf(s.writebuf.buf)
-	s.processWriteBuf(s.writebuf.extra)
-	// reset counter and buf slice and extra
-	s.writebuf.counter.Store(0)
-	s.writebuf.extra = s.writebuf.extra[:0]
-	s.writebuf.lock.Unlock()
-	s.drainLock.Unlock()
 }
 
 func (s *Store[K, V]) maintance() {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	for {
 		select {
-		case <-ticker.C:
-			if s.writebuf.lock.TryLock() {
-				s.drainRead()
-				s.drainWrite()
+		case item := <-s.writebuf:
+			entry := item.entry
+			if entry == nil || entry.removed {
+				break
 			}
-			s.drainLock.Lock()
-			s.timerwheel.advance(0, s.drainWrite)
-			s.drainLock.Unlock()
+
+			// lock free because store API never read/modify entry metadata
+			switch item.code {
+			case NEW:
+				if entry.expire.Load() != 0 {
+					s.timerwheel.schedule(entry)
+				}
+				evicted := s.policy.Set(entry)
+				if evicted == nil {
+					break
+				}
+				s.removeEntry(evicted)
+			case REMOVE:
+				s.removeEntry(entry)
+			case EXPIRE:
+				s.timerwheel.schedule(entry)
+			}
+			item.entry = nil
+		case <-s.readChan:
+			s.readCounter.Store(0)
+			for {
+				v := s.readbuf.Pop()
+				if v == nil {
+					break
+				}
+				s.policy.Access(v.(ReadBufItem[K, V]))
+			}
+		case <-ticker.C:
+			s.timerwheel.advance(0, s.removeEntry)
 		case <-s.closeChan:
 			return
 		}
 	}
-
 }
 
 func (s *Store[K, V]) Close() {

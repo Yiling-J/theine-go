@@ -15,7 +15,7 @@ func atomicExpire(now int64, expire int64) atomic.Int64 {
 }
 
 func TestFindBucket(t *testing.T) {
-	tw := NewTimerWheel(1000, NewLockedBuf[string, string](64))
+	tw := NewTimerWheel[string, string](1000)
 	// max 1.14m
 	for _, i := range []int{0, 10, 30, 68} {
 		x, _ := tw.findIndex(tw.clock.nowNano() + (time.Second * time.Duration(i)).Nanoseconds())
@@ -44,7 +44,7 @@ func TestFindBucket(t *testing.T) {
 }
 
 func TestSchedule(t *testing.T) {
-	tw := NewTimerWheel(1000, NewLockedBuf[string, string](64))
+	tw := NewTimerWheel[string, string](1000)
 	entries := []*Entry[string, string]{
 		{key: "k1", expire: atomicExpire(tw.clock.nowNano(), 1)},
 		{key: "k2", expire: atomicExpire(tw.clock.nowNano(), 69)},
@@ -80,8 +80,7 @@ func TestSchedule(t *testing.T) {
 }
 
 func TestAdvance(t *testing.T) {
-	q := NewLockedBuf[string, string](64)
-	tw := NewTimerWheel(1000, q)
+	tw := NewTimerWheel[string, string](1000)
 	entries := []*Entry[string, string]{
 		{key: "k1", expire: atomicExpire(tw.clock.nowNano(), 1)},
 		{key: "k2", expire: atomicExpire(tw.clock.nowNano(), 10)},
@@ -95,48 +94,33 @@ func TestAdvance(t *testing.T) {
 	for _, entry := range entries {
 		tw.schedule(entry)
 	}
-	tw.advance(tw.clock.nowNano()+(time.Second*time.Duration(64)).Nanoseconds(), nil)
-	keys := []string{}
-	for _, k := range q.buf {
-		if k.entry != nil {
-			keys = append(keys, k.entry.key)
-		}
-	}
-	require.ElementsMatch(t, []string{"k1", "k2", "k3"}, keys)
+	evicted := []string{}
+	tw.advance(tw.clock.nowNano()+(time.Second*time.Duration(64)).Nanoseconds(), func(entry *Entry[string, string]) {
+		evicted = append(evicted, entry.key)
+	})
+	require.ElementsMatch(t, []string{"k1", "k2", "k3"}, evicted)
 
-	tw.advance(tw.clock.nowNano()+(time.Second*time.Duration(200)).Nanoseconds(), nil)
-	keys = []string{}
-	for _, k := range q.buf {
-		if k.entry != nil {
-			keys = append(keys, k.entry.key)
-		}
-	}
-	require.ElementsMatch(t, []string{"k1", "k2", "k3", "k4"}, keys)
+	tw.advance(tw.clock.nowNano()+(time.Second*time.Duration(200)).Nanoseconds(), func(entry *Entry[string, string]) {
+		evicted = append(evicted, entry.key)
+	})
 
-	tw.advance(tw.clock.nowNano()+(time.Second*time.Duration(12000)).Nanoseconds(), nil)
-	keys = []string{}
-	for _, k := range q.buf {
-		if k.entry != nil {
-			keys = append(keys, k.entry.key)
-		}
-	}
-	require.ElementsMatch(t, []string{"k1", "k2", "k3", "k4", "k5"}, keys)
+	require.ElementsMatch(t, []string{"k1", "k2", "k3", "k4"}, evicted)
 
-	tw.advance(tw.clock.nowNano()+(time.Second*time.Duration(350000)).Nanoseconds(), nil)
-	keys = []string{}
-	for _, k := range q.buf {
-		if k.entry != nil {
-			keys = append(keys, k.entry.key)
-		}
-	}
-	require.ElementsMatch(t, []string{"k1", "k2", "k3", "k4", "k5", "k6"}, keys)
+	tw.advance(tw.clock.nowNano()+(time.Second*time.Duration(12000)).Nanoseconds(), func(entry *Entry[string, string]) {
+		evicted = append(evicted, entry.key)
+	})
 
-	tw.advance(tw.clock.nowNano()+(time.Second*time.Duration(1520000)).Nanoseconds(), nil)
-	keys = []string{}
-	for _, k := range q.buf {
-		if k.entry != nil {
-			keys = append(keys, k.entry.key)
-		}
-	}
-	require.ElementsMatch(t, []string{"k1", "k2", "k3", "k4", "k5", "k6", "k7"}, keys)
+	require.ElementsMatch(t, []string{"k1", "k2", "k3", "k4", "k5"}, evicted)
+
+	tw.advance(tw.clock.nowNano()+(time.Second*time.Duration(350000)).Nanoseconds(), func(entry *Entry[string, string]) {
+		evicted = append(evicted, entry.key)
+	})
+
+	require.ElementsMatch(t, []string{"k1", "k2", "k3", "k4", "k5", "k6"}, evicted)
+
+	tw.advance(tw.clock.nowNano()+(time.Second*time.Duration(1520000)).Nanoseconds(), func(entry *Entry[string, string]) {
+		evicted = append(evicted, entry.key)
+	})
+
+	require.ElementsMatch(t, []string{"k1", "k2", "k3", "k4", "k5", "k6", "k7"}, evicted)
 }

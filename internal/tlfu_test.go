@@ -32,11 +32,11 @@ func TestTlfu(t *testing.T) {
 	require.Equal(t, 0, tlfu.slru.protected.len)
 
 	// probation -> protected
-	tlfu.Access(entries[11])
+	tlfu.Access(ReadBufItem[string, string]{entry: entries[11]})
 	require.Equal(t, 10, tlfu.lru.list.len)
 	require.Equal(t, 189, tlfu.slru.probation.len)
 	require.Equal(t, 1, tlfu.slru.protected.len)
-	tlfu.Access(entries[11])
+	tlfu.Access(ReadBufItem[string, string]{entry: entries[11]})
 	require.Equal(t, 10, tlfu.lru.list.len)
 	require.Equal(t, 189, tlfu.slru.probation.len)
 	require.Equal(t, 1, tlfu.slru.protected.len)
@@ -48,7 +48,7 @@ func TestTlfu(t *testing.T) {
 		require.Nil(t, evicted)
 	}
 	// access protected
-	tlfu.Access(entries[11])
+	tlfu.Access(ReadBufItem[string, string]{entry: entries[11]})
 	require.Equal(t, 10, tlfu.lru.list.len)
 	require.Equal(t, 989, tlfu.slru.probation.len)
 	require.Equal(t, 1, tlfu.slru.protected.len)
@@ -63,10 +63,10 @@ func TestTlfu(t *testing.T) {
 	require.Equal(t, entries[991].key, victim1.key)
 	victim := tlfu.slru.victim()
 	require.Equal(t, "0", victim.key)
-	tlfu.Access(entries[991])
-	tlfu.Access(entries[991])
-	tlfu.Access(entries[991])
-	tlfu.Access(entries[991])
+	tlfu.Access(ReadBufItem[string, string]{entry: entries[991]})
+	tlfu.Access(ReadBufItem[string, string]{entry: entries[991]})
+	tlfu.Access(ReadBufItem[string, string]{entry: entries[991]})
+	tlfu.Access(ReadBufItem[string, string]{entry: entries[991]})
 	evicted = tlfu.Set(&Entry[string, string]{key: "1a"})
 	require.Equal(t, entries[992].key, evicted.key)
 	require.Equal(t, 989, tlfu.slru.probation.len)

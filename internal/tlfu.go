@@ -91,24 +91,22 @@ func (t *TinyLfu[K, V]) Set(entry *Entry[K, V]) *Entry[K, V] {
 	return nil
 }
 
-func (t *TinyLfu[K, V]) Access(entry interface{}) {
+func (t *TinyLfu[K, V]) Access(item ReadBufItem[K, V]) {
 	t.total += 1
-	switch v := entry.(type) {
-	case *Entry[K, V]: // hit
-		if v.list(LIST) == nil {
+	if entry := item.entry; entry != nil {
+		if entry.list(LIST) == nil {
 			return
 		}
-		t.sketch.Add(t.hasher.hash(v.key))
+		t.sketch.Add(t.hasher.hash(entry.key))
 		t.hit += 1
-		switch v.list(1) {
+		switch entry.list(1) {
 		case t.lru.list:
-			t.lru.access(v)
+			t.lru.access(entry)
 		case t.slru.probation, t.slru.protected:
-			t.slru.access(v)
+			t.slru.access(entry)
 		}
-
-	case uint64: // miss
-		t.sketch.Add(v)
+	} else {
+		t.sketch.Add(item.hash)
 	}
 }
 

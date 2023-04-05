@@ -30,16 +30,15 @@ func (c *Clock) expireNano(ttl time.Duration) int64 {
 }
 
 type TimerWheel[K comparable, V any] struct {
-	buckets  []uint
-	spans    []uint
-	shift    []uint
-	wheel    [][]*List[K, V]
-	clock    *Clock
-	nanos    int64
-	writebuf *LockedBuf[K, V]
+	buckets []uint
+	spans   []uint
+	shift   []uint
+	wheel   [][]*List[K, V]
+	clock   *Clock
+	nanos   int64
 }
 
-func NewTimerWheel[K comparable, V any](size uint, writebuf *LockedBuf[K, V]) *TimerWheel[K, V] {
+func NewTimerWheel[K comparable, V any](size uint) *TimerWheel[K, V] {
 	clock := &Clock{start: time.Now()}
 	buckets := []uint{64, 64, 32, 4, 1}
 	spans := []uint{
@@ -69,13 +68,12 @@ func NewTimerWheel[K comparable, V any](size uint, writebuf *LockedBuf[K, V]) *T
 	}
 
 	return &TimerWheel[K, V]{
-		buckets:  buckets,
-		spans:    spans,
-		shift:    shift,
-		wheel:    wheel,
-		nanos:    clock.nowNano(),
-		clock:    clock,
-		writebuf: writebuf,
+		buckets: buckets,
+		spans:   spans,
+		shift:   shift,
+		wheel:   wheel,
+		nanos:   clock.nowNano(),
+		clock:   clock,
 	}
 
 }
@@ -104,7 +102,7 @@ func (tw *TimerWheel[K, V]) schedule(entry *Entry[K, V]) {
 	tw.wheel[x][y].PushFront(entry)
 }
 
-func (tw *TimerWheel[K, V]) advance(now int64, drain func()) {
+func (tw *TimerWheel[K, V]) advance(now int64, remove func(entry *Entry[K, V])) {
 	if now == 0 {
 		now = tw.clock.nowNano()
 	}
@@ -117,11 +115,11 @@ func (tw *TimerWheel[K, V]) advance(now int64, drain func()) {
 		if currentTicks <= prevTicks {
 			break
 		}
-		tw.expire(i, prevTicks, currentTicks-prevTicks, drain)
+		tw.expire(i, prevTicks, currentTicks-prevTicks, remove)
 	}
 }
 
-func (tw *TimerWheel[K, V]) expire(index int, prevTicks int64, delta int64, drain func()) {
+func (tw *TimerWheel[K, V]) expire(index int, prevTicks int64, delta int64, remove func(entry *Entry[K, V])) {
 	mask := tw.buckets[index] - 1
 	steps := tw.buckets[index]
 	if delta < int64(steps) {
@@ -136,10 +134,7 @@ func (tw *TimerWheel[K, V]) expire(index int, prevTicks int64, delta int64, drai
 			next := entry.Next(WHEEL_LIST)
 			if entry.expire.Load() <= tw.nanos {
 				tw.deschedule(entry)
-				full := tw.writebuf.Push(BufItem[K, V]{entry: entry, code: EXPIRED})
-				if full {
-					drain()
-				}
+				remove(entry)
 			} else {
 				tw.schedule(entry)
 			}

@@ -175,3 +175,32 @@ func TestSetWithTTLAutoExpire(t *testing.T) {
 		require.False(t, ok)
 	}
 }
+
+func TestGetSetDeleteNoRace(t *testing.T) {
+	client, err := theine.New[string, string](500)
+	require.Nil(t, err)
+	var wg sync.WaitGroup
+	keys := []string{}
+	for i := 0; i < 100000; i++ {
+		keys = append(keys, fmt.Sprintf("%d", rand.Intn(1000000)))
+	}
+	for i := 1; i <= 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 100000; i++ {
+				key := keys[i]
+				client.Get(key)
+				if i%3 == 0 {
+					client.SetWithTTL(key, key, time.Second*time.Duration(i%25+5))
+				}
+				if i%5 == 0 {
+					client.Delete(key)
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	time.Sleep(300 * time.Millisecond)
+	require.True(t, client.Len() < 600)
+}

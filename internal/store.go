@@ -146,11 +146,13 @@ func (s *Store[K, V]) Set(key K, value V, ttl time.Duration) {
 		exist.value = value
 		if expire > 0 {
 			old := exist.expire.Swap(expire)
+			shard.mu.Unlock()
 			if old != expire {
 				s.writebuf <- WriteBufItem[K, V]{entry: exist, code: EXPIRE}
 			}
+		} else {
+			shard.mu.Unlock()
 		}
-		shard.mu.Unlock()
 		return
 	}
 	entry := s.entryPool.Get().(*Entry[K, V])

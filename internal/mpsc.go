@@ -48,7 +48,7 @@ func (q *Queue[V]) Push(x V) {
 // Pop removes the item from the front of the queue or nil if the queue is empty
 //
 // Pop must be called from a single, consumer goroutine
-func (q *Queue[V]) Pop() interface{} {
+func (q *Queue[V]) Pop() (V, bool) {
 	tail := q.tail
 	next := (*node[V])(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&tail.next)))) // acquire
 	if next != nil {
@@ -58,9 +58,10 @@ func (q *Queue[V]) Pop() interface{} {
 		next.val = null
 		tail.next = nil
 		q.nodePool.Put(tail)
-		return v
+		return v, true
 	}
-	return nil
+	var null V
+	return null, false
 }
 
 // Empty returns true if the queue is empty

@@ -253,11 +253,11 @@ func (s *Store[K, V]) maintance() {
 		case <-s.readChan:
 			s.readCounter.Store(0)
 			for {
-				v := s.readbuf.Pop()
-				if v == nil {
+				v, ok := s.readbuf.Pop()
+				if !ok {
 					break
 				}
-				s.policy.Access(v.(ReadBufItem[K, V]))
+				s.policy.Access(v)
 			}
 		case <-ticker.C:
 			s.timerwheel.advance(0, s.removeEntry)

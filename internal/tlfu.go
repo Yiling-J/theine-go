@@ -114,13 +114,12 @@ func (t *TinyLfu[K, V]) Remove(entry *Entry[K, V]) {
 	entry.list(LIST).remove(entry)
 }
 
-func (t *TinyLfu[K, V]) UpdateCost(entry *Entry[K, V], cost int64) {
+func (t *TinyLfu[K, V]) UpdateCost(entry *Entry[K, V], delta int64) {
 	list := entry.list(LIST)
 	if list == nil {
 		return
 	}
-	list.len += (int(entry.cost) - int(cost))
-	entry.cost = cost
+	list.len += int(delta)
 }
 
 func (t *TinyLfu[K, V]) EvictEntries() []*Entry[K, V] {

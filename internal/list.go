@@ -94,7 +94,7 @@ func (l *List[K, V]) insert(e, at *Entry[K, V]) *Entry[K, V] {
 	e.prev(l.listType).setNext(e, l.listType)
 	e.next(l.listType).setPrev(e, l.listType)
 	if l.bounded {
-		l.len += int(e.cost)
+		l.len += int(e.cost.Load())
 	}
 	return evicted
 }
@@ -117,7 +117,7 @@ func (l *List[K, V]) remove(e *Entry[K, V]) {
 		e.meta._wheelList = nil
 	}
 	if l.bounded {
-		l.len -= int(e.cost)
+		l.len -= int(e.cost.Load())
 	}
 }
 

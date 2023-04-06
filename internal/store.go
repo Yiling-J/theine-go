@@ -151,16 +151,25 @@ func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
 	shard.mu.Lock()
 	exist, ok := shard.get(key)
 	if ok {
-		code := UPDATE
+		var reschedule bool
+		var costChange int64
 		exist.value = value
 		shard.mu.Unlock()
 		if expire > 0 {
 			old := exist.expire.Swap(expire)
 			if old != expire {
-				code = RESCHEDULE
+				reschedule = true
 			}
 		}
-		s.writebuf <- WriteBufItem[K, V]{entry: exist, code: code, cost: cost}
+		oldCost := exist.cost.Swap(cost)
+		if oldCost != cost {
+			costChange = oldCost - cost
+		}
+		if reschedule || costChange != 0 {
+			s.writebuf <- WriteBufItem[K, V]{
+				entry: exist, code: UPDATE, costChange: costChange, rechedule: reschedule,
+			}
+		}
 		return true
 	}
 	entry := s.entryPool.Get().(*Entry[K, V])
@@ -168,9 +177,10 @@ func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
 	entry.key = key
 	entry.value = value
 	entry.expire.Store(expire)
+	entry.cost.Store(cost)
 	shard.set(key, entry)
 	shard.mu.Unlock()
-	s.writebuf <- WriteBufItem[K, V]{entry: entry, code: NEW, cost: cost}
+	s.writebuf <- WriteBufItem[K, V]{entry: entry, code: NEW}
 	return true
 }
 
@@ -245,7 +255,6 @@ func (s *Store[K, V]) maintance() {
 			// lock free because store API never read/modify entry metadata
 			switch item.code {
 			case NEW:
-				entry.cost = item.cost
 				if entry.expire.Load() != 0 {
 					s.timerwheel.schedule(entry)
 				}
@@ -261,22 +270,16 @@ func (s *Store[K, V]) maintance() {
 			case REMOVE:
 				s.removeEntry(entry)
 			case UPDATE:
-				if item.cost != entry.cost {
-					s.policy.UpdateCost(entry, item.cost)
-					removed := s.policy.EvictEntries()
-					for _, e := range removed {
-						s.removeEntry(e)
-					}
+				if item.rechedule {
+					s.timerwheel.schedule(entry)
 				}
-			case RESCHEDULE:
-				if item.cost != entry.cost {
-					s.policy.UpdateCost(entry, item.cost)
-					removed := s.policy.EvictEntries()
-					for _, e := range removed {
-						s.removeEntry(e)
-					}
+				if item.costChange != 0 {
+					s.policy.UpdateCost(entry, item.costChange)
 				}
-				s.timerwheel.schedule(entry)
+				removed := s.policy.EvictEntries()
+				for _, e := range removed {
+					s.removeEntry(e)
+				}
 			}
 			item.entry = nil
 		case <-s.readChan:

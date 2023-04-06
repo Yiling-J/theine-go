@@ -6,7 +6,6 @@ require (
 	github.com/cespare/xxhash/v2 v2.1.1
 	github.com/dgraph-io/ristretto v0.1.1
 	github.com/stretchr/testify v1.8.2
-	github.com/tidwall/hashmap v1.8.1
 	github.com/zeebo/xxh3 v1.0.2
 )
 

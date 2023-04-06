@@ -5,8 +5,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/tidwall/hashmap"
 )
 
 type OPCODE int8
@@ -19,13 +17,13 @@ const (
 )
 
 type Shard[K comparable, V any] struct {
-	hashmap *hashmap.Map[K, *Entry[K, V]]
+	hashmap *Map[K, V]
 	mu      sync.RWMutex
 }
 
 func NewShard[K comparable, V any](size uint) *Shard[K, V] {
 	return &Shard[K, V]{
-		hashmap: hashmap.New[K, *Entry[K, V]](int(size)),
+		hashmap: NewMap[K, V](int(size)),
 	}
 }
 

@@ -11,9 +11,14 @@ func TestQueue_PushPop(t *testing.T) {
 
 	q.Push(1)
 	q.Push(2)
-	assert.Equal(t, 1, q.Pop())
-	assert.Equal(t, 2, q.Pop())
-	assert.True(t, q.Empty())
+	v, ok := q.Pop()
+	assert.True(t, ok)
+	assert.Equal(t, 1, v)
+	v, ok = q.Pop()
+	assert.True(t, ok)
+	assert.Equal(t, 2, v)
+	_, ok = q.Pop()
+	assert.False(t, ok)
 }
 
 func TestQueue_Empty(t *testing.T) {

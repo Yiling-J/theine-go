@@ -5,7 +5,7 @@ import "sync/atomic"
 const (
 	NEW int8 = iota
 	REMOVE
-	EXPIRE
+	RESCHEDULE
 )
 
 type ReadBufItem[K comparable, V any] struct {

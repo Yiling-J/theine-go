@@ -146,7 +146,7 @@ func (s *Store[K, V]) Set(key K, value V, ttl time.Duration) {
 			old := exist.expire.Swap(expire)
 			shard.mu.Unlock()
 			if old != expire {
-				s.writebuf <- WriteBufItem[K, V]{entry: exist, code: EXPIRE}
+				s.writebuf <- WriteBufItem[K, V]{entry: exist, code: RESCHEDULE}
 			}
 		} else {
 			shard.mu.Unlock()
@@ -244,7 +244,7 @@ func (s *Store[K, V]) maintance() {
 				s.removeEntry(evicted)
 			case REMOVE:
 				s.removeEntry(entry)
-			case EXPIRE:
+			case RESCHEDULE:
 				s.timerwheel.schedule(entry)
 			}
 			item.entry = nil

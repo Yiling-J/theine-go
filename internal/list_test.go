@@ -12,14 +12,14 @@ func TestList(t *testing.T) {
 	require.Equal(t, uint(5), l.capacity)
 	require.Equal(t, LIST, l.listType)
 	for i := 0; i < 5; i++ {
-		evicted := l.PushFront(&Entry[string, string]{key: fmt.Sprintf("%d", i)})
+		evicted := l.PushFront(&Entry[string, string]{key: fmt.Sprintf("%d", i), cost: 1})
 		require.Nil(t, evicted)
 	}
 	require.Equal(t, 5, l.len)
 	require.Equal(t, "4/3/2/1/0", l.display(LIST))
 	require.Equal(t, "0/1/2/3/4", l.displayReverse(LIST))
 
-	evicted := l.PushFront(&Entry[string, string]{key: "5"})
+	evicted := l.PushFront(&Entry[string, string]{key: "5", cost: 1})
 	require.Equal(t, "0", evicted.key)
 	require.Equal(t, 5, l.len)
 	require.Equal(t, "5/4/3/2/1", l.display(LIST))
@@ -39,14 +39,14 @@ func TestWheelList(t *testing.T) {
 	require.Equal(t, uint(5), l.capacity)
 	require.Equal(t, WHEEL_LIST, l.listType)
 	for i := 0; i < 5; i++ {
-		evicted := l.PushFront(&Entry[string, string]{key: fmt.Sprintf("%d", i)})
+		evicted := l.PushFront(&Entry[string, string]{key: fmt.Sprintf("%d", i), cost: 1})
 		require.Nil(t, evicted)
 	}
 	require.Equal(t, 5, l.len)
 	require.Equal(t, "4/3/2/1/0", l.display(WHEEL_LIST))
 	require.Equal(t, "0/1/2/3/4", l.displayReverse(WHEEL_LIST))
 
-	evicted := l.PushFront(&Entry[string, string]{key: "5"})
+	evicted := l.PushFront(&Entry[string, string]{key: "5", cost: 1})
 	require.Equal(t, "0", evicted.key)
 	require.Equal(t, 5, l.len)
 	require.Equal(t, "5/4/3/2/1", l.display(WHEEL_LIST))

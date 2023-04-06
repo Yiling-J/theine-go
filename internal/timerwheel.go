@@ -62,7 +62,7 @@ func NewTimerWheel[K comparable, V any](size uint) *TimerWheel[K, V] {
 	for i := 0; i < 5; i++ {
 		tmp := []*List[K, V]{}
 		for j := 0; j < int(buckets[i]); j++ {
-			tmp = append(tmp, NewList[K, V](size, WHEEL_LIST))
+			tmp = append(tmp, NewList[K, V](0, WHEEL_LIST))
 		}
 		wheel = append(wheel, tmp)
 	}

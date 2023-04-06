@@ -15,7 +15,7 @@ type bar struct {
 }
 
 func BenchmarkGetTheineParallel(b *testing.B) {
-	client, err := theine.New[string, foo](&theine.Config{MaximumSize: 10000})
+	client, err := theine.New[string, foo](&theine.Config[foo]{MaximumSize: 10000})
 	if err != nil {
 		panic(err)
 	}
@@ -57,7 +57,7 @@ func BenchmarkGetRistrettoParallel(b *testing.B) {
 }
 
 func BenchmarkSetTheineParallel(b *testing.B) {
-	client, err := theine.New[string, bar](&theine.Config{MaximumSize: 10000})
+	client, err := theine.New[string, bar](&theine.Config[bar]{MaximumSize: 10000})
 	if err != nil {
 		panic(err)
 	}
@@ -69,7 +69,7 @@ func BenchmarkSetTheineParallel(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		counter := 0
 		for pb.Next() {
-			client.Set(keys[counter%100000], bar{key: keys[counter%100000]})
+			client.Set(keys[counter%100000], bar{key: keys[counter%100000]}, 1)
 			counter++
 		}
 	})
@@ -99,7 +99,7 @@ func BenchmarkSetRistrettoParallel(b *testing.B) {
 }
 
 func BenchmarkZipfTheineParallel(b *testing.B) {
-	client, err := theine.New[string, bar](&theine.Config{MaximumSize: 10000})
+	client, err := theine.New[string, bar](&theine.Config[bar]{MaximumSize: 10000})
 	if err != nil {
 		panic(err)
 	}
@@ -114,7 +114,7 @@ func BenchmarkZipfTheineParallel(b *testing.B) {
 		for pb.Next() {
 			_, ok := client.Get(keys[counter%100000])
 			if !ok {
-				client.Set(keys[counter%100000], bar{key: keys[counter%100000]})
+				client.Set(keys[counter%100000], bar{key: keys[counter%100000]}, 1)
 			}
 			counter++
 		}

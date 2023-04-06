@@ -113,3 +113,33 @@ func (t *TinyLfu[K, V]) Access(item ReadBufItem[K, V]) {
 func (t *TinyLfu[K, V]) Remove(entry *Entry[K, V]) {
 	entry.list(LIST).remove(entry)
 }
+
+func (t *TinyLfu[K, V]) UpdateCost(entry *Entry[K, V], cost int64) {
+	list := entry.list(LIST)
+	if list == nil {
+		return
+	}
+	list.len += (int(entry.cost) - int(cost))
+	entry.cost = cost
+}
+
+func (t *TinyLfu[K, V]) EvictEntries() []*Entry[K, V] {
+	removed := []*Entry[K, V]{}
+	for t.lru.list.len > int(t.lru.list.capacity) {
+		entry := t.lru.pop()
+		if entry == nil {
+			break
+		}
+		t.slru.insert(entry)
+	}
+
+	for t.slru.probation.Len()+t.slru.protected.Len() >= int(t.slru.maxsize) {
+		entry := t.slru.probation.PopTail()
+		if entry == nil {
+			break
+		}
+		removed = append(removed, entry)
+
+	}
+	return removed
+}

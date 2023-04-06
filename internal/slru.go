@@ -18,6 +18,10 @@ func (s *Lru[K, V]) access(entry *Entry[K, V]) {
 	s.list.MoveToFront(entry)
 }
 
+func (s *Lru[K, V]) pop() *Entry[K, V] {
+	return s.list.PopTail()
+}
+
 type Slru[K comparable, V any] struct {
 	probation *List[K, V]
 	protected *List[K, V]

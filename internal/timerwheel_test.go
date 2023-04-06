@@ -46,9 +46,9 @@ func TestFindBucket(t *testing.T) {
 func TestSchedule(t *testing.T) {
 	tw := NewTimerWheel[string, string](1000)
 	entries := []*Entry[string, string]{
-		{key: "k1", expire: *atomicExpire(tw.clock.nowNano(), 1)},
-		{key: "k2", expire: *atomicExpire(tw.clock.nowNano(), 69)},
-		{key: "k3", expire: *atomicExpire(tw.clock.nowNano(), 4399)},
+		{key: "k1", expire: *atomicExpire(tw.clock.nowNano(), 1), cost: 1},
+		{key: "k2", expire: *atomicExpire(tw.clock.nowNano(), 69), cost: 1},
+		{key: "k3", expire: *atomicExpire(tw.clock.nowNano(), 4399), cost: 1},
 	}
 
 	for _, entry := range entries {
@@ -82,13 +82,13 @@ func TestSchedule(t *testing.T) {
 func TestAdvance(t *testing.T) {
 	tw := NewTimerWheel[string, string](1000)
 	entries := []*Entry[string, string]{
-		{key: "k1", expire: *atomicExpire(tw.clock.nowNano(), 1)},
-		{key: "k2", expire: *atomicExpire(tw.clock.nowNano(), 10)},
-		{key: "k3", expire: *atomicExpire(tw.clock.nowNano(), 30)},
-		{key: "k4", expire: *atomicExpire(tw.clock.nowNano(), 120)},
-		{key: "k5", expire: *atomicExpire(tw.clock.nowNano(), 6500)},
-		{key: "k6", expire: *atomicExpire(tw.clock.nowNano(), 142000)},
-		{key: "k7", expire: *atomicExpire(tw.clock.nowNano(), 1420000)},
+		{key: "k1", expire: *atomicExpire(tw.clock.nowNano(), 1), cost: 1},
+		{key: "k2", expire: *atomicExpire(tw.clock.nowNano(), 10), cost: 1},
+		{key: "k3", expire: *atomicExpire(tw.clock.nowNano(), 30), cost: 1},
+		{key: "k4", expire: *atomicExpire(tw.clock.nowNano(), 120), cost: 1},
+		{key: "k5", expire: *atomicExpire(tw.clock.nowNano(), 6500), cost: 1},
+		{key: "k6", expire: *atomicExpire(tw.clock.nowNano(), 142000), cost: 1},
+		{key: "k7", expire: *atomicExpire(tw.clock.nowNano(), 1420000), cost: 1},
 	}
 
 	for _, entry := range entries {

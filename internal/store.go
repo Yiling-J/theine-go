@@ -62,10 +62,14 @@ type Store[K comparable, V any] struct {
 	closeChan   chan int
 	hasher      *Hasher[K]
 	entryPool   sync.Pool
+	cost        func(V) int64
 }
 
 // New returns a new data struct with the specified capacity
-func NewStore[K comparable, V any](cap uint) *Store[K, V] {
+func NewStore[K comparable, V any](cap uint, cost func(V) int64) *Store[K, V] {
+	if cost == nil {
+		cost = func(v V) int64 { return 1 }
+	}
 	hasher := NewHasher[K]()
 	writeBufSize := cap / 100
 	if writeBufSize < MIN_WRITE_BUFF_SIZE {
@@ -78,7 +82,7 @@ func NewStore[K comparable, V any](cap uint) *Store[K, V] {
 		cap: cap, hasher: hasher, policy: NewTinyLfu[K, V](cap, hasher),
 		readCounter: &atomic.Uint32{}, readChan: make(chan int),
 		readbuf: NewQueue[ReadBufItem[K, V]](), writebuf: make(chan WriteBufItem[K, V], writeBufSize),
-		entryPool: sync.Pool{New: func() any { return &Entry[K, V]{} }},
+		entryPool: sync.Pool{New: func() any { return &Entry[K, V]{} }}, cost: cost,
 	}
 	s.shardCount = 1
 	for int(s.shardCount) < runtime.NumCPU()*8 {
@@ -131,7 +135,13 @@ func (s *Store[K, V]) Get(key K) (V, bool) {
 	return value, ok
 }
 
-func (s *Store[K, V]) Set(key K, value V, ttl time.Duration) {
+func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
+	if cost > int64(s.cap) {
+		return false
+	}
+	if cost == 0 {
+		cost = s.cost(value)
+	}
 	index := s.index(key)
 	shard := s.shards[index]
 	var expire int64
@@ -141,15 +151,17 @@ func (s *Store[K, V]) Set(key K, value V, ttl time.Duration) {
 	shard.mu.Lock()
 	exist, ok := shard.get(key)
 	if ok {
+		code := UPDATE
 		exist.value = value
 		shard.mu.Unlock()
 		if expire > 0 {
 			old := exist.expire.Swap(expire)
 			if old != expire {
-				s.writebuf <- WriteBufItem[K, V]{entry: exist, code: RESCHEDULE}
+				code = RESCHEDULE
 			}
 		}
-		return
+		s.writebuf <- WriteBufItem[K, V]{entry: exist, code: code, cost: cost}
+		return true
 	}
 	entry := s.entryPool.Get().(*Entry[K, V])
 	entry.shard = uint16(index)
@@ -158,7 +170,8 @@ func (s *Store[K, V]) Set(key K, value V, ttl time.Duration) {
 	entry.expire.Store(expire)
 	shard.set(key, entry)
 	shard.mu.Unlock()
-	s.writebuf <- WriteBufItem[K, V]{entry: entry, code: NEW}
+	s.writebuf <- WriteBufItem[K, V]{entry: entry, code: NEW, cost: cost}
+	return true
 }
 
 func (s *Store[K, V]) Delete(key K) {
@@ -232,6 +245,7 @@ func (s *Store[K, V]) maintance() {
 			// lock free because store API never read/modify entry metadata
 			switch item.code {
 			case NEW:
+				entry.cost = item.cost
 				if entry.expire.Load() != 0 {
 					s.timerwheel.schedule(entry)
 				}
@@ -240,9 +254,28 @@ func (s *Store[K, V]) maintance() {
 					break
 				}
 				s.removeEntry(evicted)
+				removed := s.policy.EvictEntries()
+				for _, e := range removed {
+					s.removeEntry(e)
+				}
 			case REMOVE:
 				s.removeEntry(entry)
+			case UPDATE:
+				if item.cost != entry.cost {
+					s.policy.UpdateCost(entry, item.cost)
+					removed := s.policy.EvictEntries()
+					for _, e := range removed {
+						s.removeEntry(e)
+					}
+				}
 			case RESCHEDULE:
+				if item.cost != entry.cost {
+					s.policy.UpdateCost(entry, item.cost)
+					removed := s.policy.EvictEntries()
+					for _, e := range removed {
+						s.removeEntry(e)
+					}
+				}
 				s.timerwheel.schedule(entry)
 			}
 			item.entry = nil

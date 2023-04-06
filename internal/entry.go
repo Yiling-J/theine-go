@@ -5,6 +5,7 @@ import "sync/atomic"
 const (
 	NEW int8 = iota
 	REMOVE
+	UPDATE
 	RESCHEDULE
 )
 
@@ -15,6 +16,7 @@ type ReadBufItem[K comparable, V any] struct {
 type WriteBufItem[K comparable, V any] struct {
 	entry *Entry[K, V]
 	code  int8
+	cost  int64
 }
 
 type MetaData[K comparable, V any] struct {
@@ -30,6 +32,7 @@ type Entry[K comparable, V any] struct {
 	removed bool
 	shard   uint16
 	hdib    uint64 // bitfield { hash:48 dib:16 }
+	cost    int64
 	key     K
 	value   V
 	expire  atomic.Int64

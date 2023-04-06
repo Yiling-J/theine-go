@@ -13,6 +13,7 @@ const (
 // List represents a doubly linked list.
 // The zero value for List is an empty list ready to use.
 type List[K comparable, V any] struct {
+	bounded  bool
 	listType uint8       // 1 tinylfu list, 2 timerwheel list
 	root     Entry[K, V] // sentinel list element, only &root, root.prev, and root.next are used
 	len      int         // current list length excluding (this) sentinel element
@@ -26,6 +27,9 @@ func NewList[K comparable, V any](size uint, listType uint8) *List[K, V] {
 	l.root.setPrev(&l.root, l.listType)
 	l.len = 0
 	l.capacity = size
+	if size > 0 {
+		l.bounded = true
+	}
 	return l
 }
 
@@ -57,24 +61,26 @@ func (l *List[K, V]) displayReverse(listType uint8) string {
 
 // Front returns the first element of list l or nil if the list is empty.
 func (l *List[K, V]) Front() *Entry[K, V] {
-	if l.len == 0 {
-		return nil
+	e := l.root.next(l.listType)
+	if e != &l.root {
+		return e
 	}
-	return l.root.next(l.listType)
+	return nil
 }
 
 // Back returns the last element of list l or nil if the list is empty.
 func (l *List[K, V]) Back() *Entry[K, V] {
-	if l.len == 0 {
-		return nil
+	e := l.root.prev(l.listType)
+	if e != &l.root {
+		return e
 	}
-	return l.root.prev(l.listType)
+	return nil
 }
 
 // insert inserts e after at, increments l.len, and evicted entry if capacity exceed
 func (l *List[K, V]) insert(e, at *Entry[K, V]) *Entry[K, V] {
 	var evicted *Entry[K, V]
-	if l.len == int(l.capacity) {
+	if l.bounded && l.len >= int(l.capacity) {
 		evicted = l.PopTail()
 	}
 	switch l.listType {
@@ -87,7 +93,9 @@ func (l *List[K, V]) insert(e, at *Entry[K, V]) *Entry[K, V] {
 	e.setNext(at.next(l.listType), l.listType)
 	e.prev(l.listType).setNext(e, l.listType)
 	e.next(l.listType).setPrev(e, l.listType)
-	l.len++
+	if l.bounded {
+		l.len += int(e.cost)
+	}
 	return evicted
 }
 
@@ -108,7 +116,9 @@ func (l *List[K, V]) remove(e *Entry[K, V]) {
 	case WHEEL_LIST:
 		e.meta._wheelList = nil
 	}
-	l.len--
+	if l.bounded {
+		l.len -= int(e.cost)
+	}
 }
 
 // move moves e to next to at.

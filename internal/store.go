@@ -142,14 +142,12 @@ func (s *Store[K, V]) Set(key K, value V, ttl time.Duration) {
 	exist, ok := shard.get(key)
 	if ok {
 		exist.value = value
+		shard.mu.Unlock()
 		if expire > 0 {
 			old := exist.expire.Swap(expire)
-			shard.mu.Unlock()
 			if old != expire {
 				s.writebuf <- WriteBufItem[K, V]{entry: exist, code: RESCHEDULE}
 			}
-		} else {
-			shard.mu.Unlock()
 		}
 		return
 	}

@@ -20,7 +20,7 @@ type Theine struct {
 }
 
 func (c *Theine) Init(cap int) {
-	client, err := theine.New[string, string](&theine.Config{MaximumSize: int64(cap)})
+	client, err := theine.New[string, string](&theine.Config[string]{MaximumSize: int64(cap)})
 	if err != nil {
 		panic(err)
 	}
@@ -32,12 +32,12 @@ func (c *Theine) GetSet(key string) (string, bool) {
 	if ok {
 		return v, true
 	}
-	c.client.Set(key, key)
+	c.client.Set(key, key, 1)
 	return key, false
 }
 
 func (c *Theine) Set(key string) {
-	c.client.Set(key, key)
+	c.client.Set(key, key, 1)
 }
 func (c *Theine) Name() string {
 	return "theine"

@@ -17,36 +17,37 @@ const (
 )
 
 type Shard[K comparable, V any] struct {
-	hashmap *Map[K, V]
+	hashmap map[K]*Entry[K, V]
 	mu      sync.RWMutex
 }
 
 func NewShard[K comparable, V any](size uint) *Shard[K, V] {
 	return &Shard[K, V]{
-		hashmap: NewMap[K, V](int(size)),
+		hashmap: make(map[K]*Entry[K, V], size),
 	}
 }
 
 func (s *Shard[K, V]) set(key K, entry *Entry[K, V]) {
-	s.hashmap.Set(key, entry)
+	s.hashmap[key] = entry
 }
 
 func (s *Shard[K, V]) get(key K) (entry *Entry[K, V], ok bool) {
-	entry, ok = s.hashmap.Get(key)
+	entry, ok = s.hashmap[key]
 	return
 }
 
 func (s *Shard[K, V]) delete(entry *Entry[K, V]) bool {
 	var deleted bool
-	exist, ok := s.hashmap.Get(entry.key)
+	exist, ok := s.hashmap[entry.key]
 	if ok && exist == entry {
-		_, deleted = s.hashmap.Delete(entry.key)
+		delete(s.hashmap, exist.key)
+		deleted = true
 	}
 	return deleted
 }
 
 func (s *Shard[K, V]) len() int {
-	return s.hashmap.Len()
+	return len(s.hashmap)
 }
 
 type Store[K comparable, V any] struct {

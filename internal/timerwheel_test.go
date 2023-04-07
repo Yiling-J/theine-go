@@ -1,17 +1,14 @@
 package internal
 
 import (
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 )
 
-func atomicExpire(now int64, expire int64) *atomic.Int64 {
-	var num atomic.Int64
-	num.Store(now + (time.Second * time.Duration(expire)).Nanoseconds())
-	return &num
+func expire(now int64, expire int64) int64 {
+	return now + (time.Second * time.Duration(expire)).Nanoseconds()
 }
 
 func TestFindBucket(t *testing.T) {
@@ -46,9 +43,9 @@ func TestFindBucket(t *testing.T) {
 func TestSchedule(t *testing.T) {
 	tw := NewTimerWheel[string, string](1000)
 	entries := []*Entry[string, string]{
-		{key: "k1", expire: *atomicExpire(tw.clock.nowNano(), 1), cost: 1},
-		{key: "k2", expire: *atomicExpire(tw.clock.nowNano(), 69), cost: 1},
-		{key: "k3", expire: *atomicExpire(tw.clock.nowNano(), 4399), cost: 1},
+		NewEntry[string, string]("k1", "", 1, expire(tw.clock.nowNano(), 1)),
+		NewEntry[string, string]("k2", "", 1, expire(tw.clock.nowNano(), 69)),
+		NewEntry[string, string]("k3", "", 1, expire(tw.clock.nowNano(), 4399)),
 	}
 
 	for _, entry := range entries {
@@ -82,13 +79,13 @@ func TestSchedule(t *testing.T) {
 func TestAdvance(t *testing.T) {
 	tw := NewTimerWheel[string, string](1000)
 	entries := []*Entry[string, string]{
-		{key: "k1", expire: *atomicExpire(tw.clock.nowNano(), 1), cost: 1},
-		{key: "k2", expire: *atomicExpire(tw.clock.nowNano(), 10), cost: 1},
-		{key: "k3", expire: *atomicExpire(tw.clock.nowNano(), 30), cost: 1},
-		{key: "k4", expire: *atomicExpire(tw.clock.nowNano(), 120), cost: 1},
-		{key: "k5", expire: *atomicExpire(tw.clock.nowNano(), 6500), cost: 1},
-		{key: "k6", expire: *atomicExpire(tw.clock.nowNano(), 142000), cost: 1},
-		{key: "k7", expire: *atomicExpire(tw.clock.nowNano(), 1420000), cost: 1},
+		NewEntry[string, string]("k1", "", 1, expire(tw.clock.nowNano(), 1)),
+		NewEntry[string, string]("k2", "", 1, expire(tw.clock.nowNano(), 10)),
+		NewEntry[string, string]("k3", "", 1, expire(tw.clock.nowNano(), 30)),
+		NewEntry[string, string]("k4", "", 1, expire(tw.clock.nowNano(), 120)),
+		NewEntry[string, string]("k5", "", 1, expire(tw.clock.nowNano(), 6500)),
+		NewEntry[string, string]("k6", "", 1, expire(tw.clock.nowNano(), 142000)),
+		NewEntry[string, string]("k7", "", 1, expire(tw.clock.nowNano(), 1420000)),
 	}
 
 	for _, entry := range entries {

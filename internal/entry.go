@@ -31,7 +31,6 @@ type MetaData[K comparable, V any] struct {
 type Entry[K comparable, V any] struct {
 	removed bool
 	shard   uint16
-	hdib    uint64 // bitfield { hash:48 dib:16 }
 	cost    atomic.Int64
 	key     K
 	value   V
@@ -39,21 +38,16 @@ type Entry[K comparable, V any] struct {
 	meta    MetaData[K, V]
 }
 
-func (e *Entry[K, V]) dib() int {
-	if e == nil {
-		return 0
+func NewEntry[K comparable, V any](key K, value V, cost int64, expire int64) *Entry[K, V] {
+	entry := &Entry[K, V]{
+		key:   key,
+		value: value,
 	}
-	return int(e.hdib & maxDIB)
-}
-func (e *Entry[K, V]) hash() int {
-	return int(e.hdib >> dibBitSize)
-}
-func (e *Entry[K, V]) setDIB(dib int) {
-	e.hdib = e.hdib>>dibBitSize<<dibBitSize | uint64(dib)&maxDIB
-}
-
-func makeHDIB(hash, dib int) uint64 {
-	return uint64(hash)<<dibBitSize | uint64(dib)&maxDIB
+	entry.cost.Store(cost)
+	if expire > 0 {
+		entry.expire.Store(expire)
+	}
+	return entry
 }
 
 func (e *Entry[K, V]) Clean() {

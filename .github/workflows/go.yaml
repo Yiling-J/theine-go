@@ -2,9 +2,13 @@ name: Go
 
 on:
   push:
-    branches: [ master, develop ]
+    branches: ['*']
+    tags: ['v*']
   pull_request:
-    branches: [ master, develop ]
+    branches: ['*']
+
+permissions:
+  contents: read
 
 jobs:
   lint:

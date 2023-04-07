@@ -21,6 +21,7 @@ func TestSet(t *testing.T) {
 	}
 	time.Sleep(300 * time.Millisecond)
 	require.True(t, client.Len() < 1200)
+	client.Close()
 }
 
 func TestSetParallel(t *testing.T) {
@@ -221,6 +222,7 @@ func TestCost(t *testing.T) {
 	// so lru can't hold any entry and the effective size is 495
 	require.True(t, client.Len() == 24)
 
+	// test cost func
 	client, err = theine.New[string](
 		&theine.Config[string]{MaximumSize: 500, Cost: func(v string) int64 { return int64(len(v)) }},
 	)
@@ -236,4 +238,24 @@ func TestCost(t *testing.T) {
 	// lru capacity is 5, and all entries cost are 20
 	// so lru can't hold any entry and the effective size is 495
 	require.True(t, client.Len() == 24)
+}
+
+func TestCostUpdate(t *testing.T) {
+	client, err := theine.New[string](&theine.Config[string]{MaximumSize: 500})
+	require.Nil(t, err)
+	for i := 0; i < 30; i++ {
+		key := fmt.Sprintf("key:%d", i)
+		success := client.Set(key, key, 20)
+		require.True(t, success)
+	}
+	time.Sleep(time.Second)
+	// lru capacity is 5, and all entries cost are 20
+	// so lru can't hold any entry and the effective size is 495
+	require.True(t, client.Len() == 24)
+	// update cost
+	success := client.Set("key:28", "", 200)
+	require.True(t, success)
+	time.Sleep(time.Second)
+	// 14 * 20 + 200
+	require.True(t, client.Len() == 15)
 }

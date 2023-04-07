@@ -1,4 +1,4 @@
-.PHONY: test lint bench
+.PHONY: test lint bench cover
 
 test:
 	go test ./... -race
@@ -8,3 +8,7 @@ lint:
 
 bench:
 	go test -bench=. -run=^$ -benchmem
+
+cover:
+	go test -race -coverprofile=cover.out -coverpkg=./... ./...
+	go tool cover -html=cover.out -o cover.html

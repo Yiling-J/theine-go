@@ -142,10 +142,25 @@ func TestEvictEntries(t *testing.T) {
 	// 1. inset l:460 to lru
 	// 2. put l:460 to probation, this will remove 1 entry, probation len is 954 now
 	// 3. remove all entries except the new l:460 one
-	tlfu.Set(NewEntry("l:460", "", 460, 0))
+	new := NewEntry("l:460", "", 460, 0)
+	tlfu.Set(new)
 	removed = tlfu.EvictEntries()
 	require.Equal(t, 37, len(removed))
 	require.Equal(t, 0, tlfu.lru.list.len)
 	require.Equal(t, 460, tlfu.slru.probation.len)
 	require.Equal(t, 0, tlfu.slru.protected.len)
+
+	// access
+	tlfu.Access(ReadBufItem[string, string]{entry: new})
+	require.Equal(t, 0, tlfu.lru.list.len)
+	require.Equal(t, 0, tlfu.slru.probation.len)
+	require.Equal(t, 460, tlfu.slru.protected.len)
+	new.cost.Store(600)
+	tlfu.UpdateCost(new, 140)
+	removed = tlfu.EvictEntries()
+	require.Equal(t, 1, len(removed))
+	require.Equal(t, 0, tlfu.lru.list.len)
+	require.Equal(t, 0, tlfu.slru.probation.len)
+	require.Equal(t, 0, tlfu.slru.protected.len)
+
 }

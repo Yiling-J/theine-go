@@ -164,7 +164,7 @@ func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
 		}
 		oldCost := exist.cost.Swap(cost)
 		if oldCost != cost {
-			costChange = oldCost - cost
+			costChange = cost - oldCost
 		}
 		if reschedule || costChange != 0 {
 			s.writebuf <- WriteBufItem[K, V]{
@@ -300,5 +300,10 @@ func (s *Store[K, V]) maintance() {
 }
 
 func (s *Store[K, V]) Close() {
+	for _, s := range s.shards {
+		s.mu.RLock()
+		s.hashmap = nil
+		s.mu.RUnlock()
+	}
 	close(s.closeChan)
 }

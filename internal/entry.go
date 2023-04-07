@@ -50,17 +50,6 @@ func NewEntry[K comparable, V any](key K, value V, cost int64, expire int64) *En
 	return entry
 }
 
-func (e *Entry[K, V]) Clean() {
-	var zero V
-	e.value = zero
-	e.meta.prev = nil
-	e.meta.next = nil
-	e.meta.wheelPrev = nil
-	e.meta.wheelNext = nil
-	e.meta._list = nil
-	e.meta._wheelList = nil
-}
-
 func (e *Entry[K, V]) Next(listType uint8) *Entry[K, V] {
 	if listType == WHEEL_LIST {
 		if p := e.meta.wheelNext; e.meta._wheelList != nil && p != &e.meta._wheelList.root {

@@ -1,0 +1,50 @@
+name: Go
+
+on:
+  push:
+    branches: [ master, develop ]
+  pull_request:
+    branches: [ master, develop ]
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v2
+        with:
+          version: v1.29
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go: ["1.19.x", "1.20.x"]
+    steps:
+      - name: Setup Go
+        with:
+          go-version: ${{ matrix.go }}
+        uses: actions/setup-go@v2
+        
+      - uses: actions/checkout@v2
+      
+      - name: Test
+        run: make test
+  benchmarks:
+    name: benchmarks
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go: ["1.19.x", "1.20.x"]
+    steps:
+      - name: Setup Go
+        with:
+          go-version: ${{ matrix.go }}
+        uses: actions/setup-go@v2
+        
+      - uses: actions/checkout@v2
+      
+      - name: Benchmarks
+        run: make bench

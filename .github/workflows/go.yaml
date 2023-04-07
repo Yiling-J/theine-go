@@ -42,8 +42,8 @@ jobs:
         run: make cover
 
       - name: Upload coverage to codecov.io
-      	uses: codecov/codecov-action@v3
-	
+        uses: codecov/codecov-action@v3
+
   benchmarks:
     name: benchmarks
     runs-on: ubuntu-latest

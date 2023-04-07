@@ -137,11 +137,11 @@ func (s *Store[K, V]) Get(key K) (V, bool) {
 }
 
 func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
-	if cost > int64(s.cap) {
-		return false
-	}
 	if cost == 0 {
 		cost = s.cost(value)
+	}
+	if cost > int64(s.cap) {
+		return false
 	}
 	index := s.index(key)
 	shard := s.shards[index]

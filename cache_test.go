@@ -3,6 +3,7 @@ package theine_test
 import (
 	"fmt"
 	"math/rand"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -12,7 +13,7 @@ import (
 )
 
 func TestSet(t *testing.T) {
-	client, err := theine.New[string, string](&theine.Config[string]{MaximumSize: 1000})
+	client, err := theine.New[string](&theine.Config[string]{MaximumSize: 1000})
 	require.Nil(t, err)
 	for i := 0; i < 20000; i++ {
 		key := fmt.Sprintf("key:%d", rand.Intn(100000))
@@ -220,4 +221,19 @@ func TestCost(t *testing.T) {
 	// so lru can't hold any entry and the effective size is 495
 	require.True(t, client.Len() == 24)
 
+	client, err = theine.New[string](
+		&theine.Config[string]{MaximumSize: 500, Cost: func(v string) int64 { return int64(len(v)) }},
+	)
+	require.Nil(t, err)
+	success = client.Set("z", strings.Repeat("z", 501), 0)
+	require.False(t, success)
+	for i := 0; i < 30; i++ {
+		key := fmt.Sprintf("key:%d", i)
+		success = client.Set(key, strings.Repeat("z", 20), 0)
+		require.True(t, success)
+	}
+	time.Sleep(time.Second)
+	// lru capacity is 5, and all entries cost are 20
+	// so lru can't hold any entry and the effective size is 495
+	require.True(t, client.Len() == 24)
 }

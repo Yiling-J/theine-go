@@ -129,16 +129,26 @@ func (t *TinyLfu[K, V]) EvictEntries() []*Entry[K, V] {
 		if entry == nil {
 			break
 		}
-		t.slru.insert(entry)
+		evicted := t.slru.insert(entry)
+		if evicted != nil {
+			removed = append(removed, evicted)
+		}
 	}
 
-	for t.slru.probation.Len()+t.slru.protected.Len() >= int(t.slru.maxsize) {
+	for t.slru.probation.Len()+t.slru.protected.Len() > int(t.slru.maxsize) {
 		entry := t.slru.probation.PopTail()
 		if entry == nil {
 			break
 		}
 		removed = append(removed, entry)
 
+	}
+	for t.slru.probation.Len()+t.slru.protected.Len() > int(t.slru.maxsize) {
+		entry := t.slru.protected.PopTail()
+		if entry == nil {
+			break
+		}
+		removed = append(removed, entry)
 	}
 	return removed
 }

@@ -204,3 +204,20 @@ func TestGetSetDeleteNoRace(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	require.True(t, client.Len() < 600)
 }
+
+func TestCost(t *testing.T) {
+	client, err := theine.New[string](&theine.Config[string]{MaximumSize: 500})
+	require.Nil(t, err)
+	success := client.Set("z", "z", 501)
+	require.False(t, success)
+	for i := 0; i < 30; i++ {
+		key := fmt.Sprintf("key:%d", i)
+		success = client.Set(key, key, 20)
+		require.True(t, success)
+	}
+	time.Sleep(time.Second)
+	// lru capacity is 5, and all entries cost are 20
+	// so lru can't hold any entry and the effective size is 495
+	require.True(t, client.Len() == 24)
+
+}

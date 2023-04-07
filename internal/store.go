@@ -260,10 +260,9 @@ func (s *Store[K, V]) maintance() {
 					s.timerwheel.schedule(entry)
 				}
 				evicted := s.policy.Set(entry)
-				if evicted == nil {
-					break
+				if evicted != nil {
+					s.removeEntry(evicted)
 				}
-				s.removeEntry(evicted)
 				removed := s.policy.EvictEntries()
 				for _, e := range removed {
 					s.removeEntry(e)
@@ -276,10 +275,10 @@ func (s *Store[K, V]) maintance() {
 				}
 				if item.costChange != 0 {
 					s.policy.UpdateCost(entry, item.costChange)
-				}
-				removed := s.policy.EvictEntries()
-				for _, e := range removed {
-					s.removeEntry(e)
+					removed := s.policy.EvictEntries()
+					for _, e := range removed {
+						s.removeEntry(e)
+					}
 				}
 			}
 			item.entry = nil

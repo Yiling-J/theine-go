@@ -34,12 +34,12 @@ func (c *Cache[K, V]) Get(key K) (V, bool) {
 	return c.store.Get(key)
 }
 
-func (c *Cache[K, V]) SetWithTTL(key K, value V, cost int64, ttl time.Duration) {
-	c.store.Set(key, value, cost, ttl)
+func (c *Cache[K, V]) SetWithTTL(key K, value V, cost int64, ttl time.Duration) bool {
+	return c.store.Set(key, value, cost, ttl)
 }
 
-func (c *Cache[K, V]) Set(key K, value V, cost int64) {
-	c.SetWithTTL(key, value, cost, ZERO_TTL)
+func (c *Cache[K, V]) Set(key K, value V, cost int64) bool {
+	return c.SetWithTTL(key, value, cost, ZERO_TTL)
 }
 
 func (c *Cache[K, V]) Delete(key K) {

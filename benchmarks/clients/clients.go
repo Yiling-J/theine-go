@@ -5,53 +5,53 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-type Client interface {
+type Client[K comparable, V any] interface {
 	Init(cap int)
 	// Get key, return value and true if exist
 	// Set key if not exist and return false
-	GetSet(key string) (string, bool)
-	Set(key string)
+	GetSet(key K, value V) (V, bool)
+	Set(key K, value V)
 	Name() string
 	Close()
 }
 
-type Theine struct {
-	client *theine.Cache[string, string]
+type Theine[K comparable, V any] struct {
+	client *theine.Cache[K, V]
 }
 
-func (c *Theine) Init(cap int) {
-	client, err := theine.New[string, string](&theine.Config[string]{MaximumSize: int64(cap)})
+func (c *Theine[K, V]) Init(cap int) {
+	client, err := theine.New[K](&theine.Config[V]{MaximumSize: int64(cap)})
 	if err != nil {
 		panic(err)
 	}
 	c.client = client
 }
 
-func (c *Theine) GetSet(key string) (string, bool) {
+func (c *Theine[K, V]) GetSet(key K, value V) (V, bool) {
 	v, ok := c.client.Get(key)
 	if ok {
 		return v, true
 	}
-	c.client.Set(key, key, 1)
-	return key, false
+	c.client.Set(key, value, 1)
+	return value, false
 }
 
-func (c *Theine) Set(key string) {
-	c.client.Set(key, key, 1)
+func (c *Theine[K, V]) Set(key K, value V) {
+	c.client.Set(key, value, 1)
 }
-func (c *Theine) Name() string {
+func (c *Theine[K, V]) Name() string {
 	return "theine"
 }
 
-func (c *Theine) Close() {
+func (c *Theine[K, V]) Close() {
 	c.client.Close()
 }
 
-type Ristretto struct {
+type Ristretto[K comparable, V any] struct {
 	client *ristretto.Cache
 }
 
-func (c *Ristretto) Init(cap int) {
+func (c *Ristretto[K, V]) Init(cap int) {
 	client, err := ristretto.NewCache(&ristretto.Config{
 		NumCounters: int64(cap * 10),
 		MaxCost:     int64(cap),
@@ -63,22 +63,22 @@ func (c *Ristretto) Init(cap int) {
 	c.client = client
 }
 
-func (c *Ristretto) GetSet(key string) (string, bool) {
+func (c *Ristretto[K, V]) GetSet(key K, value V) (V, bool) {
 	v, ok := c.client.Get(key)
 	if ok {
-		return v.(string), true
+		return v.(V), true
 	}
-	c.client.Set(key, key, 1)
-	return key, false
+	c.client.Set(key, value, 1)
+	return value, false
 }
 
-func (c *Ristretto) Set(key string) {
-	c.client.Set(key, key, 1)
+func (c *Ristretto[K, V]) Set(key K, value V) {
+	c.client.Set(key, value, 1)
 }
-func (c *Ristretto) Name() string {
+func (c *Ristretto[K, V]) Name() string {
 	return "ristretto"
 }
 
-func (c *Ristretto) Close() {
+func (c *Ristretto[K, V]) Close() {
 	c.client.Close()
 }

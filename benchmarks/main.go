@@ -112,7 +112,44 @@ func fbGen(keyChan chan key) {
 	}
 }
 
-func bench(client clients.Client, cap int, gen func(keyChan chan key)) float64 {
+func infinite(client clients.Client[int, int], cap int, concurrency int) {
+	// statsviz.RegisterDefault()
+
+	// go func() {
+	// 	log.Println(http.ListenAndServe("localhost:6060", nil))
+	// }()
+	client.Init(cap)
+	var wg sync.WaitGroup
+	total := atomic.Uint64{}
+	miss := atomic.Uint64{}
+
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			z := rand.NewZipf(
+				rand.New(rand.NewSource(time.Now().UnixNano())), 1.0001, 10, 1000000,
+			)
+			for {
+				total.Add(1)
+				_, get := client.GetSet(int(z.Uint64()), 1)
+				if !get {
+					miss.Add(1)
+				}
+			}
+		}()
+	}
+	for {
+		time.Sleep(2 * time.Second)
+		t := total.Load()
+		m := miss.Load()
+		fmt.Printf("total: %d, hit ratio: %.2f\n", t, float32(t-m)/float32(t))
+	}
+	wg.Wait()
+
+}
+
+func bench(client clients.Client[string, string], cap int, gen func(keyChan chan key)) float64 {
 	counter := 0
 	miss := 0
 	done := false
@@ -128,7 +165,7 @@ func bench(client clients.Client, cap int, gen func(keyChan chan key)) float64 {
 			}
 			switch k.op {
 			case GET:
-				v, ok := client.GetSet(k.key)
+				v, ok := client.GetSet(k.key, k.key)
 				if ok {
 					if v != k.key {
 						panic("")
@@ -137,7 +174,7 @@ func bench(client clients.Client, cap int, gen func(keyChan chan key)) float64 {
 					miss++
 				}
 			case SET:
-				client.Set(k.key)
+				client.Set(k.key, k.key)
 			}
 		} else {
 			done = true
@@ -150,7 +187,7 @@ func bench(client clients.Client, cap int, gen func(keyChan chan key)) float64 {
 	return hr
 }
 
-func benchParallel(client clients.Client, cap int, gen func(keyChan chan key)) float64 {
+func benchParallel(client clients.Client[string, string], cap int, gen func(keyChan chan key)) float64 {
 	counter := &atomic.Uint32{}
 	miss := &atomic.Uint32{}
 	keyChan := make(chan key)
@@ -172,7 +209,7 @@ func benchParallel(client clients.Client, cap int, gen func(keyChan chan key)) f
 					}
 					switch k.op {
 					case GET:
-						v, ok := client.GetSet(k.key)
+						v, ok := client.GetSet(k.key, k.key)
 						if ok {
 							if v != k.key {
 								panic("")
@@ -181,7 +218,7 @@ func benchParallel(client clients.Client, cap int, gen func(keyChan chan key)) f
 							miss.Add(1)
 						}
 					case SET:
-						client.Set(k.key)
+						client.Set(k.key, k.key)
 					}
 				} else {
 					done = true
@@ -212,8 +249,8 @@ func benchAndPlot(title string, caps []int, gen func(keyChan chan key)) {
 		tdot := plotter.XY{X: float64(cap)}
 		rdot := plotter.XY{X: float64(cap)}
 		fmt.Printf("======= %s cache size: %d =======\n", strings.ToLower(title), cap)
-		tdot.Y = benchParallel(&clients.Theine{}, cap, gen)
-		rdot.Y = benchParallel(&clients.Ristretto{}, cap, gen)
+		tdot.Y = benchParallel(&clients.Theine[string, string]{}, cap, gen)
+		rdot.Y = benchParallel(&clients.Ristretto[string, string]{}, cap, gen)
 		tdata = append(tdata, tdot)
 		rdata = append(rdata, rdot)
 	}
@@ -241,6 +278,8 @@ func benchAndPlot(title string, caps []int, gen func(keyChan chan key)) {
 }
 
 func main() {
+	// infinite(&clients.Theine[int, int]{}, 100000, 12)
+	// infinite(&clients.Ristretto[int, int]{}, 100000, 12)
 
 	benchAndPlot("Zipf", []int{100, 200, 500, 1000, 2000, 5000, 10000, 20000}, zipfGen)
 	benchAndPlot("DS1", []int{1000000, 2000000, 3000000, 5000000, 6000000, 8000000}, ds1Gen)

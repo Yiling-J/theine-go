@@ -64,6 +64,7 @@ type Store[K comparable, V any] struct {
 	hasher      *Hasher[K]
 	entryPool   sync.Pool
 	cost        func(V) int64
+	mlock       sync.Mutex
 }
 
 // New returns a new data struct with the specified capacity
@@ -130,7 +131,7 @@ func (s *Store[K, V]) Get(key K) (V, bool) {
 		}
 		s.readbuf.Push(send)
 	case new == MAX_READ_BUFF_SIZE:
-		s.readChan <- 1
+		s.drainRead()
 	default:
 	}
 	return value, ok
@@ -239,63 +240,72 @@ func (s *Store[K, V]) removeEntry(entry *Entry[K, V]) {
 	deleted := shard.delete(entry)
 	shard.mu.Unlock()
 	if deleted {
+		var zero V
+		entry.value = zero
 		s.entryPool.Put(entry)
 	}
 }
 
-func (s *Store[K, V]) maintance() {
-	ticker := time.NewTicker(500 * time.Millisecond)
+func (s *Store[K, V]) drainRead() {
+	s.mlock.Lock()
 	for {
-		select {
-		case item := <-s.writebuf:
-			entry := item.entry
-			if entry == nil || entry.removed {
-				break
-			}
+		v, ok := s.readbuf.Pop()
+		if !ok {
+			break
+		}
+		s.policy.Access(v)
+	}
+	s.mlock.Unlock()
+	s.readCounter.Store(0)
+}
 
-			// lock free because store API never read/modify entry metadata
-			switch item.code {
-			case NEW:
-				if entry.expire.Load() != 0 {
-					s.timerwheel.schedule(entry)
-				}
-				evicted := s.policy.Set(entry)
-				if evicted != nil {
-					s.removeEntry(evicted)
-				}
+func (s *Store[K, V]) maintance() {
+	go func() {
+		for {
+			time.Sleep(500 * time.Millisecond)
+			s.mlock.Lock()
+			s.timerwheel.advance(0, s.removeEntry)
+			s.mlock.Unlock()
+		}
+	}()
+	for item := range s.writebuf {
+		s.mlock.Lock()
+		entry := item.entry
+		if entry == nil || entry.removed {
+			s.mlock.Unlock()
+			continue
+		}
+
+		// lock free because store API never read/modify entry metadata
+		switch item.code {
+		case NEW:
+			if entry.expire.Load() != 0 {
+				s.timerwheel.schedule(entry)
+			}
+			evicted := s.policy.Set(entry)
+			if evicted != nil {
+				s.removeEntry(evicted)
+			}
+			removed := s.policy.EvictEntries()
+			for _, e := range removed {
+				s.removeEntry(e)
+			}
+		case REMOVE:
+			s.removeEntry(entry)
+		case UPDATE:
+			if item.rechedule {
+				s.timerwheel.schedule(entry)
+			}
+			if item.costChange != 0 {
+				s.policy.UpdateCost(entry, item.costChange)
 				removed := s.policy.EvictEntries()
 				for _, e := range removed {
 					s.removeEntry(e)
 				}
-			case REMOVE:
-				s.removeEntry(entry)
-			case UPDATE:
-				if item.rechedule {
-					s.timerwheel.schedule(entry)
-				}
-				if item.costChange != 0 {
-					s.policy.UpdateCost(entry, item.costChange)
-					removed := s.policy.EvictEntries()
-					for _, e := range removed {
-						s.removeEntry(e)
-					}
-				}
 			}
-			item.entry = nil
-		case <-s.readChan:
-			s.readCounter.Store(0)
-			for {
-				v, ok := s.readbuf.Pop()
-				if !ok {
-					break
-				}
-				s.policy.Access(v)
-			}
-		case <-ticker.C:
-			s.timerwheel.advance(0, s.removeEntry)
-		case <-s.closeChan:
-			return
 		}
+		item.entry = nil
+		s.mlock.Unlock()
 	}
 }
 

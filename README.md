@@ -1,4 +1,5 @@
-# WIP
+# Theine(WIP)
+High performance in-memory cache inspired by [Caffeine](https://github.com/ben-manes/caffeine).
 
 ```
 BenchmarkGetTheineParallel-12           32432190                36.39 ns/op            0 B/op          0 allocs/op

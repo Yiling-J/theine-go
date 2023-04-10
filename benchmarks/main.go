@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Yiling-J/theine-go/benchmarks/clients"
+	"golang.org/x/image/font"
 	"gonum.org/v1/plot"
 	"gonum.org/v1/plot/plotter"
 	"gonum.org/v1/plot/vg"
@@ -242,6 +243,12 @@ func benchAndPlot(title string, caps []int, gen func(keyChan chan key), parallel
 	p.Title.Text = fmt.Sprintf("Hit Ratios - %s", title)
 	p.X.Label.Text = "capacity"
 	p.Y.Label.Text = "hit ratio"
+	p.Legend.TextStyle.Font.Size = vg.Points(16)
+	p.Legend.TextStyle.Font.Style = font.StyleOblique
+	p.Title.TextStyle.Font.Size = vg.Points(16)
+	p.Title.TextStyle.Font.Style = font.StyleOblique
+	p.X.Label.TextStyle.Font.Size = vg.Points(14)
+	p.Y.Label.TextStyle.Font.Size = vg.Points(14)
 
 	tdata := plotter.XYs{}
 	rdata := plotter.XYs{}
@@ -299,7 +306,7 @@ func main() {
 	// infinite(&clients.Theine[int, int]{}, 100000, 12)
 	// infinite(&clients.Ristretto[int, int]{}, 100000, 12)
 
-	parallel := true
+	parallel := false
 	benchAndPlot("Zipf", []int{100, 200, 500, 1000, 2000, 5000, 10000, 20000}, zipfGen, parallel)
 	benchAndPlot("DS1", []int{1000000, 2000000, 3000000, 5000000, 6000000, 8000000}, ds1Gen, parallel)
 	benchAndPlot("S3", []int{50000, 100000, 200000, 300000, 500000, 800000, 1000000}, s3Gen, parallel)

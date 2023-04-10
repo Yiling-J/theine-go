@@ -128,7 +128,7 @@ func infinite(client clients.Client[int, int], cap int, concurrency int) {
 		go func() {
 			defer wg.Done()
 			z := rand.NewZipf(
-				rand.New(rand.NewSource(time.Now().UnixNano())), 1.0001, 10, 1000000,
+				rand.New(rand.NewSource(time.Now().UnixNano())), 1.0001, 10, 10000000,
 			)
 			for {
 				total.Add(1)
@@ -237,7 +237,7 @@ func benchParallel(client clients.Client[string, string], cap int, gen func(keyC
 	return hr
 }
 
-func benchAndPlot(title string, caps []int, gen func(keyChan chan key)) {
+func benchAndPlot(title string, caps []int, gen func(keyChan chan key), parallel bool) {
 	p := plot.New()
 	p.Title.Text = fmt.Sprintf("Hit Ratios - %s", title)
 	p.X.Label.Text = "capacity"
@@ -245,14 +245,22 @@ func benchAndPlot(title string, caps []int, gen func(keyChan chan key)) {
 
 	tdata := plotter.XYs{}
 	rdata := plotter.XYs{}
+	ldata := plotter.XYs{}
 	for _, cap := range caps {
 		tdot := plotter.XY{X: float64(cap)}
 		rdot := plotter.XY{X: float64(cap)}
+		ldot := plotter.XY{X: float64(cap)}
 		fmt.Printf("======= %s cache size: %d =======\n", strings.ToLower(title), cap)
-		tdot.Y = benchParallel(&clients.Theine[string, string]{}, cap, gen)
-		rdot.Y = benchParallel(&clients.Ristretto[string, string]{}, cap, gen)
+		bencher := bench
+		if parallel {
+			bencher = benchParallel
+		}
+		tdot.Y = bencher(&clients.Theine[string, string]{}, cap, gen)
+		rdot.Y = bencher(&clients.Ristretto[string, string]{}, cap, gen)
+		ldot.Y = bencher(&clients.LRU[string, string]{}, cap, gen)
 		tdata = append(tdata, tdot)
 		rdata = append(rdata, rdot)
+		ldata = append(ldata, ldot)
 	}
 	tline, tpoints, err := plotter.NewLinePoints(tdata)
 	if err != nil {
@@ -266,9 +274,19 @@ func benchAndPlot(title string, caps []int, gen func(keyChan chan key)) {
 	}
 	rline.Color = color.RGBA{G: 255, A: 255}
 	rpoints.Shape = draw.CircleGlyph{}
-	p.Add(tline, tpoints, rline, rpoints)
+	lline, lpoints, err := plotter.NewLinePoints(ldata)
+	if err != nil {
+		panic(err)
+	}
+	lline.Color = color.RGBA{R: 255, A: 255}
+	lpoints.Shape = draw.PyramidGlyph{}
+	p.Add(tline, tpoints, rline, rpoints, lline, lpoints)
 	p.Legend.Add("theine", tline, tpoints)
 	p.Legend.Add("ristretto", rline, rpoints)
+	p.Legend.Add("lru", lline, lpoints)
+	if parallel {
+		title += "-parallel"
+	}
 	if err := p.Save(
 		16*vg.Inch, 9*vg.Inch, fmt.Sprintf("results/%s.png", strings.ToLower(title)),
 	); err != nil {
@@ -281,10 +299,10 @@ func main() {
 	// infinite(&clients.Theine[int, int]{}, 100000, 12)
 	// infinite(&clients.Ristretto[int, int]{}, 100000, 12)
 
-	benchAndPlot("Zipf", []int{100, 200, 500, 1000, 2000, 5000, 10000, 20000}, zipfGen)
-	benchAndPlot("DS1", []int{1000000, 2000000, 3000000, 5000000, 6000000, 8000000}, ds1Gen)
-	benchAndPlot("S3", []int{50000, 100000, 200000, 300000, 500000, 800000, 1000000}, s3Gen)
-	benchAndPlot("SCARAB1H", []int{1000, 2000, 5000, 10000, 20000, 50000, 100000}, scarabGen)
-	benchAndPlot("META", []int{10000, 20000, 50000, 80000, 100000}, fbGen)
-
+	parallel := true
+	benchAndPlot("Zipf", []int{100, 200, 500, 1000, 2000, 5000, 10000, 20000}, zipfGen, parallel)
+	benchAndPlot("DS1", []int{1000000, 2000000, 3000000, 5000000, 6000000, 8000000}, ds1Gen, parallel)
+	benchAndPlot("S3", []int{50000, 100000, 200000, 300000, 500000, 800000, 1000000}, s3Gen, parallel)
+	benchAndPlot("SCARAB1H", []int{1000, 2000, 5000, 10000, 20000, 50000, 100000}, scarabGen, parallel)
+	benchAndPlot("META", []int{10000, 20000, 50000, 80000, 100000}, fbGen, parallel)
 }

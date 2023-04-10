@@ -7,6 +7,7 @@ replace github.com/Yiling-J/theine-go => ../
 require (
 	github.com/Yiling-J/theine-go v0.0.0-00010101000000-000000000000
 	github.com/dgraph-io/ristretto v0.1.1
+	github.com/hashicorp/golang-lru/v2 v2.0.2
 	gonum.org/v1/plot v0.12.0
 )
 
@@ -15,6 +16,7 @@ require (
 	github.com/ajstarks/svgo v0.0.0-20211024235047-1546f124cd8b // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/dustin/go-humanize v1.0.0 // indirect
+	github.com/gammazero/deque v0.2.1 // indirect
 	github.com/go-fonts/liberation v0.2.0 // indirect
 	github.com/go-latex/latex v0.0.0-20210823091927-c0d11ff05a81 // indirect
 	github.com/go-pdf/fpdf v0.6.0 // indirect

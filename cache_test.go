@@ -253,3 +253,21 @@ func TestCostUpdate(t *testing.T) {
 	// 15 * 20 + 200
 	require.True(t, client.Len() == 16)
 }
+
+func TestDoorkeeper(t *testing.T) {
+	client, err := theine.New[string](&theine.Config[string]{MaximumSize: 500, Doorkeeper: true})
+	require.Nil(t, err)
+	for i := 0; i < 30; i++ {
+		key := fmt.Sprintf("key:%d", i)
+		success := client.Set(key, key, 20)
+		require.False(t, success)
+	}
+	require.True(t, client.Len() == 0)
+	time.Sleep(time.Second)
+	for i := 0; i < 30; i++ {
+		key := fmt.Sprintf("key:%d", i)
+		success := client.Set(key, key, 20)
+		require.True(t, success)
+	}
+	require.True(t, client.Len() > 0)
+}

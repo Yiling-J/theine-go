@@ -31,14 +31,6 @@ func newDoorkeeper(capacity int, falsePositiveRate float64) *doorkeeper {
 	}
 }
 
-func (d *doorkeeper) allow(keyh uint64) bool {
-	if d == nil {
-		return true
-	}
-	alreadyPresent := d.insert(keyh)
-	return alreadyPresent
-}
-
 // insert inserts the byte array b into the bloom filter.  Returns true if the value
 // was already considered to be in the bloom filter.
 func (d *doorkeeper) insert(h uint64) bool {

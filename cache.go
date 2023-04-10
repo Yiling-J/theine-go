@@ -11,10 +11,7 @@ const (
 	ZERO_TTL = 0 * time.Second
 )
 
-type Config[V any] struct {
-	MaximumSize int64
-	Cost        func(v V) int64
-}
+type Config[V any] internal.Config[V]
 
 type Cache[K comparable, V any] struct {
 	store *internal.Store[K, V]
@@ -26,7 +23,7 @@ func New[K comparable, V any](config *Config[V]) (*Cache[K, V], error) {
 	}
 
 	return &Cache[K, V]{
-		store: internal.NewStore[K](uint(config.MaximumSize), config.Cost),
+		store: internal.NewStore[K]((internal.Config[V])(*config)),
 	}, nil
 }
 

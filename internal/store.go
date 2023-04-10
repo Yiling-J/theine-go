@@ -18,12 +18,19 @@ const (
 	MAINTANCE           = 1
 )
 
+type Config[V any] struct {
+	MaximumSize int64
+	Doorkeeper  bool
+	Cost        func(v V) int64
+}
+
 type Shard[K comparable, V any] struct {
 	hashmap   map[K]*Entry[K, V]
 	mu        sync.RWMutex
 	dookeeper *doorkeeper
 	size      uint
 	qsize     uint
+	counter   uint
 	deque     *deque.Deque[*Entry[K, V]]
 }
 
@@ -75,15 +82,17 @@ type Store[K comparable, V any] struct {
 	entryPool   sync.Pool
 	cost        func(V) int64
 	mlock       sync.Mutex
+	doorkeeper  bool
 }
 
 // New returns a new data struct with the specified capacity
-func NewStore[K comparable, V any](cap uint, cost func(V) int64) *Store[K, V] {
+func NewStore[K comparable, V any](config Config[V]) *Store[K, V] {
+	cost := config.Cost
 	if cost == nil {
 		cost = func(v V) int64 { return 1 }
 	}
 	hasher := NewHasher[K]()
-	writeBufSize := cap / 100
+	writeBufSize := config.MaximumSize / 100
 	if writeBufSize < MIN_WRITE_BUFF_SIZE {
 		writeBufSize = MIN_WRITE_BUFF_SIZE
 	}
@@ -94,30 +103,31 @@ func NewStore[K comparable, V any](cap uint, cost func(V) int64) *Store[K, V] {
 	for int(shardCount) < runtime.NumCPU()*8 {
 		shardCount *= 2
 	}
-	dequeSize := cap / 100 / uint(shardCount)
-	shardSize := cap / uint(shardCount)
+	dequeSize := int(config.MaximumSize) / 100 / shardCount
+	shardSize := int(config.MaximumSize) / shardCount
 	if shardSize < 50 {
 		shardSize = 50
 	}
-	policySize := cap - (dequeSize * uint(shardCount))
+	policySize := int(config.MaximumSize) - (dequeSize * shardCount)
 	s := &Store[K, V]{
-		cap:         cap,
+		cap:         uint(config.MaximumSize),
 		hasher:      hasher,
-		policy:      NewTinyLfu[K, V](policySize, hasher),
+		policy:      NewTinyLfu[K, V](uint(policySize), hasher),
 		readCounter: &atomic.Uint32{},
 		readbuf:     NewQueue[ReadBufItem[K, V]](),
 		writebuf:    make(chan WriteBufItem[K, V], writeBufSize),
 		entryPool:   sync.Pool{New: func() any { return &Entry[K, V]{} }},
 		cost:        cost,
 		shardCount:  uint(shardCount),
+		doorkeeper:  config.Doorkeeper,
 	}
 	s.shards = make([]*Shard[K, V], 0, s.shardCount)
 	for i := 0; i < int(s.shardCount); i++ {
-		s.shards = append(s.shards, NewShard[K, V](shardSize, dequeSize))
+		s.shards = append(s.shards, NewShard[K, V](uint(shardSize), uint(dequeSize)))
 	}
 
 	s.closeChan = make(chan int)
-	s.timerwheel = NewTimerWheel[K, V](cap)
+	s.timerwheel = NewTimerWheel[K, V](uint(config.MaximumSize))
 	go s.maintance()
 	return s
 }
@@ -165,7 +175,7 @@ func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
 	if cost > int64(s.cap) {
 		return false
 	}
-	_, index := s.index(key)
+	h, index := s.index(key)
 	shard := s.shards[index]
 	var expire int64
 	if ttl != 0 {
@@ -195,16 +205,18 @@ func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
 		}
 		return true
 	}
-	// hit := shard.dookeeper.insert(h)
-	// if !hit {
-	// 	shard.counter += 1
-	// 	shard.mu.Unlock()
-	// 	return false
-	// }
-	// if shard.counter > 20*shard.size {
-	// 	shard.dookeeper.reset()
-	// 	shard.counter = 0
-	// }
+	if s.doorkeeper {
+		hit := shard.dookeeper.insert(h)
+		if !hit {
+			shard.counter += 1
+			shard.mu.Unlock()
+			return false
+		}
+		if shard.counter > 20*shard.size {
+			shard.dookeeper.reset()
+			shard.counter = 0
+		}
+	}
 	entry := s.entryPool.Get().(*Entry[K, V])
 	entry.shard = uint16(index)
 	entry.key = key

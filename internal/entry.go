@@ -20,12 +20,12 @@ type WriteBufItem[K comparable, V any] struct {
 }
 
 type MetaData[K comparable, V any] struct {
-	prev       *Entry[K, V]
-	next       *Entry[K, V]
-	wheelPrev  *Entry[K, V]
-	wheelNext  *Entry[K, V]
-	_list      *List[K, V]
-	_wheelList *List[K, V]
+	root      bool
+	list      uint8 // used in slru, probation or protected
+	prev      *Entry[K, V]
+	next      *Entry[K, V]
+	wheelPrev *Entry[K, V]
+	wheelNext *Entry[K, V]
 }
 
 type Entry[K comparable, V any] struct {
@@ -36,6 +36,9 @@ type Entry[K comparable, V any] struct {
 	value   V
 	expire  atomic.Int64
 	meta    MetaData[K, V]
+	// access frequency, updated on each access and sync with sketch
+	// should be >= 0, two special value, -2: deleted entry, -1: new entry, need to sync from sketch
+	frequency atomic.Int32
 }
 
 func NewEntry[K comparable, V any](key K, value V, cost int64, expire int64) *Entry[K, V] {
@@ -51,64 +54,73 @@ func NewEntry[K comparable, V any](key K, value V, cost int64, expire int64) *En
 }
 
 func (e *Entry[K, V]) Next(listType uint8) *Entry[K, V] {
-	if listType == WHEEL_LIST {
-		if p := e.meta.wheelNext; e.meta._wheelList != nil && p != &e.meta._wheelList.root {
-			return p
+	switch listType {
+	case LIST_PROBATION, LIST_PROTECTED:
+		if p := e.meta.next; !p.meta.root {
+			return e.meta.next
 		}
 		return nil
-	}
-	if p := e.meta.next; e.meta._list != nil && p != &e.meta._list.root {
-		return p
+
+	case WHEEL_LIST:
+		if p := e.meta.wheelNext; !p.meta.root {
+			return e.meta.wheelNext
+		}
+		return nil
 	}
 	return nil
 }
 
 func (e *Entry[K, V]) Prev(listType uint8) *Entry[K, V] {
-	if listType == WHEEL_LIST {
-		if p := e.meta.wheelPrev; e.meta._wheelList != nil && p != &e.meta._wheelList.root {
-			return p
+	switch listType {
+	case LIST_PROBATION, LIST_PROTECTED:
+		if p := e.meta.prev; !p.meta.root {
+			return e.meta.prev
 		}
 		return nil
-	}
-	if p := e.meta.prev; e.meta._list != nil && p != &e.meta._list.root {
-		return p
+
+	case WHEEL_LIST:
+		if p := e.meta.wheelPrev; !p.meta.root {
+			return e.meta.wheelPrev
+		}
+		return nil
 	}
 	return nil
 }
 
-func (e *Entry[K, V]) list(listType uint8) *List[K, V] {
-	if listType == WHEEL_LIST {
-		return e.meta._wheelList
-	}
-	return e.meta._list
-}
-
 func (e *Entry[K, V]) prev(listType uint8) *Entry[K, V] {
-	if listType == WHEEL_LIST {
+	switch listType {
+	case LIST_PROBATION, LIST_PROTECTED:
+		return e.meta.prev
+	case WHEEL_LIST:
 		return e.meta.wheelPrev
 	}
-	return e.meta.prev
+	return nil
 }
 
 func (e *Entry[K, V]) next(listType uint8) *Entry[K, V] {
-	if listType == WHEEL_LIST {
+	switch listType {
+	case LIST_PROBATION, LIST_PROTECTED:
+		return e.meta.next
+	case WHEEL_LIST:
 		return e.meta.wheelNext
 	}
-	return e.meta.next
+	return nil
 }
 
 func (e *Entry[K, V]) setPrev(entry *Entry[K, V], listType uint8) {
-	if listType == WHEEL_LIST {
-		e.meta.wheelPrev = entry
-	} else {
+	switch listType {
+	case LIST_PROBATION, LIST_PROTECTED:
 		e.meta.prev = entry
+	case WHEEL_LIST:
+		e.meta.wheelPrev = entry
 	}
 }
 
 func (e *Entry[K, V]) setNext(entry *Entry[K, V], listType uint8) {
-	if listType == WHEEL_LIST {
-		e.meta.wheelNext = entry
-	} else {
+	switch listType {
+	case LIST_PROBATION, LIST_PROTECTED:
 		e.meta.next = entry
+	case WHEEL_LIST:
+		e.meta.wheelNext = entry
 	}
 }

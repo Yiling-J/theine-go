@@ -1,27 +1,5 @@
 package internal
 
-type Lru[K comparable, V any] struct {
-	list *List[K, V]
-}
-
-func NewLru[K comparable, V any](size uint) *Lru[K, V] {
-	return &Lru[K, V]{
-		list: NewList[K, V](size, LIST),
-	}
-}
-
-func (s *Lru[K, V]) insert(entry *Entry[K, V]) *Entry[K, V] {
-	return s.list.PushFront(entry)
-}
-
-func (s *Lru[K, V]) access(entry *Entry[K, V]) {
-	s.list.MoveToFront(entry)
-}
-
-func (s *Lru[K, V]) pop() *Entry[K, V] {
-	return s.list.PopTail()
-}
-
 type Slru[K comparable, V any] struct {
 	probation *List[K, V]
 	protected *List[K, V]
@@ -31,8 +9,8 @@ type Slru[K comparable, V any] struct {
 func NewSlru[K comparable, V any](size uint) *Slru[K, V] {
 	return &Slru[K, V]{
 		maxsize:   size,
-		probation: NewList[K, V](size, LIST),
-		protected: NewList[K, V](uint(float32(size)*0.8), LIST),
+		probation: NewList[K, V](size, LIST_PROBATION),
+		protected: NewList[K, V](uint(float32(size)*0.8), LIST_PROTECTED),
 	}
 }
 
@@ -53,14 +31,32 @@ func (s *Slru[K, V]) victim() *Entry[K, V] {
 }
 
 func (s *Slru[K, V]) access(entry *Entry[K, V]) {
-	switch entry.list(LIST) {
-	case s.probation:
+	switch entry.meta.list {
+	case LIST_PROBATION:
 		s.probation.remove(entry)
 		evicted := s.protected.PushFront(entry)
 		if evicted != nil {
 			s.probation.PushFront(evicted)
 		}
-	case s.protected:
+	case LIST_PROTECTED:
 		s.protected.MoveToFront(entry)
+	}
+}
+
+func (s *Slru[K, V]) remove(entry *Entry[K, V]) {
+	switch entry.meta.list {
+	case LIST_PROBATION:
+		s.probation.remove(entry)
+	case LIST_PROTECTED:
+		s.protected.remove(entry)
+	}
+}
+
+func (s *Slru[K, V]) updateCost(entry *Entry[K, V], delta int64) {
+	switch entry.meta.list {
+	case LIST_PROBATION:
+		s.probation.len += int(delta)
+	case LIST_PROTECTED:
+		s.protected.len += int(delta)
 	}
 }

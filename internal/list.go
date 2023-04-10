@@ -6,8 +6,9 @@ import (
 )
 
 const (
-	LIST       uint8 = 1
-	WHEEL_LIST uint8 = 2
+	LIST_PROBATION uint8 = 1
+	LIST_PROTECTED uint8 = 2
+	WHEEL_LIST     uint8 = 3
 )
 
 // List represents a doubly linked list.
@@ -23,6 +24,7 @@ type List[K comparable, V any] struct {
 // New returns an initialized list.
 func NewList[K comparable, V any](size uint, listType uint8) *List[K, V] {
 	l := &List[K, V]{listType: listType, capacity: size, root: Entry[K, V]{}}
+	l.root.meta.root = true
 	l.root.setNext(&l.root, l.listType)
 	l.root.setPrev(&l.root, l.listType)
 	l.len = 0
@@ -43,17 +45,17 @@ func (l *List[K, V]) Reset() {
 // The complexity is O(1).
 func (l *List[K, V]) Len() int { return l.len }
 
-func (l *List[K, V]) display(listType uint8) string {
+func (l *List[K, V]) display() string {
 	var s []string
-	for e := l.Front(); e != nil; e = e.Next(listType) {
+	for e := l.Front(); e != nil; e = e.Next(l.listType) {
 		s = append(s, fmt.Sprintf("%v", e.key))
 	}
 	return strings.Join(s, "/")
 }
 
-func (l *List[K, V]) displayReverse(listType uint8) string {
+func (l *List[K, V]) displayReverse() string {
 	var s []string
-	for e := l.Back(); e != nil; e = e.Prev(listType) {
+	for e := l.Back(); e != nil; e = e.Prev(l.listType) {
 		s = append(s, fmt.Sprintf("%v", e.key))
 	}
 	return strings.Join(s, "/")
@@ -83,11 +85,8 @@ func (l *List[K, V]) insert(e, at *Entry[K, V]) *Entry[K, V] {
 	if l.bounded && l.len >= int(l.capacity) {
 		evicted = l.PopTail()
 	}
-	switch l.listType {
-	case LIST:
-		e.meta._list = l
-	case WHEEL_LIST:
-		e.meta._wheelList = l
+	if l.listType != WHEEL_LIST {
+		e.meta.list = l.listType
 	}
 	e.setPrev(at, l.listType)
 	e.setNext(at.next(l.listType), l.listType)
@@ -110,11 +109,8 @@ func (l *List[K, V]) remove(e *Entry[K, V]) {
 	e.next(l.listType).setPrev(e.prev(l.listType), l.listType)
 	e.setNext(nil, l.listType)
 	e.setPrev(nil, l.listType)
-	switch l.listType {
-	case LIST:
-		e.meta._list = nil
-	case WHEEL_LIST:
-		e.meta._wheelList = nil
+	if l.listType != WHEEL_LIST {
+		e.meta.list = 0
 	}
 	if l.bounded {
 		l.len -= int(e.cost.Load())
@@ -139,21 +135,13 @@ func (l *List[K, V]) move(e, at *Entry[K, V]) {
 // It returns the element value e.Value.
 // The element must not be nil.
 func (l *List[K, V]) Remove(e *Entry[K, V]) {
-	if e.list(l.listType) == l {
-		// if e.list == l, l must have been initialized when e was inserted
-		// in l or l == nil (e is a zero Element) and l.remove will crash
-		l.remove(e)
-	}
+	l.remove(e)
 }
 
 // MoveToFront moves element e to the front of list l.
 // If e is not an element of l, the list is not modified.
 // The element must not be nil.
 func (l *List[K, V]) MoveToFront(e *Entry[K, V]) {
-	if e.list(l.listType) != l || l.root.next(l.listType) == e {
-		return
-	}
-	// see comment in List.Remove about initialization of l
 	l.move(e, &l.root)
 }
 
@@ -161,10 +149,6 @@ func (l *List[K, V]) MoveToFront(e *Entry[K, V]) {
 // If e is not an element of l, the list is not modified.
 // The element must not be nil.
 func (l *List[K, V]) MoveToBack(e *Entry[K, V]) {
-	if e.list(l.listType) != l || l.root.prev(l.listType) == e {
-		return
-	}
-	// see comment in List.Remove about initialization of l
 	l.move(e, l.root.prev(l.listType))
 }
 
@@ -172,9 +156,6 @@ func (l *List[K, V]) MoveToBack(e *Entry[K, V]) {
 // If e or mark is not an element of l, or e == mark, the list is not modified.
 // The element and mark must not be nil.
 func (l *List[K, V]) MoveBefore(e, mark *Entry[K, V]) {
-	if e.list(l.listType) != l || e == mark || mark.list(l.listType) != l {
-		return
-	}
 	l.move(e, mark.prev(l.listType))
 }
 
@@ -182,9 +163,6 @@ func (l *List[K, V]) MoveBefore(e, mark *Entry[K, V]) {
 // If e or mark is not an element of l, or e == mark, the list is not modified.
 // The element and mark must not be nil.
 func (l *List[K, V]) MoveAfter(e, mark *Entry[K, V]) {
-	if e.list(l.listType) != l || e == mark || mark.list(l.listType) != l {
-		return
-	}
 	l.move(e, mark)
 }
 
@@ -195,4 +173,13 @@ func (l *List[K, V]) PopTail() *Entry[K, V] {
 		return entry
 	}
 	return nil
+}
+
+func (l *List[K, V]) Contains(entry *Entry[K, V]) bool {
+	for e := l.Front(); e != nil; e = e.Next(l.listType) {
+		if e == entry {
+			return true
+		}
+	}
+	return false
 }

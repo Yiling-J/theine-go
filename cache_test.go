@@ -218,9 +218,7 @@ func TestCost(t *testing.T) {
 		require.True(t, success)
 	}
 	time.Sleep(time.Second)
-	// lru capacity is 5, and all entries cost are 20
-	// so lru can't hold any entry and the effective size is 495
-	require.True(t, client.Len() == 24)
+	require.True(t, client.Len() == 25)
 
 	// test cost func
 	client, err = theine.New[string](
@@ -235,9 +233,7 @@ func TestCost(t *testing.T) {
 		require.True(t, success)
 	}
 	time.Sleep(time.Second)
-	// lru capacity is 5, and all entries cost are 20
-	// so lru can't hold any entry and the effective size is 495
-	require.True(t, client.Len() == 24)
+	require.True(t, client.Len() == 25)
 }
 
 func TestCostUpdate(t *testing.T) {
@@ -249,13 +245,11 @@ func TestCostUpdate(t *testing.T) {
 		require.True(t, success)
 	}
 	time.Sleep(time.Second)
-	// lru capacity is 5, and all entries cost are 20
-	// so lru can't hold any entry and the effective size is 495
-	require.True(t, client.Len() == 24)
+	require.True(t, client.Len() == 25)
 	// update cost
-	success := client.Set("key:28", "", 200)
+	success := client.Set("key:10", "", 200)
 	require.True(t, success)
 	time.Sleep(time.Second)
-	// 14 * 20 + 200
-	require.True(t, client.Len() == 15)
+	// 15 * 20 + 200
+	require.True(t, client.Len() == 16)
 }

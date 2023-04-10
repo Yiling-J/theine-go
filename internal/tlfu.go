@@ -1,139 +1,157 @@
 package internal
 
+import (
+	"sync/atomic"
+)
+
 type TinyLfu[K comparable, V any] struct {
 	size      uint
-	lru       *Lru[K, V]
 	slru      *Slru[K, V]
 	sketch    *CountMinSketch
 	lruFactor uint8
-	total     uint
-	hit       uint
+	total     atomic.Uint32
+	hit       atomic.Uint32
 	hr        float32
 	step      int8
 	hasher    *Hasher[K]
+	threshold atomic.Int32
+	counter   uint
 }
 
 func NewTinyLfu[K comparable, V any](size uint, hasher *Hasher[K]) *TinyLfu[K, V] {
-	lruSize := uint(float32(size) * 0.01)
-	if lruSize == 0 {
-		lruSize = 1
-	}
-	slruSize := size - lruSize
 	return &TinyLfu[K, V]{
 		size:   size,
-		lru:    NewLru[K, V](lruSize),
-		slru:   NewSlru[K, V](slruSize),
+		slru:   NewSlru[K, V](size),
 		sketch: NewCountMinSketch(size),
 		step:   1,
 		hasher: hasher,
 	}
 }
 
-func (t *TinyLfu[K, V]) Set(entry *Entry[K, V]) *Entry[K, V] {
-	// hill climbing lru factor
-	if t.total >= 10*t.size && (t.total-t.hit) > t.size/2 {
-		current := float32(t.hit) / float32(t.total)
-		delta := current - t.hr
-		if delta > 0.0 {
-			if t.step < 0 {
-				t.step -= 1
-			} else {
-				t.step += 1
-			}
-			if t.step < -13 {
-				t.step = -13
-			} else if t.step > 13 {
-				t.step = 13
-			}
-			newFactor := int8(t.lruFactor) + t.step
-			if newFactor < 0 {
-				newFactor = 0
-			} else if newFactor > 13 {
-				newFactor = 13
-			}
-			t.lruFactor = uint8(newFactor)
-		} else if delta < 0.0 {
-			// reset
-			if t.step > 0 {
-				t.step = -1
-			} else {
-				t.step = 1
-			}
-			newFactor := int8(t.lruFactor) + t.step
-			if newFactor < 0 {
-				newFactor = 0
-			} else if newFactor > 13 {
-				newFactor = 13
-			}
-			t.lruFactor = uint8(newFactor)
+func (t *TinyLfu[K, V]) climb() {
+	total := t.total.Load()
+	hit := t.hit.Load()
+	current := float32(hit) / float32(total)
+	delta := current - t.hr
+	var diff int8
+	if delta > 0.0 {
+		if t.step < 0 {
+			t.step -= 1
+		} else {
+			t.step += 1
 		}
-		t.hr = current
-		t.hit = 0
-		t.total = 0
+		if t.step < -13 {
+			t.step = -13
+		} else if t.step > 13 {
+			t.step = 13
+		}
+		newFactor := int8(t.lruFactor) + t.step
+		if newFactor < 0 {
+			newFactor = 0
+		} else if newFactor > 16 {
+			newFactor = 16
+		}
+		diff = newFactor - int8(t.lruFactor)
+		t.lruFactor = uint8(newFactor)
+	} else if delta < 0.0 {
+		// reset
+		if t.step > 0 {
+			t.step = -1
+		} else {
+			t.step = 1
+		}
+		newFactor := int8(t.lruFactor) + t.step
+		if newFactor < 0 {
+			newFactor = 0
+		} else if newFactor > 16 {
+			newFactor = 16
+		}
+		diff = newFactor - int8(t.lruFactor)
+		t.lruFactor = uint8(newFactor)
 	}
+	t.threshold.Add(-int32(diff))
+	t.hr = current
+	t.hit.Store(0)
+	t.total.Store(0)
+}
 
+func (t *TinyLfu[K, V]) Set(entry *Entry[K, V]) *Entry[K, V] {
 	// new entry
-	if entry.list(LIST) == nil {
-		if evicted := t.lru.insert(entry); evicted != nil {
-			if victim := t.slru.victim(); victim != nil {
-				evictedCount := t.sketch.Estimate(
-					t.hasher.hash(evicted.key),
-				) + uint(t.lruFactor)
-				victimCount := t.sketch.Estimate(t.hasher.hash(victim.key))
-				if evictedCount <= uint(victimCount) {
-					return evicted
-				}
+	t.counter++
+	if t.counter > 10*t.size {
+		t.climb()
+		t.counter = 0
+	}
+	if entry.meta.prev == nil {
+		if victim := t.slru.victim(); victim != nil {
+			freq := int(entry.frequency.Load())
+			if freq == -1 {
+				freq = 0
 			}
-			return t.slru.insert(evicted)
+			evictedCount := uint(freq) + uint(t.lruFactor)
+			victimCount := t.sketch.Estimate(t.hasher.hash(victim.key))
+			if evictedCount <= uint(victimCount) {
+				t.threshold.Store(int32(victimCount) - int32(t.lruFactor))
+				return entry
+			} else {
+				t.threshold.Store(0)
+			}
 		}
+		evicted := t.slru.insert(entry)
+		t.threshold.Store(0)
+		return evicted
 	}
 
 	return nil
 }
 
 func (t *TinyLfu[K, V]) Access(item ReadBufItem[K, V]) {
-	t.total += 1
+	t.counter++
+	if t.counter > 10*t.size {
+		t.climb()
+		t.counter = 0
+	}
 	if entry := item.entry; entry != nil {
-		if entry.list(LIST) == nil {
+		// rmeoved entry, update sketch only
+		if entry.frequency.Load() == -2 {
+			t.sketch.Add(item.hash)
 			return
 		}
-		t.sketch.Add(t.hasher.hash(entry.key))
-		t.hit += 1
-		switch entry.list(1) {
-		case t.lru.list:
-			t.lru.access(entry)
-		case t.slru.probation, t.slru.protected:
+		h := t.hasher.hash(entry.key)
+		reset := t.sketch.Add(h)
+		if reset {
+			t.threshold.Store(t.threshold.Load() / 2)
+		}
+		if entry.meta.prev != nil {
+			var tail bool
+			if entry == t.slru.victim() {
+				tail = true
+			}
 			t.slru.access(entry)
+			if tail {
+				t.threshold.Store(0)
+			}
+		} else {
+			entry.frequency.Store(int32(t.sketch.Estimate(h)))
 		}
 	} else {
-		t.sketch.Add(item.hash)
+		reset := t.sketch.Add(item.hash)
+		if reset {
+			t.threshold.Store(t.threshold.Load() / 2)
+		}
 	}
 }
 
 func (t *TinyLfu[K, V]) Remove(entry *Entry[K, V]) {
-	entry.list(LIST).remove(entry)
+	t.slru.remove(entry)
 }
 
 func (t *TinyLfu[K, V]) UpdateCost(entry *Entry[K, V], delta int64) {
-	list := entry.list(LIST)
-	if list == nil {
-		return
-	}
-	list.len += int(delta)
+	t.slru.updateCost(entry, delta)
 }
 
 func (t *TinyLfu[K, V]) EvictEntries() []*Entry[K, V] {
 	removed := []*Entry[K, V]{}
-	for t.lru.list.len > int(t.lru.list.capacity) {
-		entry := t.lru.pop()
-		if entry == nil {
-			break
-		}
-		evicted := t.slru.insert(entry)
-		if evicted != nil {
-			removed = append(removed, evicted)
-		}
-	}
 
 	for t.slru.probation.Len()+t.slru.protected.Len() > int(t.slru.maxsize) {
 		entry := t.slru.probation.PopTail()
@@ -141,7 +159,9 @@ func (t *TinyLfu[K, V]) EvictEntries() []*Entry[K, V] {
 			break
 		}
 		removed = append(removed, entry)
-
+	}
+	if len(removed) > 0 {
+		t.threshold.Store(0)
 	}
 	for t.slru.probation.Len()+t.slru.protected.Len() > int(t.slru.maxsize) {
 		entry := t.slru.protected.PopTail()
@@ -151,4 +171,15 @@ func (t *TinyLfu[K, V]) EvictEntries() []*Entry[K, V] {
 		removed = append(removed, entry)
 	}
 	return removed
+}
+
+func (t *TinyLfu[K, V]) UpdateThreshold() {
+	tail := t.slru.victim()
+	if tail != nil {
+		t.threshold.Store(
+			int32(t.sketch.Estimate(t.hasher.hash(tail.key))),
+		)
+	} else {
+		t.threshold.Store(0)
+	}
 }

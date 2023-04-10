@@ -91,13 +91,16 @@ func (tw *TimerWheel[K, V]) findIndex(expire int64) (int, int) {
 }
 
 func (tw *TimerWheel[K, V]) deschedule(entry *Entry[K, V]) {
-	if list := entry.list(WHEEL_LIST); list != nil {
-		list.remove(entry)
-	}
+	entry.prev(WHEEL_LIST).setNext(entry.next(WHEEL_LIST), WHEEL_LIST)
+	entry.next(WHEEL_LIST).setPrev(entry.prev(WHEEL_LIST), WHEEL_LIST)
+	entry.setNext(nil, WHEEL_LIST)
+	entry.setPrev(nil, WHEEL_LIST)
 }
 
 func (tw *TimerWheel[K, V]) schedule(entry *Entry[K, V]) {
-	tw.deschedule(entry)
+	if entry.meta.wheelPrev != nil {
+		tw.deschedule(entry)
+	}
 	x, y := tw.findIndex(entry.expire.Load())
 	tw.wheel[x][y].PushFront(entry)
 }

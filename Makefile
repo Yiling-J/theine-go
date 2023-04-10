@@ -1,7 +1,10 @@
-.PHONY: test lint bench cover
+.PHONY: test testx lint bench cover
 
 test:
 	go test ./... -race
+
+testx:
+	go test ./... -v -failfast
 
 lint:
 	golangci-lint run

@@ -41,7 +41,7 @@ func (s *CountMinSketch) inc(index uint, offset uint) bool {
 	return false
 }
 
-func (s *CountMinSketch) Add(h uint64) {
+func (s *CountMinSketch) Add(h uint64) bool {
 	index0, offset0 := s.indexOf(h, 0)
 	index1, offset1 := s.indexOf(h, 1)
 	index2, offset2 := s.indexOf(h, 2)
@@ -56,8 +56,10 @@ func (s *CountMinSketch) Add(h uint64) {
 		s.additions += 1
 		if s.additions == s.sampleSize {
 			s.reset()
+			return true
 		}
 	}
+	return false
 }
 
 func (s *CountMinSketch) reset() {

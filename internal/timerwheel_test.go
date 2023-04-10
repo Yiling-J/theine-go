@@ -53,7 +53,7 @@ func TestSchedule(t *testing.T) {
 	}
 	var found bool
 	for _, l := range tw.wheel[0] {
-		if l == entries[0].list(WHEEL_LIST) {
+		if l.Contains(entries[0]) {
 			found = true
 		}
 	}
@@ -61,7 +61,7 @@ func TestSchedule(t *testing.T) {
 
 	found = false
 	for _, l := range tw.wheel[1] {
-		if l == entries[1].list(WHEEL_LIST) {
+		if l.Contains(entries[1]) {
 			found = true
 		}
 	}
@@ -69,7 +69,7 @@ func TestSchedule(t *testing.T) {
 
 	found = false
 	for _, l := range tw.wheel[2] {
-		if l == entries[2].list(WHEEL_LIST) {
+		if l.Contains(entries[2]) {
 			found = true
 		}
 	}

@@ -5,6 +5,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/gammazero/deque"
 )
 
 type OPCODE int8
@@ -17,13 +19,21 @@ const (
 )
 
 type Shard[K comparable, V any] struct {
-	hashmap map[K]*Entry[K, V]
-	mu      sync.RWMutex
+	hashmap   map[K]*Entry[K, V]
+	mu        sync.RWMutex
+	dookeeper *doorkeeper
+	size      uint
+	qsize     uint
+	deque     *deque.Deque[*Entry[K, V]]
 }
 
-func NewShard[K comparable, V any](size uint) *Shard[K, V] {
+func NewShard[K comparable, V any](size uint, qsize uint) *Shard[K, V] {
 	return &Shard[K, V]{
-		hashmap: make(map[K]*Entry[K, V], size),
+		hashmap:   make(map[K]*Entry[K, V], size),
+		dookeeper: newDoorkeeper(int(20*size), 0.01),
+		size:      size,
+		qsize:     qsize,
+		deque:     deque.New[*Entry[K, V]](int(qsize)),
 	}
 }
 
@@ -51,6 +61,7 @@ func (s *Shard[K, V]) len() int {
 }
 
 type Store[K comparable, V any] struct {
+	tailUpdate  bool
 	cap         uint
 	shards      []*Shard[K, V]
 	shardCount  uint
@@ -59,7 +70,6 @@ type Store[K comparable, V any] struct {
 	readbuf     *Queue[ReadBufItem[K, V]]
 	readCounter *atomic.Uint32
 	writebuf    chan WriteBufItem[K, V]
-	readChan    chan int
 	closeChan   chan int
 	hasher      *Hasher[K]
 	entryPool   sync.Pool
@@ -80,23 +90,30 @@ func NewStore[K comparable, V any](cap uint, cost func(V) int64) *Store[K, V] {
 	if writeBufSize > MAX_WRITE_BUFF_SIZE {
 		writeBufSize = MAX_WRITE_BUFF_SIZE
 	}
-	s := &Store[K, V]{
-		cap: cap, hasher: hasher, policy: NewTinyLfu[K, V](cap, hasher),
-		readCounter: &atomic.Uint32{}, readChan: make(chan int),
-		readbuf: NewQueue[ReadBufItem[K, V]](), writebuf: make(chan WriteBufItem[K, V], writeBufSize),
-		entryPool: sync.Pool{New: func() any { return &Entry[K, V]{} }}, cost: cost,
+	shardCount := 1
+	for int(shardCount) < runtime.NumCPU()*8 {
+		shardCount *= 2
 	}
-	s.shardCount = 1
-	for int(s.shardCount) < runtime.NumCPU()*8 {
-		s.shardCount *= 2
-	}
-	shardSize := cap / s.shardCount
+	dequeSize := cap / 100 / uint(shardCount)
+	shardSize := cap / uint(shardCount)
 	if shardSize < 50 {
 		shardSize = 50
 	}
+	policySize := cap - (dequeSize * uint(shardCount))
+	s := &Store[K, V]{
+		cap:         cap,
+		hasher:      hasher,
+		policy:      NewTinyLfu[K, V](policySize, hasher),
+		readCounter: &atomic.Uint32{},
+		readbuf:     NewQueue[ReadBufItem[K, V]](),
+		writebuf:    make(chan WriteBufItem[K, V], writeBufSize),
+		entryPool:   sync.Pool{New: func() any { return &Entry[K, V]{} }},
+		cost:        cost,
+		shardCount:  uint(shardCount),
+	}
 	s.shards = make([]*Shard[K, V], 0, s.shardCount)
 	for i := 0; i < int(s.shardCount); i++ {
-		s.shards = append(s.shards, NewShard[K, V](shardSize))
+		s.shards = append(s.shards, NewShard[K, V](shardSize, dequeSize))
 	}
 
 	s.closeChan = make(chan int)
@@ -106,7 +123,8 @@ func NewStore[K comparable, V any](cap uint, cost func(V) int64) *Store[K, V] {
 }
 
 func (s *Store[K, V]) Get(key K) (V, bool) {
-	index := s.index(key)
+	s.policy.total.Add(1)
+	h, index := s.index(key)
 	shard := s.shards[index]
 	new := s.readCounter.Add(1)
 	shard.mu.RLock()
@@ -117,22 +135,25 @@ func (s *Store[K, V]) Get(key K) (V, bool) {
 		if expire != 0 && expire <= s.timerwheel.clock.nowNano() {
 			ok = false
 		} else {
+			s.policy.hit.Add(1)
 			value = entry.value
 		}
 	}
-	shard.mu.RUnlock()
 	switch {
 	case new < MAX_READ_BUFF_SIZE:
 		var send ReadBufItem[K, V]
 		if ok {
 			send.entry = entry
 		} else {
-			send.hash = s.hasher.hash(key)
+			send.hash = h
 		}
+		shard.mu.RUnlock()
 		s.readbuf.Push(send)
 	case new == MAX_READ_BUFF_SIZE:
+		shard.mu.RUnlock()
 		s.drainRead()
 	default:
+		shard.mu.RUnlock()
 	}
 	return value, ok
 }
@@ -144,7 +165,7 @@ func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
 	if cost > int64(s.cap) {
 		return false
 	}
-	index := s.index(key)
+	_, index := s.index(key)
 	shard := s.shards[index]
 	var expire int64
 	if ttl != 0 {
@@ -174,20 +195,60 @@ func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
 		}
 		return true
 	}
+	// hit := shard.dookeeper.insert(h)
+	// if !hit {
+	// 	shard.counter += 1
+	// 	shard.mu.Unlock()
+	// 	return false
+	// }
+	// if shard.counter > 20*shard.size {
+	// 	shard.dookeeper.reset()
+	// 	shard.counter = 0
+	// }
 	entry := s.entryPool.Get().(*Entry[K, V])
 	entry.shard = uint16(index)
 	entry.key = key
 	entry.value = value
+	entry.frequency.Store(-1)
 	entry.expire.Store(expire)
 	entry.cost.Store(cost)
 	shard.set(key, entry)
-	shard.mu.Unlock()
-	s.writebuf <- WriteBufItem[K, V]{entry: entry, code: NEW}
+	// cost larger than deque size, send to policy directly
+	if cost > int64(shard.qsize) {
+		shard.mu.Unlock()
+		s.writebuf <- WriteBufItem[K, V]{entry: entry, code: NEW}
+		return true
+	}
+	shard.deque.PushFront(entry)
+	if shard.deque.Len() > int(shard.qsize) {
+		evicted := shard.deque.PopBack()
+		expire := entry.expire.Load()
+		if expire != 0 && expire <= s.timerwheel.clock.nowNano() {
+			shard.delete(evicted)
+			shard.mu.Unlock()
+		} else {
+			var count int32
+			count = evicted.frequency.Load()
+			if count == -1 {
+				count = 0
+			}
+			if int32(count) >= s.policy.threshold.Load() {
+				shard.mu.Unlock()
+				s.writebuf <- WriteBufItem[K, V]{entry: evicted, code: NEW}
+			} else {
+				shard.delete(evicted)
+				shard.mu.Unlock()
+
+			}
+		}
+	} else {
+		shard.mu.Unlock()
+	}
 	return true
 }
 
 func (s *Store[K, V]) Delete(key K) {
-	index := s.index(key)
+	_, index := s.index(key)
 	shard := s.shards[index]
 	shard.mu.Lock()
 	entry, ok := shard.get(key)
@@ -219,20 +280,23 @@ func (s *Store[K, V]) WriteBufLen() int {
 }
 
 // spread hash before get index
-func (s *Store[K, V]) index(key K) int {
+func (s *Store[K, V]) index(key K) (uint64, int) {
 	h := s.hasher.hash(key)
 	h = ((h >> 16) ^ h) * 0x45d9f3b
 	h = ((h >> 16) ^ h) * 0x45d9f3b
 	h = (h >> 16) ^ h
-	return int(h & uint64(s.shardCount-1))
+	return h, int(h & uint64(s.shardCount-1))
 }
 
 // remove entry from cache/policy/timingwheel and add back to pool
 func (s *Store[K, V]) removeEntry(entry *Entry[K, V]) {
-	if entry.list(LIST) != nil {
+	if prev := entry.meta.prev; prev != nil {
 		s.policy.Remove(entry)
+		if prev.meta.root {
+			s.tailUpdate = true
+		}
 	}
-	if entry.list(WHEEL_LIST) != nil {
+	if entry.meta.wheelPrev != nil {
 		s.timerwheel.deschedule(entry)
 	}
 	shard := s.shards[entry.shard]
@@ -242,6 +306,7 @@ func (s *Store[K, V]) removeEntry(entry *Entry[K, V]) {
 	if deleted {
 		var zero V
 		entry.value = zero
+		entry.frequency.Store(-2)
 		s.entryPool.Put(entry)
 	}
 }
@@ -265,6 +330,10 @@ func (s *Store[K, V]) maintance() {
 			time.Sleep(500 * time.Millisecond)
 			s.mlock.Lock()
 			s.timerwheel.advance(0, s.removeEntry)
+			if s.tailUpdate {
+				s.policy.UpdateThreshold()
+				s.tailUpdate = false
+			}
 			s.mlock.Unlock()
 		}
 	}()
@@ -305,6 +374,10 @@ func (s *Store[K, V]) maintance() {
 			}
 		}
 		item.entry = nil
+		if s.tailUpdate {
+			s.policy.UpdateThreshold()
+			s.tailUpdate = false
+		}
 		s.mlock.Unlock()
 	}
 }

@@ -29,15 +29,13 @@ type MetaData[K comparable, V any] struct {
 }
 
 type Entry[K comparable, V any] struct {
-	removed bool
-	shard   uint16
-	cost    atomic.Int64
-	key     K
-	value   V
-	expire  atomic.Int64
-	meta    MetaData[K, V]
-	// access frequency, updated on each access and sync with sketch
-	// should be >= 0, two special value, -2: deleted entry, -1: new entry, need to sync from sketch
+	removed   bool
+	shard     uint16
+	cost      atomic.Int64
+	key       K
+	value     V
+	expire    atomic.Int64
+	meta      MetaData[K, V]
 	frequency atomic.Int32
 }
 

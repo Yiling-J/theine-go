@@ -71,12 +71,12 @@ type Store[K comparable, V any] struct {
 	readbuf     *Queue[ReadBufItem[K, V]]
 	readCounter *atomic.Uint32
 	writebuf    chan WriteBufItem[K, V]
-	closeChan   chan int
 	hasher      *Hasher[K]
 	entryPool   sync.Pool
 	cost        func(V) int64
 	mlock       sync.Mutex
 	doorkeeper  bool
+	closed      bool
 }
 
 // New returns a new data struct with the specified capacity
@@ -116,7 +116,6 @@ func NewStore[K comparable, V any](maxsize int64) *Store[K, V] {
 		s.shards = append(s.shards, NewShard[K, V](uint(shardSize), uint(dequeSize)))
 	}
 
-	s.closeChan = make(chan int)
 	s.timerwheel = NewTimerWheel[K, V](uint(maxsize))
 	go s.maintance()
 	return s
@@ -149,10 +148,9 @@ func (s *Store[K, V]) Get(key K) (V, bool) {
 	switch {
 	case new < MAX_READ_BUFF_SIZE:
 		var send ReadBufItem[K, V]
+		send.hash = h
 		if ok {
 			send.entry = entry
-		} else {
-			send.hash = h
 		}
 		shard.mu.RUnlock()
 		s.readbuf.Push(send)
@@ -215,10 +213,10 @@ func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
 		}
 	}
 	entry := s.entryPool.Get().(*Entry[K, V])
+	entry.frequency.Store(0)
 	entry.shard = uint16(index)
 	entry.key = key
 	entry.value = value
-	entry.frequency.Store(-1)
 	entry.expire.Store(expire)
 	entry.cost.Store(cost)
 	shard.set(key, entry)
@@ -233,19 +231,25 @@ func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
 		evicted := shard.deque.PopBack()
 		expire := entry.expire.Load()
 		if expire != 0 && expire <= s.timerwheel.clock.nowNano() {
-			shard.delete(evicted)
+			deleted := shard.delete(evicted)
+			if deleted {
+				var zero V
+				evicted.value = zero
+				s.entryPool.Put(evicted)
+			}
 			shard.mu.Unlock()
 		} else {
-			var count int32
-			count = evicted.frequency.Load()
-			if count == -1 {
-				count = 0
-			}
+			count := evicted.frequency.Load()
 			if int32(count) >= s.policy.threshold.Load() {
 				shard.mu.Unlock()
 				s.writebuf <- WriteBufItem[K, V]{entry: evicted, code: NEW}
 			} else {
-				shard.delete(evicted)
+				deleted := shard.delete(evicted)
+				if deleted {
+					var zero V
+					evicted.value = zero
+					s.entryPool.Put(evicted)
+				}
 				shard.mu.Unlock()
 
 			}
@@ -315,7 +319,6 @@ func (s *Store[K, V]) removeEntry(entry *Entry[K, V]) {
 	if deleted {
 		var zero V
 		entry.value = zero
-		entry.frequency.Store(-2)
 		s.entryPool.Put(entry)
 	}
 }
@@ -338,6 +341,10 @@ func (s *Store[K, V]) maintance() {
 		for {
 			time.Sleep(500 * time.Millisecond)
 			s.mlock.Lock()
+			if s.closed {
+				s.mlock.Unlock()
+				return
+			}
 			s.timerwheel.advance(0, s.removeEntry)
 			if s.tailUpdate {
 				s.policy.UpdateThreshold()
@@ -397,5 +404,8 @@ func (s *Store[K, V]) Close() {
 		s.hashmap = nil
 		s.mu.RUnlock()
 	}
-	close(s.closeChan)
+	s.mlock.Lock()
+	s.closed = true
+	s.mlock.Unlock()
+	close(s.writebuf)
 }

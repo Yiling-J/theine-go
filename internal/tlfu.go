@@ -112,13 +112,7 @@ func (t *TinyLfu[K, V]) Access(item ReadBufItem[K, V]) {
 		t.counter = 0
 	}
 	if entry := item.entry; entry != nil {
-		// rmeoved entry, update sketch only
-		if entry.frequency.Load() == -2 {
-			t.sketch.Add(item.hash)
-			return
-		}
-		h := t.hasher.hash(entry.key)
-		reset := t.sketch.Add(h)
+		reset := t.sketch.Add(item.hash)
 		if reset {
 			t.threshold.Store(t.threshold.Load() / 2)
 		}
@@ -132,7 +126,7 @@ func (t *TinyLfu[K, V]) Access(item ReadBufItem[K, V]) {
 				t.threshold.Store(0)
 			}
 		} else {
-			entry.frequency.Store(int32(t.sketch.Estimate(h)))
+			entry.frequency.Store(int32(t.sketch.Estimate(item.hash)))
 		}
 	} else {
 		reset := t.sketch.Add(item.hash)

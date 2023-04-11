@@ -42,6 +42,7 @@ func TestSetParallel(t *testing.T) {
 	wg.Wait()
 	time.Sleep(300 * time.Millisecond)
 	require.True(t, client.Len() < 1200)
+	client.Close()
 }
 
 func TestGetSet(t *testing.T) {
@@ -58,6 +59,7 @@ func TestGetSet(t *testing.T) {
 	}
 	time.Sleep(300 * time.Millisecond)
 	require.True(t, client.Len() < 1200)
+	client.Close()
 }
 
 func TestDelete(t *testing.T) {
@@ -78,6 +80,7 @@ func TestDelete(t *testing.T) {
 	client.Delete("foo")
 	_, ok = client.Get("foo")
 	require.False(t, ok)
+	client.Close()
 }
 
 func TestGetSetParallel(t *testing.T) {
@@ -102,6 +105,7 @@ func TestGetSetParallel(t *testing.T) {
 	wg.Wait()
 	time.Sleep(300 * time.Millisecond)
 	require.True(t, client.Len() < 1200)
+	client.Close()
 }
 
 func TestSetWithTTL(t *testing.T) {
@@ -116,6 +120,7 @@ func TestSetWithTTL(t *testing.T) {
 	_, ok := client.Get("foo")
 	require.False(t, ok)
 	require.Equal(t, 0, client.Len())
+	client.Close()
 }
 
 func TestSetWithTTLAutoExpire(t *testing.T) {
@@ -144,6 +149,7 @@ func TestSetWithTTLAutoExpire(t *testing.T) {
 		_, ok := client.Get(key)
 		require.False(t, ok)
 	}
+	client.Close()
 }
 
 func TestGetSetDeleteNoRace(t *testing.T) {
@@ -174,6 +180,7 @@ func TestGetSetDeleteNoRace(t *testing.T) {
 		wg.Wait()
 		time.Sleep(300 * time.Millisecond)
 		require.True(t, client.Len() < size+50)
+		client.Close()
 	}
 }
 
@@ -205,6 +212,7 @@ func TestCost(t *testing.T) {
 	}
 	time.Sleep(time.Second)
 	require.True(t, client.Len() == 25)
+	client.Close()
 }
 
 func TestCostUpdate(t *testing.T) {
@@ -223,6 +231,7 @@ func TestCostUpdate(t *testing.T) {
 	time.Sleep(time.Second)
 	// 15 * 20 + 200
 	require.True(t, client.Len() == 16)
+	client.Close()
 }
 
 func TestDoorkeeper(t *testing.T) {
@@ -242,4 +251,5 @@ func TestDoorkeeper(t *testing.T) {
 		require.True(t, success)
 	}
 	require.True(t, client.Len() > 0)
+	client.Close()
 }

@@ -33,6 +33,8 @@ func BenchmarkGetTheineParallel(b *testing.B) {
 			counter++
 		}
 	})
+	client.Close()
+
 }
 
 func BenchmarkGetRistrettoParallel(b *testing.B) {
@@ -56,6 +58,8 @@ func BenchmarkGetRistrettoParallel(b *testing.B) {
 			counter++
 		}
 	})
+	client.Close()
+
 }
 
 func BenchmarkSetTheineParallel(b *testing.B) {
@@ -75,6 +79,8 @@ func BenchmarkSetTheineParallel(b *testing.B) {
 			counter++
 		}
 	})
+	client.Close()
+
 }
 
 func BenchmarkSetRistrettoParallel(b *testing.B) {
@@ -98,6 +104,8 @@ func BenchmarkSetRistrettoParallel(b *testing.B) {
 			counter++
 		}
 	})
+	client.Close()
+
 }
 
 func BenchmarkZipfTheineParallel(b *testing.B) {
@@ -121,6 +129,8 @@ func BenchmarkZipfTheineParallel(b *testing.B) {
 			counter++
 		}
 	})
+	client.Close()
+
 }
 
 func BenchmarkZipfRistrettoParallel(b *testing.B) {
@@ -148,4 +158,6 @@ func BenchmarkZipfRistrettoParallel(b *testing.B) {
 			counter++
 		}
 	})
+	client.Close()
+
 }

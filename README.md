@@ -85,6 +85,7 @@ BenchmarkZipfRistrettoParallel-12       21031435                61.82 ns/op     
 ### hit ratios
 
 ristretto v0.1.1: https://github.com/dgraph-io/ristretto
+> from Ristretto [README](https://github.com/dgraph-io/ristretto#hit-ratios), the hit ratio should be higher. But I can't reproduce their benchmark results. So I open an issue: https://github.com/dgraph-io/ristretto/issues/336
 
 golang-lru v2.0.2: https://github.com/hashicorp/golang-lru
 

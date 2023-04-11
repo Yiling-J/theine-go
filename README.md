@@ -19,7 +19,7 @@ cache clusters at Twitter](https://www.usenix.org/system/files/osdi20-yang.pdf)
 - [Installation](#installation)
 - [API](#api)
 - [Benchmarks](#benchmarks)
-  * [throughput benchmark](#throughput-benchmark)
+  * [throughput](#throughput)
   * [hit ratios](#hit-ratios)
 
 ## Requirements
@@ -69,7 +69,7 @@ client.Delete("foo")
 ```
 ## Benchmarks
 
-### throughput benchmark
+### throughput
 
 Source Code: https://github.com/Yiling-J/theine-go/blob/main/benchmark_test.go
 

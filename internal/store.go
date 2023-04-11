@@ -201,15 +201,15 @@ func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
 		return true
 	}
 	if s.doorkeeper {
+		if shard.counter > 20*shard.size {
+			shard.dookeeper.reset()
+			shard.counter = 0
+		}
 		hit := shard.dookeeper.insert(h)
 		if !hit {
 			shard.counter += 1
 			shard.mu.Unlock()
 			return false
-		}
-		if shard.counter > 20*shard.size {
-			shard.dookeeper.reset()
-			shard.counter = 0
 		}
 	}
 	entry := s.entryPool.Get().(*Entry[K, V])

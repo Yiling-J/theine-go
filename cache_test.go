@@ -238,18 +238,21 @@ func TestDoorkeeper(t *testing.T) {
 	client, err := theine.New[string, string](500)
 	require.Nil(t, err)
 	client.SetDoorkeeper(true)
-	for i := 0; i < 30; i++ {
+	for i := 0; i < 200; i++ {
 		key := fmt.Sprintf("key:%d", i)
-		success := client.Set(key, key, 20)
+		success := client.Set(key, key, 1)
 		require.False(t, success)
 	}
 	require.True(t, client.Len() == 0)
 	time.Sleep(time.Second)
-	for i := 0; i < 30; i++ {
+	for i := 0; i < 200; i++ {
 		key := fmt.Sprintf("key:%d", i)
-		success := client.Set(key, key, 20)
+		success := client.Set(key, key, 1)
 		require.True(t, success)
 	}
 	require.True(t, client.Len() > 0)
-	client.Close()
+	for i := 0; i < 500000; i++ {
+		key := fmt.Sprintf("key:%d:2", i)
+		client.Set(key, key, 1)
+	}
 }

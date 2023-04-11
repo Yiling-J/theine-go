@@ -28,7 +28,6 @@ Go 1.19+
 ## Installation
 ```
 go get github.com/Yiling-J/theine-go
-
 ```
 
 ## API
@@ -43,6 +42,17 @@ client, err := theine.New[string, string](1000)
 if err != nil {
 	panic(err)
 }
+
+// dynamic cost function based on value
+// use 0 in Set will call this function to evaluate cost at runtime
+client.SetCost(func(v string) int64 {
+		return int64(len(v))
+})
+
+// enable doorkeeper
+// doorkeeper will drop Set if they are not in bloomfilter yet
+// this can improve write peroformance, but may lower hit ratio
+client.SetDoorkeeper(true)
 
 // set, key foo, value bar, cost 1
 success := client.Set("foo", "bar", 1)

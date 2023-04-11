@@ -1,4 +1,4 @@
-# Theine(WIP)
+# Theine
 High performance in-memory cache inspired by [Caffeine](https://github.com/ben-manes/caffeine).
 
 

@@ -99,16 +99,20 @@ golang-lru v2.0.2: https://github.com/hashicorp/golang-lru
 **search**
 
 This trace is described as "disk read accesses initiated by a large commercial search engine in response to various web search requests."
+
 ![hit ratios](benchmarks/results/s3.png)
 **database**
 
 This trace is described as "a database server running at a commercial site running an ERP application on top of a commercial database."
+
 ![hit ratios](benchmarks/results/ds1.png)
 **Scarabresearch database trace**
 
 Scarabresearch 1 hour database trace from this [issue](https://github.com/ben-manes/caffeine/issues/106)
+
 ![hit ratios](benchmarks/results/scarab1h.png)
 **Meta anonymized trace**
 
 Meta shared anonymized trace captured from large scale production cache services, from [cachelib](https://cachelib.org/docs/Cache_Library_User_Guides/Cachebench_FB_HW_eval/#running-cachebench-with-the-trace-workload)
+
 ![hit ratios](benchmarks/results/meta.png)

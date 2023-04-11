@@ -18,12 +18,6 @@ const (
 	MAINTANCE           = 1
 )
 
-type Config[V any] struct {
-	MaximumSize int64
-	Doorkeeper  bool
-	Cost        func(v V) int64
-}
-
 type Shard[K comparable, V any] struct {
 	hashmap   map[K]*Entry[K, V]
 	mu        sync.RWMutex
@@ -86,13 +80,9 @@ type Store[K comparable, V any] struct {
 }
 
 // New returns a new data struct with the specified capacity
-func NewStore[K comparable, V any](config Config[V]) *Store[K, V] {
-	cost := config.Cost
-	if cost == nil {
-		cost = func(v V) int64 { return 1 }
-	}
+func NewStore[K comparable, V any](maxsize int64) *Store[K, V] {
 	hasher := NewHasher[K]()
-	writeBufSize := config.MaximumSize / 100
+	writeBufSize := maxsize / 100
 	if writeBufSize < MIN_WRITE_BUFF_SIZE {
 		writeBufSize = MIN_WRITE_BUFF_SIZE
 	}
@@ -103,23 +93,23 @@ func NewStore[K comparable, V any](config Config[V]) *Store[K, V] {
 	for int(shardCount) < runtime.NumCPU()*8 {
 		shardCount *= 2
 	}
-	dequeSize := int(config.MaximumSize) / 100 / shardCount
-	shardSize := int(config.MaximumSize) / shardCount
+	dequeSize := int(maxsize) / 100 / shardCount
+	shardSize := int(maxsize) / shardCount
 	if shardSize < 50 {
 		shardSize = 50
 	}
-	policySize := int(config.MaximumSize) - (dequeSize * shardCount)
+	policySize := int(maxsize) - (dequeSize * shardCount)
 	s := &Store[K, V]{
-		cap:         uint(config.MaximumSize),
+		cap:         uint(maxsize),
 		hasher:      hasher,
 		policy:      NewTinyLfu[K, V](uint(policySize), hasher),
 		readCounter: &atomic.Uint32{},
 		readbuf:     NewQueue[ReadBufItem[K, V]](),
 		writebuf:    make(chan WriteBufItem[K, V], writeBufSize),
 		entryPool:   sync.Pool{New: func() any { return &Entry[K, V]{} }},
-		cost:        cost,
+		cost:        func(v V) int64 { return 1 },
 		shardCount:  uint(shardCount),
-		doorkeeper:  config.Doorkeeper,
+		doorkeeper:  false,
 	}
 	s.shards = make([]*Shard[K, V], 0, s.shardCount)
 	for i := 0; i < int(s.shardCount); i++ {
@@ -127,9 +117,16 @@ func NewStore[K comparable, V any](config Config[V]) *Store[K, V] {
 	}
 
 	s.closeChan = make(chan int)
-	s.timerwheel = NewTimerWheel[K, V](uint(config.MaximumSize))
+	s.timerwheel = NewTimerWheel[K, V](uint(maxsize))
 	go s.maintance()
 	return s
+}
+
+func (s *Store[K, V]) SetCost(cost func(v V) int64) {
+	s.cost = cost
+}
+func (s *Store[K, V]) SetDoorkeeper(enabled bool) {
+	s.doorkeeper = enabled
 }
 
 func (s *Store[K, V]) Get(key K) (V, bool) {

@@ -8,6 +8,7 @@ require (
 	github.com/Yiling-J/theine-go v0.0.0-00010101000000-000000000000
 	github.com/dgraph-io/ristretto v0.1.1
 	github.com/hashicorp/golang-lru/v2 v2.0.2
+	golang.org/x/image v0.0.0-20220902085622-e7cb96979f69
 	gonum.org/v1/plot v0.12.0
 )
 
@@ -25,7 +26,6 @@ require (
 	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/zeebo/xxh3 v1.0.2 // indirect
-	golang.org/x/image v0.0.0-20220902085622-e7cb96979f69 // indirect
 	golang.org/x/sys v0.0.0-20221010170243-090e33056c14 // indirect
 	golang.org/x/text v0.3.7 // indirect
 )

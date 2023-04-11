@@ -11,24 +11,31 @@ const (
 	ZERO_TTL = 0 * time.Second
 )
 
-type Config[V any] internal.Config[V]
-
 type Cache[K comparable, V any] struct {
 	store *internal.Store[K, V]
 }
 
-func New[K comparable, V any](config *Config[V]) (*Cache[K, V], error) {
-	if config.MaximumSize <= 0 {
+func New[K comparable, V any](maxsize int64) (*Cache[K, V], error) {
+	if maxsize <= 0 {
 		return nil, errors.New("size must be positive")
 	}
 
 	return &Cache[K, V]{
-		store: internal.NewStore[K]((internal.Config[V])(*config)),
+		store: internal.NewStore[K, V](maxsize),
 	}, nil
 }
 
 func (c *Cache[K, V]) Get(key K) (V, bool) {
 	return c.store.Get(key)
+}
+
+func (c *Cache[K, V]) SetCost(cost func(v V) int64) *Cache[K, V] {
+	c.store.SetCost(cost)
+	return c
+}
+func (c *Cache[K, V]) SetDoorkeeper(enabled bool) *Cache[K, V] {
+	c.store.SetDoorkeeper(enabled)
+	return c
 }
 
 func (c *Cache[K, V]) SetWithTTL(key K, value V, cost int64, ttl time.Duration) bool {

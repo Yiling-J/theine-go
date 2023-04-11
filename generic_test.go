@@ -8,9 +8,7 @@ import (
 )
 
 func assertGeneric[T comparable](t *testing.T, k1 T, k2 T) {
-	client, err := theine.New[T](&theine.Config[int]{
-		MaximumSize: 10,
-	})
+	client, err := theine.New[T, int](10)
 	require.Nil(t, err)
 	client.Set(k1, 1, 1)
 	v, ok := client.Get(k1)

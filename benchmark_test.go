@@ -14,8 +14,10 @@ type bar struct {
 	key string
 }
 
+type foo struct{}
+
 func BenchmarkGetTheineParallel(b *testing.B) {
-	client, err := theine.New[string, foo](&theine.Config[foo]{MaximumSize: 100000})
+	client, err := theine.New[string, foo](100000)
 	if err != nil {
 		panic(err)
 	}
@@ -57,7 +59,7 @@ func BenchmarkGetRistrettoParallel(b *testing.B) {
 }
 
 func BenchmarkSetTheineParallel(b *testing.B) {
-	client, err := theine.New[string, bar](&theine.Config[bar]{MaximumSize: 100000})
+	client, err := theine.New[string, bar](100000)
 	if err != nil {
 		panic(err)
 	}
@@ -99,7 +101,7 @@ func BenchmarkSetRistrettoParallel(b *testing.B) {
 }
 
 func BenchmarkZipfTheineParallel(b *testing.B) {
-	client, err := theine.New[string, bar](&theine.Config[bar]{MaximumSize: 100000})
+	client, err := theine.New[string, bar](100000)
 	if err != nil {
 		panic(err)
 	}

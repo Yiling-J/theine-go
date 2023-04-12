@@ -9,13 +9,10 @@ import (
 	"github.com/gammazero/deque"
 )
 
-type OPCODE int8
-
 const (
 	MAX_READ_BUFF_SIZE  = 64
 	MIN_WRITE_BUFF_SIZE = 4
 	MAX_WRITE_BUFF_SIZE = 1024
-	MAINTANCE           = 1
 )
 
 type Shard[K comparable, V any] struct {

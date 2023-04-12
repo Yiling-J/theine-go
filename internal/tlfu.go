@@ -86,7 +86,7 @@ func (t *TinyLfu[K, V]) Set(entry *Entry[K, V]) *Entry[K, V] {
 		if victim := t.slru.victim(); victim != nil {
 			freq := int(entry.frequency.Load())
 			if freq == -1 {
-				freq = 0
+				freq = int(t.sketch.Estimate(t.hasher.hash(entry.key)))
 			}
 			evictedCount := uint(freq) + uint(t.lruFactor)
 			victimCount := t.sketch.Estimate(t.hasher.hash(victim.key))
@@ -94,7 +94,7 @@ func (t *TinyLfu[K, V]) Set(entry *Entry[K, V]) *Entry[K, V] {
 				t.threshold.Store(int32(victimCount) - int32(t.lruFactor))
 				return entry
 			} else {
-				t.threshold.Store(0)
+				t.threshold.Store(-int32(t.lruFactor))
 			}
 		}
 		evicted := t.slru.insert(entry)

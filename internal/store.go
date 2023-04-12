@@ -210,7 +210,7 @@ func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
 		}
 	}
 	entry := s.entryPool.Get().(*Entry[K, V])
-	entry.frequency.Store(0)
+	entry.frequency.Store(-1)
 	entry.shard = uint16(index)
 	entry.key = key
 	entry.value = value
@@ -237,6 +237,9 @@ func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
 			shard.mu.Unlock()
 		} else {
 			count := evicted.frequency.Load()
+			if count == -1 {
+				count = 0
+			}
 			if int32(count) >= s.policy.threshold.Load() {
 				shard.mu.Unlock()
 				s.writebuf <- WriteBufItem[K, V]{entry: evicted, code: NEW}
@@ -291,11 +294,11 @@ func (s *Store[K, V]) WriteBufLen() int {
 
 // spread hash before get index
 func (s *Store[K, V]) index(key K) (uint64, int) {
-	h := s.hasher.hash(key)
-	h = ((h >> 16) ^ h) * 0x45d9f3b
+	base := s.hasher.hash(key)
+	h := ((base >> 16) ^ base) * 0x45d9f3b
 	h = ((h >> 16) ^ h) * 0x45d9f3b
 	h = (h >> 16) ^ h
-	return h, int(h & uint64(s.shardCount-1))
+	return base, int(h & uint64(s.shardCount-1))
 }
 
 // remove entry from cache/policy/timingwheel and add back to pool

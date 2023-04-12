@@ -256,3 +256,37 @@ func TestDoorkeeper(t *testing.T) {
 		client.Set(key, key, 1)
 	}
 }
+
+func TestZeroDequeFrequency(t *testing.T) {
+	client, err := theine.New[int, int](100)
+	require.Nil(t, err)
+	// set and access 200 entries
+	for i := 0; i < 200; i++ {
+		success := client.Set(i, i, 1)
+		require.True(t, success)
+	}
+	for i := 0; i < 200; i++ {
+		client.Get(i)
+	}
+	// set a new entry
+	success := client.Set(999, 999, 1)
+	require.True(t, success)
+	// wait write queue process
+	time.Sleep(time.Second)
+	// 999 is evicted automatically, because tail entry in slru has frequency 1
+	// but 999 frequency is 0
+	// so increase 999 frequency
+	for i := 0; i < 128; i++ {
+		_, ok := client.Get(999)
+		require.False(t, ok)
+	}
+	time.Sleep(time.Second)
+	// set again, this time the tail entry will be evicted because 999 has higher frequency
+	success = client.Set(999, 999, 1)
+	require.True(t, success)
+	// wait write queue process
+	time.Sleep(time.Second)
+	_, ok := client.Get(999)
+	require.True(t, ok)
+
+}

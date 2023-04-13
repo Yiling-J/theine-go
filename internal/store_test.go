@@ -18,7 +18,7 @@ func TestDequeExpire(t *testing.T) {
 	}
 	_, index := store.index(123)
 	expire := store.timerwheel.clock.expireNano(200 * time.Millisecond)
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 50; i++ {
 		entry := &Entry[int, int]{key: i}
 		entry.expire.Store(expire)
 		store.shards[index].deque.PushFront(entry)
@@ -26,8 +26,6 @@ func TestDequeExpire(t *testing.T) {
 	}
 	require.True(t, len(expired) == 0)
 	time.Sleep(1 * time.Second)
-	for i := 0; i < 5; i++ {
-		store.Set(123, 123, 1, 1*time.Second)
-	}
+	store.Set(123, 123, 1, 1*time.Second)
 	require.True(t, len(expired) > 0)
 }

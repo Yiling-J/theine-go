@@ -1,4 +1,6 @@
 # Theine
+[![codecov](https://codecov.io/gh/Yiling-J/theine-go/branch/main/graph/badge.svg?token=E1HJLJH07V)](https://codecov.io/gh/Yiling-J/theine-go)
+
 High performance in-memory cache inspired by [Caffeine](https://github.com/ben-manes/caffeine).
 
 

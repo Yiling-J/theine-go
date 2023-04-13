@@ -29,7 +29,6 @@ type MetaData[K comparable, V any] struct {
 }
 
 type Entry[K comparable, V any] struct {
-	removed   bool
 	shard     uint16
 	cost      atomic.Int64
 	key       K

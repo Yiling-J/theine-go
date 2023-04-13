@@ -34,28 +34,48 @@ go get github.com/Yiling-J/theine-go
 
 Key should be **comparable**, and value can be any.
 
-```Go
+create client
+
+```GO
 import "github.com/Yiling-J/theine-go"
 
 // key type string, value type string, max size 1000
+// max size is the only required configuration to initialize a client
 client, err := theine.New[string, string](1000)
 if err != nil {
 	panic(err)
 }
 
+// optional
+
 // dynamic cost function based on value
 // use 0 in Set will call this function to evaluate cost at runtime
-client.SetCost(func(v string) int64 {
+client.Cost(func(v string) int64 {
 		return int64(len(v))
 })
 
-// enable doorkeeper
+// doorkeeper
 // doorkeeper will drop Set if they are not in bloomfilter yet
 // this can improve write peroformance, but may lower hit ratio
-client.SetDoorkeeper(true)
+client.Doorkeeper(true)
 
+// removal listener, this function will be called when entry is removed
+// RemoveReason could be REMOVED/EVICTED/EXPIRED
+// REMOVED: remove by API
+// EVICTED: evicted by Window-TinyLFU policy
+// EXPIRED: expired by timing wheel
+client.RemovalListener(func(key K, value V, reason theine.RemoveReason) {})
+
+```
+
+use client
+
+```Go
 // set, key foo, value bar, cost 1
+// success will be false if cost > max size
 success := client.Set("foo", "bar", 1)
+// cost 0 means using dynamic cost function
+// success := client.Set("foo", "bar", 0)
 
 // set with ttl
 success = client.SetWithTTL("foo", "bar", 1, 1*time.Second)

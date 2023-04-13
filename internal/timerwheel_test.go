@@ -92,30 +92,30 @@ func TestAdvance(t *testing.T) {
 		tw.schedule(entry)
 	}
 	evicted := []string{}
-	tw.advance(tw.clock.nowNano()+(time.Second*time.Duration(64)).Nanoseconds(), func(entry *Entry[string, string]) {
+	tw.advance(tw.clock.nowNano()+(time.Second*time.Duration(64)).Nanoseconds(), func(entry *Entry[string, string], reason RemoveReason) {
 		evicted = append(evicted, entry.key)
 	})
 	require.ElementsMatch(t, []string{"k1", "k2", "k3"}, evicted)
 
-	tw.advance(tw.clock.nowNano()+(time.Second*time.Duration(200)).Nanoseconds(), func(entry *Entry[string, string]) {
+	tw.advance(tw.clock.nowNano()+(time.Second*time.Duration(200)).Nanoseconds(), func(entry *Entry[string, string], reason RemoveReason) {
 		evicted = append(evicted, entry.key)
 	})
 
 	require.ElementsMatch(t, []string{"k1", "k2", "k3", "k4"}, evicted)
 
-	tw.advance(tw.clock.nowNano()+(time.Second*time.Duration(12000)).Nanoseconds(), func(entry *Entry[string, string]) {
+	tw.advance(tw.clock.nowNano()+(time.Second*time.Duration(12000)).Nanoseconds(), func(entry *Entry[string, string], reason RemoveReason) {
 		evicted = append(evicted, entry.key)
 	})
 
 	require.ElementsMatch(t, []string{"k1", "k2", "k3", "k4", "k5"}, evicted)
 
-	tw.advance(tw.clock.nowNano()+(time.Second*time.Duration(350000)).Nanoseconds(), func(entry *Entry[string, string]) {
+	tw.advance(tw.clock.nowNano()+(time.Second*time.Duration(350000)).Nanoseconds(), func(entry *Entry[string, string], reason RemoveReason) {
 		evicted = append(evicted, entry.key)
 	})
 
 	require.ElementsMatch(t, []string{"k1", "k2", "k3", "k4", "k5", "k6"}, evicted)
 
-	tw.advance(tw.clock.nowNano()+(time.Second*time.Duration(1520000)).Nanoseconds(), func(entry *Entry[string, string]) {
+	tw.advance(tw.clock.nowNano()+(time.Second*time.Duration(1520000)).Nanoseconds(), func(entry *Entry[string, string], reason RemoveReason) {
 		evicted = append(evicted, entry.key)
 	})
 

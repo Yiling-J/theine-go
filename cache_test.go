@@ -156,6 +156,7 @@ func TestGetSetDeleteNoRace(t *testing.T) {
 	for _, size := range []int{500, 2000, 10000, 50000} {
 		client, err := theine.New[string, string](int64(size))
 		require.Nil(t, err)
+		client.RemovalListener(func(key, value string, reason theine.RemoveReason) {})
 		var wg sync.WaitGroup
 		keys := []string{}
 		for i := 0; i < 100000; i++ {
@@ -200,7 +201,7 @@ func TestCost(t *testing.T) {
 	// test cost func
 	client, err = theine.New[string, string](500)
 	require.Nil(t, err)
-	client.SetCost(func(v string) int64 {
+	client.Cost(func(v string) int64 {
 		return int64(len(v))
 	})
 	success = client.Set("z", strings.Repeat("z", 501), 0)
@@ -237,7 +238,7 @@ func TestCostUpdate(t *testing.T) {
 func TestDoorkeeper(t *testing.T) {
 	client, err := theine.New[string, string](500)
 	require.Nil(t, err)
-	client.SetDoorkeeper(true)
+	client.Doorkeeper(true)
 	for i := 0; i < 200; i++ {
 		key := fmt.Sprintf("key:%d", i)
 		success := client.Set(key, key, 1)
@@ -289,4 +290,53 @@ func TestZeroDequeFrequency(t *testing.T) {
 	_, ok := client.Get(999)
 	require.True(t, ok)
 
+}
+
+func TestRemovalListener(t *testing.T) {
+	client, err := theine.New[int, int](100)
+	require.Nil(t, err)
+	removed := map[int]int{}
+	evicted := map[int]int{}
+	expired := map[int]int{}
+	var lock sync.Mutex
+	client.RemovalListener(func(key, value int, reason theine.RemoveReason) {
+		lock.Lock()
+		defer lock.Unlock()
+		switch reason {
+		case theine.REMOVED:
+			removed[key] = value
+		case theine.EVICTED:
+			evicted[key] = value
+		case theine.EXPIRED:
+			expired[key] = value
+		}
+	})
+	for i := 0; i < 100; i++ {
+		success := client.Set(i, i, 1)
+		require.True(t, success)
+	}
+	// this will evict one entry: 0
+	success := client.Set(100, 100, 1)
+	require.True(t, success)
+	time.Sleep(100 * time.Millisecond)
+	lock.Lock()
+	require.Equal(t, 1, len(evicted))
+	require.True(t, evicted[0] == 0)
+	lock.Unlock()
+	// manually remove one
+	client.Delete(5)
+	time.Sleep(100 * time.Millisecond)
+	lock.Lock()
+	require.Equal(t, 1, len(removed))
+	require.True(t, removed[5] == 5)
+	lock.Unlock()
+	// expire one
+	for i := 0; i < 100; i++ {
+		success := client.SetWithTTL(i+100, i+100, 1, 1*time.Second)
+		require.True(t, success)
+	}
+	time.Sleep(5 * time.Second)
+	lock.Lock()
+	require.True(t, len(expired) > 0)
+	lock.Unlock()
 }

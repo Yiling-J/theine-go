@@ -105,7 +105,7 @@ func (tw *TimerWheel[K, V]) schedule(entry *Entry[K, V]) {
 	tw.wheel[x][y].PushFront(entry)
 }
 
-func (tw *TimerWheel[K, V]) advance(now int64, remove func(entry *Entry[K, V])) {
+func (tw *TimerWheel[K, V]) advance(now int64, remove func(entry *Entry[K, V], reason RemoveReason)) {
 	if now == 0 {
 		now = tw.clock.nowNano()
 	}
@@ -122,7 +122,7 @@ func (tw *TimerWheel[K, V]) advance(now int64, remove func(entry *Entry[K, V])) 
 	}
 }
 
-func (tw *TimerWheel[K, V]) expire(index int, prevTicks int64, delta int64, remove func(entry *Entry[K, V])) {
+func (tw *TimerWheel[K, V]) expire(index int, prevTicks int64, delta int64, remove func(entry *Entry[K, V], reason RemoveReason)) {
 	mask := tw.buckets[index] - 1
 	steps := tw.buckets[index]
 	if delta < int64(steps) {
@@ -137,7 +137,7 @@ func (tw *TimerWheel[K, V]) expire(index int, prevTicks int64, delta int64, remo
 			next := entry.Next(WHEEL_LIST)
 			if entry.expire.Load() <= tw.nanos {
 				tw.deschedule(entry)
-				remove(entry)
+				remove(entry, EXPIRED)
 			} else {
 				tw.schedule(entry)
 			}

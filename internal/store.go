@@ -15,6 +15,14 @@ const (
 	MAX_WRITE_BUFF_SIZE = 1024
 )
 
+type RemoveReason uint8
+
+const (
+	REMOVED RemoveReason = iota
+	EVICTED
+	EXPIRED
+)
+
 type Shard[K comparable, V any] struct {
 	hashmap   map[K]*Entry[K, V]
 	mu        sync.RWMutex
@@ -58,22 +66,26 @@ func (s *Shard[K, V]) len() int {
 	return len(s.hashmap)
 }
 
+type Metrics struct {
+}
+
 type Store[K comparable, V any] struct {
-	tailUpdate  bool
-	cap         uint
-	shards      []*Shard[K, V]
-	shardCount  uint
-	policy      *TinyLfu[K, V]
-	timerwheel  *TimerWheel[K, V]
-	readbuf     *Queue[ReadBufItem[K, V]]
-	readCounter *atomic.Uint32
-	writebuf    chan WriteBufItem[K, V]
-	hasher      *Hasher[K]
-	entryPool   sync.Pool
-	cost        func(V) int64
-	mlock       sync.Mutex
-	doorkeeper  bool
-	closed      bool
+	tailUpdate      bool
+	cap             uint
+	shards          []*Shard[K, V]
+	shardCount      uint
+	policy          *TinyLfu[K, V]
+	timerwheel      *TimerWheel[K, V]
+	readbuf         *Queue[ReadBufItem[K, V]]
+	readCounter     *atomic.Uint32
+	writebuf        chan WriteBufItem[K, V]
+	hasher          *Hasher[K]
+	entryPool       sync.Pool
+	cost            func(V) int64
+	mlock           sync.Mutex
+	doorkeeper      bool
+	closed          bool
+	removalListener func(key K, value V, reason RemoveReason)
 }
 
 // New returns a new data struct with the specified capacity
@@ -118,11 +130,15 @@ func NewStore[K comparable, V any](maxsize int64) *Store[K, V] {
 	return s
 }
 
-func (s *Store[K, V]) SetCost(cost func(v V) int64) {
+func (s *Store[K, V]) Cost(cost func(v V) int64) {
 	s.cost = cost
 }
-func (s *Store[K, V]) SetDoorkeeper(enabled bool) {
+func (s *Store[K, V]) Doorkeeper(enabled bool) {
 	s.doorkeeper = enabled
+}
+
+func (s *Store[K, V]) RemovalListener(listener func(key K, value V, reason RemoveReason)) {
+	s.removalListener = listener
 }
 
 func (s *Store[K, V]) Get(key K) (V, bool) {
@@ -224,17 +240,23 @@ func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
 		return true
 	}
 	shard.deque.PushFront(entry)
+	var k K
+	var v V
 	if shard.deque.Len() > int(shard.qsize) {
 		evicted := shard.deque.PopBack()
-		expire := entry.expire.Load()
+		expire := evicted.expire.Load()
 		if expire != 0 && expire <= s.timerwheel.clock.nowNano() {
 			deleted := shard.delete(evicted)
 			if deleted {
-				var zero V
-				evicted.value = zero
-				s.entryPool.Put(evicted)
+				k, v = evicted.key, evicted.value
+				s.postDelete(evicted, EXPIRED)
 			}
 			shard.mu.Unlock()
+			if deleted {
+				if s.removalListener != nil {
+					s.removalListener(k, v, EXPIRED)
+				}
+			}
 		} else {
 			count := evicted.frequency.Load()
 			if count == -1 {
@@ -246,12 +268,15 @@ func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
 			} else {
 				deleted := shard.delete(evicted)
 				if deleted {
-					var zero V
-					evicted.value = zero
-					s.entryPool.Put(evicted)
+					k, v = evicted.key, evicted.value
+					s.postDelete(evicted, EXPIRED)
 				}
 				shard.mu.Unlock()
-
+				if deleted {
+					if s.removalListener != nil {
+						s.removalListener(k, v, EVICTED)
+					}
+				}
 			}
 		}
 	} else {
@@ -269,7 +294,9 @@ func (s *Store[K, V]) Delete(key K) {
 		shard.delete(entry)
 	}
 	shard.mu.Unlock()
-	s.writebuf <- WriteBufItem[K, V]{entry: entry, code: REMOVE}
+	if ok {
+		s.writebuf <- WriteBufItem[K, V]{entry: entry, code: REMOVE}
+	}
 }
 
 func (s *Store[K, V]) Len() int {
@@ -277,16 +304,6 @@ func (s *Store[K, V]) Len() int {
 	for _, s := range s.shards {
 		s.mu.RLock()
 		total += s.len()
-		s.mu.RUnlock()
-	}
-	return total
-}
-
-func (s *Store[K, V]) WriteBufLen() int {
-	total := 0
-	for _, s := range s.shards {
-		s.mu.RLock()
-		total += 1
 		s.mu.RUnlock()
 	}
 	return total
@@ -301,8 +318,14 @@ func (s *Store[K, V]) index(key K) (uint64, int) {
 	return base, int(h & uint64(s.shardCount-1))
 }
 
+func (s *Store[K, V]) postDelete(entry *Entry[K, V], reason RemoveReason) {
+	var zero V
+	entry.value = zero
+	s.entryPool.Put(entry)
+}
+
 // remove entry from cache/policy/timingwheel and add back to pool
-func (s *Store[K, V]) removeEntry(entry *Entry[K, V]) {
+func (s *Store[K, V]) removeEntry(entry *Entry[K, V], reason RemoveReason) {
 	if prev := entry.meta.prev; prev != nil {
 		s.policy.Remove(entry)
 		if prev.meta.root {
@@ -312,14 +335,30 @@ func (s *Store[K, V]) removeEntry(entry *Entry[K, V]) {
 	if entry.meta.wheelPrev != nil {
 		s.timerwheel.deschedule(entry)
 	}
-	shard := s.shards[entry.shard]
-	shard.mu.Lock()
-	deleted := shard.delete(entry)
-	shard.mu.Unlock()
-	if deleted {
-		var zero V
-		entry.value = zero
-		s.entryPool.Put(entry)
+	var k K
+	var v V
+	switch reason {
+	case EVICTED, EXPIRED:
+		shard := s.shards[entry.shard]
+		shard.mu.Lock()
+		deleted := shard.delete(entry)
+		shard.mu.Unlock()
+		if deleted {
+			k, v = entry.key, entry.value
+			if s.removalListener != nil {
+				s.removalListener(k, v, reason)
+			}
+			s.postDelete(entry, reason)
+		}
+	// already removed from shard map
+	case REMOVED:
+		shard := s.shards[entry.shard]
+		shard.mu.RLock()
+		k, v = entry.key, entry.value
+		shard.mu.RUnlock()
+		if s.removalListener != nil {
+			s.removalListener(k, v, reason)
+		}
 	}
 }
 
@@ -353,10 +392,11 @@ func (s *Store[K, V]) maintance() {
 			s.mlock.Unlock()
 		}
 	}()
+
 	for item := range s.writebuf {
 		s.mlock.Lock()
 		entry := item.entry
-		if entry == nil || entry.removed {
+		if entry == nil {
 			s.mlock.Unlock()
 			continue
 		}
@@ -369,14 +409,14 @@ func (s *Store[K, V]) maintance() {
 			}
 			evicted := s.policy.Set(entry)
 			if evicted != nil {
-				s.removeEntry(evicted)
+				s.removeEntry(evicted, EVICTED)
 			}
 			removed := s.policy.EvictEntries()
 			for _, e := range removed {
-				s.removeEntry(e)
+				s.removeEntry(e, EVICTED)
 			}
 		case REMOVE:
-			s.removeEntry(entry)
+			s.removeEntry(entry, REMOVED)
 		case UPDATE:
 			if item.rechedule {
 				s.timerwheel.schedule(entry)
@@ -385,7 +425,7 @@ func (s *Store[K, V]) maintance() {
 				s.policy.UpdateCost(entry, item.costChange)
 				removed := s.policy.EvictEntries()
 				for _, e := range removed {
-					s.removeEntry(e)
+					s.removeEntry(e, EVICTED)
 				}
 			}
 		}

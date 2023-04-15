@@ -23,6 +23,7 @@ cache clusters at Twitter](https://www.usenix.org/system/files/osdi20-yang.pdf)
 - [Benchmarks](#benchmarks)
   * [throughput](#throughput)
   * [hit ratios](#hit-ratios)
+- [Support](#support)
 
 ## Requirements
 Go 1.19+
@@ -138,3 +139,6 @@ Scarabresearch 1 hour database trace from this [issue](https://github.com/ben-ma
 Meta shared anonymized trace captured from large scale production cache services, from [cachelib](https://cachelib.org/docs/Cache_Library_User_Guides/Cachebench_FB_HW_eval/#running-cachebench-with-the-trace-workload)
 
 ![hit ratios](benchmarks/results/meta.png)
+
+## Support
+Open an issue, ask question in discussions or join discoard channel: https://discord.gg/StrgfPaQqE 

@@ -56,8 +56,9 @@ if err != nil {
 // builder also provide several optional configurations
 // you can chain them together and call build once
 // client, err := theine.NewBuilder[string, string](1000).Cost(...).Doorkeeper(...).Build()
+
 // or create builder first
-// builder := theine.NewBuilder[string, string](1000)
+builder := theine.NewBuilder[string, string](1000)
 
 // dynamic cost function based on value
 // use 0 in Set will call this function to evaluate cost at runtime

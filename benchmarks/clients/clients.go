@@ -21,7 +21,7 @@ type Theine[K comparable, V any] struct {
 }
 
 func (c *Theine[K, V]) Init(cap int) {
-	client, err := theine.New[K, V](int64(cap))
+	client, err := theine.NewBuilder[K, V](int64(cap)).Build()
 	if err != nil {
 		panic(err)
 	}

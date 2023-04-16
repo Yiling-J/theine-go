@@ -17,7 +17,7 @@ type bar struct {
 type foo struct{}
 
 func BenchmarkGetTheineParallel(b *testing.B) {
-	client, err := theine.New[string, foo](100000)
+	client, err := theine.NewBuilder[string, foo](100000).Build()
 	if err != nil {
 		panic(err)
 	}
@@ -63,7 +63,7 @@ func BenchmarkGetRistrettoParallel(b *testing.B) {
 }
 
 func BenchmarkSetTheineParallel(b *testing.B) {
-	client, err := theine.New[string, bar](100000)
+	client, err := theine.NewBuilder[string, bar](100000).Build()
 	if err != nil {
 		panic(err)
 	}
@@ -109,7 +109,7 @@ func BenchmarkSetRistrettoParallel(b *testing.B) {
 }
 
 func BenchmarkZipfTheineParallel(b *testing.B) {
-	client, err := theine.New[string, bar](100000)
+	client, err := theine.NewBuilder[string, bar](100000).Build()
 	if err != nil {
 		panic(err)
 	}

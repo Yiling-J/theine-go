@@ -35,43 +35,71 @@ go get github.com/Yiling-J/theine-go
 
 ## API
 
-Key should be **comparable**, and value can be any.
+**Builder API**
 
-create client
+Theine provides two types of client, simple cache and loading cache. Both of them are initialized from a builder. The difference between simple cache and loading cache is: loading cache's Get method will compute the value using loader function when there is a miss, while simple cache client only return false and do nothing.
+
+Loading cache uses singleflight to prevent concurrency loading to same key(thundering herd).
+
+simple cache:
 
 ```GO
 import "github.com/Yiling-J/theine-go"
 
 // key type string, value type string, max size 1000
-// max size is the only required configuration to initialize a client
-client, err := theine.New[string, string](1000)
+// max size is the only required configuration to build a client
+client, err := theine.NewBuilder[string, string](1000).Build()
 if err != nil {
 	panic(err)
 }
 
-// optional
+// builder also provide several optional configurations
+// you can chain them together and call build once
+// client, err := theine.NewBuilder[string, string](1000).Cost(...).Doorkeeper(...).Build()
+
+// or create builder first
+builder := theine.NewBuilder[string, string](1000)
 
 // dynamic cost function based on value
 // use 0 in Set will call this function to evaluate cost at runtime
-client.Cost(func(v string) int64 {
+builder.Cost(func(v string) int64 {
 		return int64(len(v))
 })
 
 // doorkeeper
 // doorkeeper will drop Set if they are not in bloomfilter yet
 // this can improve write peroformance, but may lower hit ratio
-client.Doorkeeper(true)
+builder.Doorkeeper(true)
 
 // removal listener, this function will be called when entry is removed
 // RemoveReason could be REMOVED/EVICTED/EXPIRED
 // REMOVED: remove by API
 // EVICTED: evicted by Window-TinyLFU policy
 // EXPIRED: expired by timing wheel
-client.RemovalListener(func(key K, value V, reason theine.RemoveReason) {})
+builder.RemovalListener(func(key K, value V, reason theine.RemoveReason) {})
 
 ```
+loading cache:
 
-use client
+```go
+import "github.com/Yiling-J/theine-go"
+
+// loader function: func(ctx context.Context, key K) (theine.Loaded[V], error)
+// Loaded struct should include cache value, cost and ttl, which required by Set method
+client, err := theine.NewBuilder[string, string](1000).BuildWithLoader(
+	func(ctx context.Context, key string) (theine.Loaded[string], error) {
+		return theine.Loaded[string]{Value: key, Cost: 1, TTL: 0}, nil
+	},
+)
+if err != nil {
+	panic(err)
+}
+
+```
+Other builder options are same as simple cache(cost, doorkeeper, removal listener).
+
+
+**Client API**
 
 ```Go
 // set, key foo, value bar, cost 1
@@ -83,15 +111,18 @@ success := client.Set("foo", "bar", 1)
 // set with ttl
 success = client.SetWithTTL("foo", "bar", 1, 1*time.Second)
 
-// get
+// get(simple cache version)
 value, ok := client.Get("foo")
+
+// get(loading cache version)
+value, err := client.Get(ctx, "foo")
 
 // remove
 client.Delete("foo")
 
 ```
 ## Benchmarks
-
+	
 ### throughput
 
 Source Code: https://github.com/Yiling-J/theine-go/blob/main/benchmark_test.go

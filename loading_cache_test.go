@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -13,6 +14,17 @@ import (
 	"github.com/Yiling-J/theine-go"
 	"github.com/stretchr/testify/require"
 )
+
+func TestBuildError(t *testing.T) {
+	_, err := theine.NewBuilder[string, string](0).BuildWithLoader(
+		func(ctx context.Context, key string) (theine.Loaded[string], error) {
+			return theine.Loaded[string]{Value: key}, nil
+		},
+	)
+	require.NotNil(t, err)
+	_, err = theine.NewBuilder[string, string](100).BuildWithLoader(nil)
+	require.NotNil(t, err)
+}
 
 func TestLoadingCacheGetSetParallel(t *testing.T) {
 	client, err := theine.NewBuilder[string, string](1000).BuildWithLoader(
@@ -148,4 +160,104 @@ func TestLoadError(t *testing.T) {
 	require.Nil(t, err)
 	_, err = client.Get(context.TODO(), 2)
 	require.NotNil(t, err)
+}
+
+func TestLoadingCost(t *testing.T) {
+	// test cost func
+	builder := theine.NewBuilder[string, string](500)
+	builder.Cost(func(v string) int64 {
+		return int64(len(v))
+	})
+	client, err := builder.BuildWithLoader(func(ctx context.Context, key string) (theine.Loaded[string], error) {
+		return theine.Loaded[string]{Value: key, Cost: 1, TTL: 0}, nil
+	})
+	require.Nil(t, err)
+	success := client.Set("z", strings.Repeat("z", 501), 0)
+	require.False(t, success)
+	for i := 0; i < 30; i++ {
+		key := fmt.Sprintf("key:%d", i)
+		success = client.Set(key, strings.Repeat("z", 20), 0)
+		require.True(t, success)
+	}
+	time.Sleep(time.Second)
+	require.True(t, client.Len() == 25)
+	client.Close()
+}
+
+func TestLoadingDoorkeeper(t *testing.T) {
+	builder := theine.NewBuilder[string, string](500)
+	builder.Doorkeeper(true)
+	client, err := builder.BuildWithLoader(func(ctx context.Context, key string) (theine.Loaded[string], error) {
+		return theine.Loaded[string]{Value: key, Cost: 1, TTL: 0}, nil
+	})
+	require.Nil(t, err)
+	for i := 0; i < 200; i++ {
+		key := fmt.Sprintf("key:%d", i)
+		success := client.Set(key, key, 1)
+		require.False(t, success)
+	}
+	require.True(t, client.Len() == 0)
+	time.Sleep(time.Second)
+	for i := 0; i < 200; i++ {
+		key := fmt.Sprintf("key:%d", i)
+		success := client.Set(key, key, 1)
+		require.True(t, success)
+	}
+	require.True(t, client.Len() > 0)
+	for i := 0; i < 500000; i++ {
+		key := fmt.Sprintf("key:%d:2", i)
+		client.Set(key, key, 1)
+	}
+}
+
+func TestLoadingRemovalListener(t *testing.T) {
+	builder := theine.NewBuilder[int, int](100)
+	var lock sync.Mutex
+	removed := map[int]int{}
+	evicted := map[int]int{}
+	expired := map[int]int{}
+	builder.RemovalListener(func(key, value int, reason theine.RemoveReason) {
+		lock.Lock()
+		defer lock.Unlock()
+		switch reason {
+		case theine.REMOVED:
+			removed[key] = value
+		case theine.EVICTED:
+			evicted[key] = value
+		case theine.EXPIRED:
+			expired[key] = value
+		}
+	})
+	client, err := builder.BuildWithLoader(func(ctx context.Context, key int) (theine.Loaded[int], error) {
+		return theine.Loaded[int]{Value: key, Cost: 1, TTL: 0}, nil
+	})
+	require.Nil(t, err)
+	for i := 0; i < 100; i++ {
+		success := client.Set(i, i, 1)
+		require.True(t, success)
+	}
+	// this will evict one entry: 0
+	success := client.Set(100, 100, 1)
+	require.True(t, success)
+	time.Sleep(100 * time.Millisecond)
+	lock.Lock()
+	require.Equal(t, 1, len(evicted))
+	require.True(t, evicted[0] == 0)
+	lock.Unlock()
+	// manually remove one
+	client.Delete(5)
+	time.Sleep(100 * time.Millisecond)
+	lock.Lock()
+	require.Equal(t, 1, len(removed))
+	require.True(t, removed[5] == 5)
+	lock.Unlock()
+	// expire one
+	for i := 0; i < 100; i++ {
+		success := client.SetWithTTL(i+100, i+100, 1, 1*time.Second)
+		require.True(t, success)
+	}
+	time.Sleep(5 * time.Second)
+	lock.Lock()
+	require.True(t, len(expired) > 0)
+	lock.Unlock()
 }

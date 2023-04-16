@@ -12,6 +12,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestMaxsizeZero(t *testing.T) {
+	_, err := theine.NewBuilder[string, string](0).Build()
+	require.NotNil(t, err)
+}
+
 func TestSet(t *testing.T) {
 	client, err := theine.NewBuilder[string, string](1000).Build()
 	require.Nil(t, err)

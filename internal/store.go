@@ -482,11 +482,9 @@ func (s *LoadingStore[K, V]) Get(ctx context.Context, key K) (V, error) {
 	h, index := s.index(key)
 	shard := s.shards[index]
 	v, ok := s.getFromShard(key, h, shard)
-	var err error
-	var loaded Loaded[V]
 	if !ok {
-		loaded, err, _ = shard.group.Do(key, func() (Loaded[V], error) {
-			loaded, err = s.loader(ctx, key)
+		loaded, err, _ := shard.group.Do(key, func() (Loaded[V], error) {
+			loaded, err := s.loader(ctx, key)
 			if err == nil {
 				s.Set(key, loaded.Value, loaded.Cost, loaded.TTL)
 			}

@@ -37,28 +37,20 @@ go get github.com/Yiling-J/theine-go
 
 Key should be **comparable**, and value can be any.
 
-- build client
+- **build client**
 
+Theine provides two types of client, simple cache and loading cache. Both of them are initialized from a builder. The difference between simple cache and loading cache is: loading cache's Get method will compute the value using the loader function when there is a miss, while simple cache client only return false and do nothing.
+
+Loading cache uses singleflight to prevent concurrency loading to same key(thundering herd).
+
+simple cache:
 
 ```GO
 import "github.com/Yiling-J/theine-go"
 
-// simple cache
 // key type string, value type string, max size 1000
 // max size is the only required configuration to build a client
 client, err := theine.NewBuilder[string, string](1000).Build()
-if err != nil {
-	panic(err)
-}
-
-// loading cache, values are automatically loaded by the cache
-// loader function shoud return cache value, cost and ttl.
-client, err := theine.NewBuilder[string, string](1000).BuildWithLoader(
-	func(ctx context.Context, key string) (theine.Loaded[string], error) {
-		return theine.Loaded[string]{Value: key, Cost: 1, TTL: 0}, nil
-	},
-	false,
-)
 if err != nil {
 	panic(err)
 }
@@ -85,8 +77,27 @@ builder.Doorkeeper(true)
 builder.RemovalListener(func(key K, value V, reason theine.RemoveReason) {})
 
 ```
+loading cache:
 
-- use client API
+```go
+import "github.com/Yiling-J/theine-go"
+
+// loader function: func(ctx context.Context, key K) (theine.Loaded[V], error)
+// Loaded struct should include cache value, cost and ttl, which required by Set method
+client, err := theine.NewBuilder[string, string](1000).BuildWithLoader(
+	func(ctx context.Context, key string) (theine.Loaded[string], error) {
+		return theine.Loaded[string]{Value: key, Cost: 1, TTL: 0}, nil
+	},
+)
+if err != nil {
+	panic(err)
+}
+
+```
+Other builder options are same as simple cache(cost, doorkeeper, removal listener).
+
+
+- **client API**
 
 ```Go
 // set, key foo, value bar, cost 1
@@ -98,8 +109,11 @@ success := client.Set("foo", "bar", 1)
 // set with ttl
 success = client.SetWithTTL("foo", "bar", 1, 1*time.Second)
 
-// get
+// get(simple cache version)
 value, ok := client.Get("foo")
+
+// get(loading cache version)
+value, err := client.Get(ctx, "foo")
 
 // remove
 client.Delete("foo")

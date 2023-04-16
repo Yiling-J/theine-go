@@ -74,7 +74,7 @@ func (b *Builder[K, V]) Build() (*Cache[K, V], error) {
 	return &Cache[K, V]{store: store}, nil
 }
 
-func (b *Builder[K, V]) BuildWithLoader(loader func(ctx context.Context, key K) (Loaded[V], error), singleflight bool) (*LoadingCache[K, V], error) {
+func (b *Builder[K, V]) BuildWithLoader(loader func(ctx context.Context, key K) (Loaded[V], error)) (*LoadingCache[K, V], error) {
 	if b.maxsize <= 0 {
 		return nil, errors.New("size must be positive")
 	}
@@ -93,7 +93,7 @@ func (b *Builder[K, V]) BuildWithLoader(loader func(ctx context.Context, key K) 
 	loadingStore.Loader(func(ctx context.Context, key K) (internal.Loaded[V], error) {
 		v, err := loader(ctx, key)
 		return v.internal(), err
-	}, singleflight)
+	})
 	return &LoadingCache[K, V]{store: loadingStore}, nil
 }
 

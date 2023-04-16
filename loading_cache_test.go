@@ -17,7 +17,7 @@ func TestLoadingCacheGetSetParallel(t *testing.T) {
 	client, err := theine.NewBuilder[string, string](1000).BuildWithLoader(
 		func(ctx context.Context, key string) (theine.Loaded[string], error) {
 			return theine.Loaded[string]{Value: key}, nil
-		}, true,
+		},
 	)
 	require.Nil(t, err)
 	var wg sync.WaitGroup
@@ -46,7 +46,7 @@ func TestLoadingCacheSetWithTTL(t *testing.T) {
 		func(ctx context.Context, key string) (theine.Loaded[string], error) {
 			counter++
 			return theine.Loaded[string]{Value: key, TTL: 1 * time.Second}, nil
-		}, true,
+		},
 	)
 	require.Nil(t, err)
 	v, err := client.Get(context.TODO(), "foo")
@@ -69,7 +69,7 @@ func TestLoadingCacheSetWithTTL(t *testing.T) {
 		func(ctx context.Context, key string) (theine.Loaded[string], error) {
 			counter++
 			return theine.Loaded[string]{Value: key, TTL: 10 * time.Second}, nil
-		}, true,
+		},
 	)
 	require.Nil(t, err)
 	v, err = client.Get(context.TODO(), "foo")
@@ -92,7 +92,7 @@ func TestLoadingCacheSetWithTTLAutoExpire(t *testing.T) {
 	client, err := theine.NewBuilder[string, string](500).BuildWithLoader(
 		func(ctx context.Context, key string) (theine.Loaded[string], error) {
 			return theine.Loaded[string]{Value: key, TTL: 5 * time.Second}, nil
-		}, true,
+		},
 	)
 	require.Nil(t, err)
 	for i := 0; i < 30; i++ {
@@ -117,46 +117,7 @@ func TestLoadingCache(t *testing.T) {
 		time.Sleep(40 * time.Millisecond)
 		counter[key].Add(1)
 		return theine.Loaded[int]{Value: key, Cost: 1, TTL: theine.ZERO_TTL}, nil
-	}, false)
-	require.Nil(t, err)
-	var wg sync.WaitGroup
-	for i := 1; i <= 2000; i++ {
-		wg.Add(1)
-		go func() {
-			ctx := context.TODO()
-			defer wg.Done()
-			v, err := client.Get(ctx, 1)
-			if err != nil || v != 1 {
-				panic("")
-			}
-			v, err = client.Get(ctx, 2)
-			if err != nil || v != 2 {
-				panic("")
-			}
-			v, err = client.Get(ctx, 3)
-			if err != nil || v != 3 {
-				panic("")
-			}
-		}()
-	}
-	wg.Wait()
-	c1 := counter[1]
-	c2 := counter[2]
-	c3 := counter[3]
-	require.True(t, c1.Load() > 100)
-	require.True(t, c2.Load() > 100)
-	require.True(t, c3.Load() > 100)
-
-}
-
-func TestLoadingCacheSingleFlight(t *testing.T) {
-	builder := theine.NewBuilder[int, int](100)
-	counter := map[int]*atomic.Uint32{1: {}, 2: {}, 3: {}}
-	client, err := builder.BuildWithLoader(func(ctx context.Context, key int) (theine.Loaded[int], error) {
-		time.Sleep(40 * time.Millisecond)
-		counter[key].Add(1)
-		return theine.Loaded[int]{Value: key, Cost: 1, TTL: theine.ZERO_TTL}, nil
-	}, true)
+	})
 	require.Nil(t, err)
 	var wg sync.WaitGroup
 	for i := 1; i <= 2000; i++ {

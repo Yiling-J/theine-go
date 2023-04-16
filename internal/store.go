@@ -463,8 +463,7 @@ type Loaded[V any] struct {
 }
 
 type LoadingStore[K comparable, V any] struct {
-	loader       func(ctx context.Context, key K) (Loaded[V], error)
-	singleflight bool
+	loader func(ctx context.Context, key K) (Loaded[V], error)
 	*Store[K, V]
 }
 
@@ -474,9 +473,8 @@ func NewLoadingStore[K comparable, V any](store *Store[K, V]) *LoadingStore[K, V
 	}
 }
 
-func (s *LoadingStore[K, V]) Loader(loader func(ctx context.Context, key K) (Loaded[V], error), singleflight bool) {
+func (s *LoadingStore[K, V]) Loader(loader func(ctx context.Context, key K) (Loaded[V], error)) {
 	s.loader = loader
-	s.singleflight = singleflight
 }
 
 func (s *LoadingStore[K, V]) Get(ctx context.Context, key K) (V, error) {
@@ -487,21 +485,13 @@ func (s *LoadingStore[K, V]) Get(ctx context.Context, key K) (V, error) {
 	var err error
 	var loaded Loaded[V]
 	if !ok {
-		if s.singleflight {
-			loaded, err, _ = shard.group.Do(key, func() (Loaded[V], error) {
-				loaded, err = s.loader(ctx, key)
-				if err == nil {
-					s.Set(key, loaded.Value, loaded.Cost, loaded.TTL)
-				}
-				return loaded, err
-			})
-
-		} else {
+		loaded, err, _ = shard.group.Do(key, func() (Loaded[V], error) {
 			loaded, err = s.loader(ctx, key)
 			if err == nil {
 				s.Set(key, loaded.Value, loaded.Cost, loaded.TTL)
 			}
-		}
+			return loaded, err
+		})
 		return loaded.Value, err
 	}
 	return v, nil

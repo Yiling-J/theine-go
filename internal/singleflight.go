@@ -108,29 +108,29 @@ func (g *Group[K, V]) Do(key K, fn func() (V, error)) (v V, err error, shared bo
 
 // DoChan is like Do but returns a channel that will receive the
 // results when they are ready.
-//
+
 // The returned channel will not be closed.
-// func (g *Group[K, V]) DoChan(key K, fn func() (V, error)) <-chan Result {
-// 	ch := make(chan Result, 1)
-// 	g.mu.Lock()
-// 	if g.m == nil {
-// 		g.m = make(map[K]*call[V])
-// 	}
-// 	if c, ok := g.m[key]; ok {
-// 		c.dups++
-// 		c.chans = append(c.chans, ch)
-// 		g.mu.Unlock()
-// 		return ch
-// 	}
-// 	c := &call[V]{chans: []chan<- Result{ch}}
-// 	c.wg.Add(1)
-// 	g.m[key] = c
-// 	g.mu.Unlock()
+func (g *Group[K, V]) DoChan(key K, fn func() (V, error)) <-chan Result {
+	ch := make(chan Result, 1)
+	g.mu.Lock()
+	if g.m == nil {
+		g.m = make(map[K]*call[V])
+	}
+	if c, ok := g.m[key]; ok {
+		c.dups++
+		c.chans = append(c.chans, ch)
+		g.mu.Unlock()
+		return ch
+	}
+	c := &call[V]{chans: []chan<- Result{ch}}
+	c.wg.Add(1)
+	g.m[key] = c
+	g.mu.Unlock()
 
-// 	go g.doCall(c, key, fn)
+	go g.doCall(c, key, fn)
 
-// 	return ch
-// }
+	return ch
+}
 
 // doCall handles the single call for a key.
 func (g *Group[K, V]) doCall(c *call[V], key K, fn func() (V, error)) {

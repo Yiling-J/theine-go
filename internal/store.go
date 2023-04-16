@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"context"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -448,4 +449,53 @@ func (s *Store[K, V]) Close() {
 	s.closed = true
 	s.mlock.Unlock()
 	close(s.writebuf)
+}
+
+type Loaded[V any] struct {
+	Value V
+	Cost  int64
+	TTL   time.Duration
+}
+
+type LoadingStore[K comparable, V any] struct {
+	loader       func(ctx context.Context, key K) (Loaded[V], error)
+	group        Group[K, Loaded[V]]
+	singleflight bool
+	*Store[K, V]
+}
+
+func NewLoadingStore[K comparable, V any](store *Store[K, V]) *LoadingStore[K, V] {
+	return &LoadingStore[K, V]{
+		Store: store,
+	}
+}
+
+func (s *LoadingStore[K, V]) Loader(loader func(ctx context.Context, key K) (Loaded[V], error), singleflight bool) {
+	s.loader = loader
+	s.singleflight = singleflight
+}
+
+func (s *LoadingStore[K, V]) Get(ctx context.Context, key K) (V, error) {
+	v, ok := s.Store.Get(key)
+	var err error
+	var loaded Loaded[V]
+	if !ok {
+		if s.singleflight {
+			loaded, err, _ = s.group.Do(key, func() (Loaded[V], error) {
+				loaded, err = s.loader(ctx, key)
+				if err == nil {
+					s.Set(key, loaded.Value, loaded.Cost, loaded.TTL)
+				}
+				return loaded, err
+			})
+
+		} else {
+			loaded, err = s.loader(ctx, key)
+			if err == nil {
+				s.Set(key, loaded.Value, loaded.Cost, loaded.TTL)
+			}
+		}
+		return loaded.Value, err
+	}
+	return v, nil
 }

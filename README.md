@@ -37,41 +37,56 @@ go get github.com/Yiling-J/theine-go
 
 Key should be **comparable**, and value can be any.
 
-create client
+- build client
+
 
 ```GO
 import "github.com/Yiling-J/theine-go"
 
+// simple cache
 // key type string, value type string, max size 1000
-// max size is the only required configuration to initialize a client
-client, err := theine.New[string, string](1000)
+// max size is the only required configuration to build a client
+client, err := theine.NewBuilder[string, string](1000).Build()
 if err != nil {
 	panic(err)
 }
 
-// optional
+// loading cache, values are automatically loaded by the cache
+// loader function shoud return cache value, cost and ttl.
+client, err := theine.NewBuilder[string, string](1000).BuildWithLoader(
+	func(ctx context.Context, key string) (theine.Loaded[string], error) {
+		return theine.Loaded[string]{Value: key, Cost: 1, TTL: 0}, nil
+	},
+	false,
+)
+if err != nil {
+	panic(err)
+}
+
+// builder also provide several optional configurations
+builder := theine.NewBuilder[string, string](1000)
 
 // dynamic cost function based on value
 // use 0 in Set will call this function to evaluate cost at runtime
-client.Cost(func(v string) int64 {
+builder.Cost(func(v string) int64 {
 		return int64(len(v))
 })
 
 // doorkeeper
 // doorkeeper will drop Set if they are not in bloomfilter yet
 // this can improve write peroformance, but may lower hit ratio
-client.Doorkeeper(true)
+builder.Doorkeeper(true)
 
 // removal listener, this function will be called when entry is removed
 // RemoveReason could be REMOVED/EVICTED/EXPIRED
 // REMOVED: remove by API
 // EVICTED: evicted by Window-TinyLFU policy
 // EXPIRED: expired by timing wheel
-client.RemovalListener(func(key K, value V, reason theine.RemoveReason) {})
+builder.RemovalListener(func(key K, value V, reason theine.RemoveReason) {})
 
 ```
 
-use client
+- use client API
 
 ```Go
 // set, key foo, value bar, cost 1
@@ -91,7 +106,7 @@ client.Delete("foo")
 
 ```
 ## Benchmarks
-
+	
 ### throughput
 
 Source Code: https://github.com/Yiling-J/theine-go/blob/main/benchmark_test.go

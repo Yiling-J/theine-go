@@ -13,7 +13,7 @@ import (
 )
 
 func TestSet(t *testing.T) {
-	client, err := theine.New[string, string](1000)
+	client, err := theine.NewBuilder[string, string](1000).Build()
 	require.Nil(t, err)
 	for i := 0; i < 20000; i++ {
 		key := fmt.Sprintf("key:%d", rand.Intn(100000))
@@ -25,7 +25,7 @@ func TestSet(t *testing.T) {
 }
 
 func TestSetParallel(t *testing.T) {
-	client, err := theine.New[string, string](1000)
+	client, err := theine.NewBuilder[string, string](1000).Build()
 	require.Nil(t, err)
 	var wg sync.WaitGroup
 	for i := 1; i <= 12; i++ {
@@ -46,7 +46,7 @@ func TestSetParallel(t *testing.T) {
 }
 
 func TestGetSet(t *testing.T) {
-	client, err := theine.New[string, string](1000)
+	client, err := theine.NewBuilder[string, string](1000).Build()
 	require.Nil(t, err)
 	for i := 0; i < 20000; i++ {
 		key := fmt.Sprintf("key:%d", rand.Intn(3000))
@@ -63,7 +63,7 @@ func TestGetSet(t *testing.T) {
 }
 
 func TestDelete(t *testing.T) {
-	client, err := theine.New[string, string](100)
+	client, err := theine.NewBuilder[string, string](100).Build()
 	require.Nil(t, err)
 	client.Set("foo", "foo", 1)
 	v, ok := client.Get("foo")
@@ -84,7 +84,7 @@ func TestDelete(t *testing.T) {
 }
 
 func TestGetSetParallel(t *testing.T) {
-	client, err := theine.New[string, string](1000)
+	client, err := theine.NewBuilder[string, string](1000).Build()
 	require.Nil(t, err)
 	var wg sync.WaitGroup
 	for i := 1; i <= 12; i++ {
@@ -109,7 +109,7 @@ func TestGetSetParallel(t *testing.T) {
 }
 
 func TestSetWithTTL(t *testing.T) {
-	client, err := theine.New[string, string](500)
+	client, err := theine.NewBuilder[string, string](500).Build()
 	require.Nil(t, err)
 	client.SetWithTTL("foo", "foo", 1, 3600*time.Second)
 	require.Equal(t, 1, client.Len())
@@ -124,7 +124,7 @@ func TestSetWithTTL(t *testing.T) {
 }
 
 func TestSetWithTTLAutoExpire(t *testing.T) {
-	client, err := theine.New[string, string](500)
+	client, err := theine.NewBuilder[string, string](500).Build()
 	require.Nil(t, err)
 	for i := 0; i < 30; i++ {
 		key1 := fmt.Sprintf("key:%d", i)
@@ -154,9 +154,10 @@ func TestSetWithTTLAutoExpire(t *testing.T) {
 
 func TestGetSetDeleteNoRace(t *testing.T) {
 	for _, size := range []int{500, 2000, 10000, 50000} {
-		client, err := theine.New[string, string](int64(size))
+		builder := theine.NewBuilder[string, string](int64(size))
+		builder.RemovalListener(func(key, value string, reason theine.RemoveReason) {})
+		client, err := builder.Build()
 		require.Nil(t, err)
-		client.RemovalListener(func(key, value string, reason theine.RemoveReason) {})
 		var wg sync.WaitGroup
 		keys := []string{}
 		for i := 0; i < 100000; i++ {
@@ -186,7 +187,7 @@ func TestGetSetDeleteNoRace(t *testing.T) {
 }
 
 func TestCost(t *testing.T) {
-	client, err := theine.New[string, string](500)
+	client, err := theine.NewBuilder[string, string](500).Build()
 	require.Nil(t, err)
 	success := client.Set("z", "z", 501)
 	require.False(t, success)
@@ -199,11 +200,12 @@ func TestCost(t *testing.T) {
 	require.True(t, client.Len() == 25)
 
 	// test cost func
-	client, err = theine.New[string, string](500)
-	require.Nil(t, err)
-	client.Cost(func(v string) int64 {
+	builder := theine.NewBuilder[string, string](500)
+	builder.Cost(func(v string) int64 {
 		return int64(len(v))
 	})
+	client, err = builder.Build()
+	require.Nil(t, err)
 	success = client.Set("z", strings.Repeat("z", 501), 0)
 	require.False(t, success)
 	for i := 0; i < 30; i++ {
@@ -217,7 +219,7 @@ func TestCost(t *testing.T) {
 }
 
 func TestCostUpdate(t *testing.T) {
-	client, err := theine.New[string, string](500)
+	client, err := theine.NewBuilder[string, string](500).Build()
 	require.Nil(t, err)
 	for i := 0; i < 30; i++ {
 		key := fmt.Sprintf("key:%d", i)
@@ -236,9 +238,10 @@ func TestCostUpdate(t *testing.T) {
 }
 
 func TestDoorkeeper(t *testing.T) {
-	client, err := theine.New[string, string](500)
+	builder := theine.NewBuilder[string, string](500)
+	builder.Doorkeeper(true)
+	client, err := builder.Build()
 	require.Nil(t, err)
-	client.Doorkeeper(true)
 	for i := 0; i < 200; i++ {
 		key := fmt.Sprintf("key:%d", i)
 		success := client.Set(key, key, 1)
@@ -259,7 +262,7 @@ func TestDoorkeeper(t *testing.T) {
 }
 
 func TestZeroDequeFrequency(t *testing.T) {
-	client, err := theine.New[int, int](100)
+	client, err := theine.NewBuilder[int, int](100).Build()
 	require.Nil(t, err)
 	// set and access 200 entries
 	for i := 0; i < 200; i++ {
@@ -293,13 +296,12 @@ func TestZeroDequeFrequency(t *testing.T) {
 }
 
 func TestRemovalListener(t *testing.T) {
-	client, err := theine.New[int, int](100)
-	require.Nil(t, err)
+	builder := theine.NewBuilder[int, int](100)
+	var lock sync.Mutex
 	removed := map[int]int{}
 	evicted := map[int]int{}
 	expired := map[int]int{}
-	var lock sync.Mutex
-	client.RemovalListener(func(key, value int, reason theine.RemoveReason) {
+	builder.RemovalListener(func(key, value int, reason theine.RemoveReason) {
 		lock.Lock()
 		defer lock.Unlock()
 		switch reason {
@@ -311,6 +313,8 @@ func TestRemovalListener(t *testing.T) {
 			expired[key] = value
 		}
 	})
+	client, err := builder.Build()
+	require.Nil(t, err)
 	for i := 0; i < 100; i++ {
 		success := client.Set(i, i, 1)
 		require.True(t, success)

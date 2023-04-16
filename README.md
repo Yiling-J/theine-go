@@ -39,7 +39,7 @@ go get github.com/Yiling-J/theine-go
 
 Theine provides two types of client, simple cache and loading cache. Both of them are initialized from a builder. The difference between simple cache and loading cache is: loading cache's Get method will compute the value using loader function when there is a miss, while simple cache client only return false and do nothing.
 
-Loading cache uses singleflight to prevent concurrency loading to same key(thundering herd).
+Loading cache uses [singleflight](https://pkg.go.dev/golang.org/x/sync/singleflight) to prevent concurrent loading to same key(thundering herd).
 
 simple cache:
 

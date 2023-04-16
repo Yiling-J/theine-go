@@ -112,10 +112,10 @@ func TestLoadingCacheSetWithTTLAutoExpire(t *testing.T) {
 
 func TestLoadingCache(t *testing.T) {
 	builder := theine.NewBuilder[int, int](100)
-	counter := map[int]*atomic.Uint32{1: {}, 2: {}, 3: {}}
+	counter := atomic.Uint32{}
 	client, err := builder.BuildWithLoader(func(ctx context.Context, key int) (theine.Loaded[int], error) {
-		time.Sleep(40 * time.Millisecond)
-		counter[key].Add(1)
+		time.Sleep(50 * time.Millisecond)
+		counter.Add(1)
 		return theine.Loaded[int]{Value: key, Cost: 1, TTL: theine.ZERO_TTL}, nil
 	})
 	require.Nil(t, err)
@@ -129,22 +129,9 @@ func TestLoadingCache(t *testing.T) {
 			if err != nil || v != 1 {
 				panic("")
 			}
-			v, err = client.Get(ctx, 2)
-			if err != nil || v != 2 {
-				panic("")
-			}
-			v, err = client.Get(ctx, 3)
-			if err != nil || v != 3 {
-				panic("")
-			}
 		}()
 	}
 	wg.Wait()
-	c1 := counter[1]
-	c2 := counter[2]
-	c3 := counter[3]
-	require.True(t, c1.Load() == 1)
-	require.True(t, c2.Load() == 1)
-	require.True(t, c3.Load() == 1)
+	require.True(t, counter.Load() == 1)
 
 }

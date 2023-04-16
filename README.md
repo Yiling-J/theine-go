@@ -35,11 +35,9 @@ go get github.com/Yiling-J/theine-go
 
 ## API
 
-Key should be **comparable**, and value can be any.
+**Builder API**
 
-- **build client**
-
-Theine provides two types of client, simple cache and loading cache. Both of them are initialized from a builder. The difference between simple cache and loading cache is: loading cache's Get method will compute the value using the loader function when there is a miss, while simple cache client only return false and do nothing.
+Theine provides two types of client, simple cache and loading cache. Both of them are initialized from a builder. The difference between simple cache and loading cache is: loading cache's Get method will compute the value using loader function when there is a miss, while simple cache client only return false and do nothing.
 
 Loading cache uses singleflight to prevent concurrency loading to same key(thundering herd).
 
@@ -56,7 +54,10 @@ if err != nil {
 }
 
 // builder also provide several optional configurations
-builder := theine.NewBuilder[string, string](1000)
+// you can chain them together and call build once
+// client, err := theine.NewBuilder[string, string](1000).Cost(...).Doorkeeper(...).Build()
+// or create builder first
+// builder := theine.NewBuilder[string, string](1000)
 
 // dynamic cost function based on value
 // use 0 in Set will call this function to evaluate cost at runtime
@@ -97,7 +98,7 @@ if err != nil {
 Other builder options are same as simple cache(cost, doorkeeper, removal listener).
 
 
-- **client API**
+**Client API**
 
 ```Go
 // set, key foo, value bar, cost 1

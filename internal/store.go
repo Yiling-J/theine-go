@@ -32,6 +32,7 @@ type Shard[K comparable, V any] struct {
 	qsize     uint
 	counter   uint
 	deque     *deque.Deque[*Entry[K, V]]
+	group     Group[K, Loaded[V]]
 }
 
 func NewShard[K comparable, V any](size uint, qsize uint) *Shard[K, V] {
@@ -142,10 +143,7 @@ func (s *Store[K, V]) RemovalListener(listener func(key K, value V, reason Remov
 	s.removalListener = listener
 }
 
-func (s *Store[K, V]) Get(key K) (V, bool) {
-	s.policy.total.Add(1)
-	h, index := s.index(key)
-	shard := s.shards[index]
+func (s *Store[K, V]) getFromShard(key K, hash uint64, shard *Shard[K, V]) (V, bool) {
 	new := s.readCounter.Add(1)
 	shard.mu.RLock()
 	entry, ok := shard.get(key)
@@ -162,7 +160,7 @@ func (s *Store[K, V]) Get(key K) (V, bool) {
 	switch {
 	case new < MAX_READ_BUFF_SIZE:
 		var send ReadBufItem[K, V]
-		send.hash = h
+		send.hash = hash
 		if ok {
 			send.entry = entry
 		}
@@ -175,6 +173,13 @@ func (s *Store[K, V]) Get(key K) (V, bool) {
 		shard.mu.RUnlock()
 	}
 	return value, ok
+}
+
+func (s *Store[K, V]) Get(key K) (V, bool) {
+	s.policy.total.Add(1)
+	h, index := s.index(key)
+	shard := s.shards[index]
+	return s.getFromShard(key, h, shard)
 }
 
 func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
@@ -459,7 +464,6 @@ type Loaded[V any] struct {
 
 type LoadingStore[K comparable, V any] struct {
 	loader       func(ctx context.Context, key K) (Loaded[V], error)
-	group        Group[K, Loaded[V]]
 	singleflight bool
 	*Store[K, V]
 }
@@ -476,12 +480,15 @@ func (s *LoadingStore[K, V]) Loader(loader func(ctx context.Context, key K) (Loa
 }
 
 func (s *LoadingStore[K, V]) Get(ctx context.Context, key K) (V, error) {
-	v, ok := s.Store.Get(key)
+	s.policy.total.Add(1)
+	h, index := s.index(key)
+	shard := s.shards[index]
+	v, ok := s.getFromShard(key, h, shard)
 	var err error
 	var loaded Loaded[V]
 	if !ok {
 		if s.singleflight {
-			loaded, err, _ = s.group.Do(key, func() (Loaded[V], error) {
+			loaded, err, _ = shard.group.Do(key, func() (Loaded[V], error) {
 				loaded, err = s.loader(ctx, key)
 				if err == nil {
 					s.Set(key, loaded.Value, loaded.Cost, loaded.TTL)

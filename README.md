@@ -125,7 +125,7 @@ client.Delete("foo")
 	
 ### throughput
 
-Source Code: https://github.com/Yiling-J/theine-go/blob/main/benchmark_test.go
+Source: https://github.com/Yiling-J/go-cache-benchmark-plus
 
 ```
 cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
@@ -140,7 +140,7 @@ BenchmarkZipfRistrettoParallel-12       21031435                61.82 ns/op     
 
 ### hit ratios
 
-Source Code: https://github.com/Yiling-J/theine-go/blob/main/benchmarks/main.go
+Source: https://github.com/Yiling-J/go-cache-benchmark-plus
 
 ristretto v0.1.1: https://github.com/dgraph-io/ristretto
 > from Ristretto [README](https://github.com/dgraph-io/ristretto#hit-ratios), the hit ratio should be higher. But I can't reproduce their benchmark results. So I open an issue: https://github.com/dgraph-io/ristretto/issues/336

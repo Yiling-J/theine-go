@@ -30,6 +30,7 @@ type Shard[K comparable, V any] struct {
 	dookeeper *doorkeeper
 	size      uint
 	qsize     uint
+	qlen      uint
 	counter   uint
 	deque     *deque.Deque[*Entry[K, V]]
 	group     Group[K, Loaded[V]]
@@ -41,7 +42,7 @@ func NewShard[K comparable, V any](size uint, qsize uint) *Shard[K, V] {
 		dookeeper: newDoorkeeper(int(20*size), 0.01),
 		size:      size,
 		qsize:     qsize,
-		deque:     deque.New[*Entry[K, V]](int(qsize)),
+		deque:     deque.New[*Entry[K, V]](5),
 	}
 }
 
@@ -246,22 +247,25 @@ func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
 		return true
 	}
 	shard.deque.PushFront(entry)
-	var k K
-	var v V
-	if shard.deque.Len() > int(shard.qsize) {
+	shard.qlen += uint(cost)
+	s.processDeque(shard)
+	return true
+}
+
+func (s *Store[K, V]) processDeque(shard *Shard[K, V]) {
+	send := []*Entry[K, V]{}
+	expired := []*Entry[K, V]{}
+	removed := []*Entry[K, V]{}
+	for shard.qlen > shard.qsize {
 		evicted := shard.deque.PopBack()
 		expire := evicted.expire.Load()
+		shard.qlen -= uint(evicted.cost.Load())
 		if expire != 0 && expire <= s.timerwheel.clock.nowNano() {
 			deleted := shard.delete(evicted)
+			// double check because entry maybe removed already by Delete API
 			if deleted {
-				k, v = evicted.key, evicted.value
 				s.postDelete(evicted, EXPIRED)
-			}
-			shard.mu.Unlock()
-			if deleted {
-				if s.removalListener != nil {
-					s.removalListener(k, v, EXPIRED)
-				}
+				expired = append(expired, evicted)
 			}
 		} else {
 			count := evicted.frequency.Load()
@@ -269,26 +273,48 @@ func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
 				count = 0
 			}
 			if int32(count) >= s.policy.threshold.Load() {
-				shard.mu.Unlock()
-				s.writebuf <- WriteBufItem[K, V]{entry: evicted, code: NEW}
+				send = append(send, evicted)
 			} else {
 				deleted := shard.delete(evicted)
+				// double check because entry maybe removed already by Delete API
 				if deleted {
-					k, v = evicted.key, evicted.value
 					s.postDelete(evicted, EXPIRED)
-				}
-				shard.mu.Unlock()
-				if deleted {
-					if s.removalListener != nil {
-						s.removalListener(k, v, EVICTED)
-					}
+					removed = append(removed, evicted)
 				}
 			}
 		}
-	} else {
-		shard.mu.Unlock()
 	}
-	return true
+	// assign k/v to new struct before unlock to avoid race
+	removedkv := make([]struct {
+		k K
+		v V
+	}, len(removed))
+	if len(removed) > 0 {
+		for i, entry := range removed {
+			removedkv[i].k = entry.key
+			removedkv[i].v = entry.value
+		}
+	}
+	expiredkv := make([]struct {
+		k K
+		v V
+	}, len(expired))
+	if len(expired) > 0 {
+		for i, entry := range expired {
+			expiredkv[i].k = entry.key
+			expiredkv[i].v = entry.value
+		}
+	}
+	shard.mu.Unlock()
+	for _, entry := range send {
+		s.writebuf <- WriteBufItem[K, V]{entry: entry, code: NEW}
+	}
+	for _, e := range removedkv {
+		s.removalListener(e.k, e.v, EVICTED)
+	}
+	for _, e := range expiredkv {
+		s.removalListener(e.k, e.v, EXPIRED)
+	}
 }
 
 func (s *Store[K, V]) Delete(key K) {
@@ -410,6 +436,10 @@ func (s *Store[K, V]) maintance() {
 		// lock free because store API never read/modify entry metadata
 		switch item.code {
 		case NEW:
+			if entry.removed {
+				s.mlock.Unlock()
+				continue
+			}
 			if entry.expire.Load() != 0 {
 				s.timerwheel.schedule(entry)
 			}
@@ -422,6 +452,7 @@ func (s *Store[K, V]) maintance() {
 				s.removeEntry(e, EVICTED)
 			}
 		case REMOVE:
+			entry.removed = true
 			s.removeEntry(entry, REMOVED)
 		case UPDATE:
 			if item.rechedule {

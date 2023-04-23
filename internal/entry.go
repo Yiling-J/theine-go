@@ -36,6 +36,7 @@ type Entry[K comparable, V any] struct {
 	expire    atomic.Int64
 	meta      MetaData[K, V]
 	frequency atomic.Int32
+	removed   bool
 }
 
 func NewEntry[K comparable, V any](key K, value V, cost int64, expire int64) *Entry[K, V] {

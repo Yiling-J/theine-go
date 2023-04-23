@@ -252,17 +252,22 @@ func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
 	return true
 }
 
+type dequeKV[K comparable, V any] struct {
+	k K
+	v V
+}
+
 func (s *Store[K, V]) processDeque(shard *Shard[K, V]) {
 	if shard.qlen <= shard.qsize {
 		shard.mu.Unlock()
 		return
 	}
 	// send to slru
-	send := []*Entry[K, V]{}
+	send := make([]*Entry[K, V], 0, 3)
 	// expired
-	expired := []*Entry[K, V]{}
+	expired := make([]*Entry[K, V], 0, 3)
 	// removed because frequency < slru tail frequency
-	removed := []*Entry[K, V]{}
+	removed := make([]*Entry[K, V], 0, 3)
 	for shard.qlen > shard.qsize {
 		evicted := shard.deque.PopBack()
 		expire := evicted.expire.Load()
@@ -291,34 +296,18 @@ func (s *Store[K, V]) processDeque(shard *Shard[K, V]) {
 			}
 		}
 	}
-	var removedkv []struct {
-		k K
-		v V
-	}
-	var expiredkv []struct {
-		k K
-		v V
-	}
+	removedkv := make([]dequeKV[K, V], 0, 3)
+	expiredkv := make([]dequeKV[K, V], 0, 3)
 	if s.removalListener != nil {
-		removedkv = make([]struct {
-			k K
-			v V
-		}, len(removed))
-		expiredkv = make([]struct {
-			k K
-			v V
-		}, len(expired))
 		// assign k/v to new struct before unlock to avoid race
 		if len(removed) > 0 {
-			for i, entry := range removed {
-				removedkv[i].k = entry.key
-				removedkv[i].v = entry.value
+			for _, entry := range removed {
+				removedkv = append(removedkv, dequeKV[K, V]{k: entry.key, v: entry.value})
 			}
 		}
 		if len(expired) > 0 {
-			for i, entry := range expired {
-				expiredkv[i].k = entry.key
-				expiredkv[i].v = entry.value
+			for _, entry := range expired {
+				expiredkv = append(expiredkv, dequeKV[K, V]{k: entry.key, v: entry.value})
 			}
 		}
 	}

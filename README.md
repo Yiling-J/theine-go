@@ -68,7 +68,7 @@ builder.Cost(func(v string) int64 {
 
 // doorkeeper
 // doorkeeper will drop Set if they are not in bloomfilter yet
-// this can improve write peroformance, but may lower hit ratio
+// this can improve write performance, but may lower hit ratio
 builder.Doorkeeper(true)
 
 // removal listener, this function will be called when entry is removed

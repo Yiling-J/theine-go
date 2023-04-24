@@ -43,20 +43,3 @@ jobs:
 
       - name: Upload coverage to codecov.io
         uses: codecov/codecov-action@v3
-
-  benchmarks:
-    name: benchmarks
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        go: ["1.19.x", "1.20.x"]
-    steps:
-      - name: Setup Go
-        with:
-          go-version: ${{ matrix.go }}
-        uses: actions/setup-go@v2
-        
-      - uses: actions/checkout@v2
-      
-      - name: Benchmarks
-        run: make bench

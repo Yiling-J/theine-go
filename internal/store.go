@@ -42,7 +42,7 @@ func NewShard[K comparable, V any](size uint, qsize uint) *Shard[K, V] {
 		dookeeper: newDoorkeeper(int(20*size), 0.01),
 		size:      size,
 		qsize:     qsize,
-		deque:     deque.New[*Entry[K, V]](5),
+		deque:     deque.New[*Entry[K, V]](int(qsize)),
 	}
 }
 
@@ -263,11 +263,11 @@ func (s *Store[K, V]) processDeque(shard *Shard[K, V]) {
 		return
 	}
 	// send to slru
-	send := make([]*Entry[K, V], 0, 3)
+	send := make([]*Entry[K, V], 0, 2)
 	// expired
-	expired := make([]*Entry[K, V], 0, 3)
+	expired := make([]*Entry[K, V], 0, 2)
 	// removed because frequency < slru tail frequency
-	removed := make([]*Entry[K, V], 0, 3)
+	removed := make([]*Entry[K, V], 0, 2)
 	for shard.qlen > shard.qsize {
 		evicted := shard.deque.PopBack()
 		expire := evicted.expire.Load()
@@ -296,8 +296,8 @@ func (s *Store[K, V]) processDeque(shard *Shard[K, V]) {
 			}
 		}
 	}
-	removedkv := make([]dequeKV[K, V], 0, 3)
-	expiredkv := make([]dequeKV[K, V], 0, 3)
+	removedkv := make([]dequeKV[K, V], 0, 2)
+	expiredkv := make([]dequeKV[K, V], 0, 2)
 	if s.removalListener != nil {
 		// assign k/v to new struct before unlock to avoid race
 		if len(removed) > 0 {

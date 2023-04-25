@@ -63,3 +63,30 @@ func TestProcessDeque(t *testing.T) {
 	}
 	require.Equal(t, []int{3, 4, 123}, keys)
 }
+
+func TestRemoveDeque(t *testing.T) {
+	store := NewStore[int, int](20000)
+	_, index := store.index(123)
+	shard := store.shards[index]
+	store.Set(123, 123, 8, 0)
+	entry := shard.hashmap[123]
+	store.Delete(123)
+	// this will send key 123 to policy because deque is full
+	shard.qsize = 10
+	shard.qlen = 10
+	entryNew := &Entry[int, int]{key: 1}
+	entryNew.cost.Store(1)
+	shard.deque.PushFront(entryNew)
+	shard.qlen += 1
+	shard.hashmap[1] = entryNew
+	// wait policy process
+	time.Sleep(time.Second)
+	// because 123 is removed already, it should not be on any LRU list
+	shard.mu.Lock()
+	require.True(t, entry.removed)
+	require.Nil(t, entry.meta.prev)
+	require.Nil(t, entry.meta.next)
+	shard.mu.Unlock()
+	_, ok := store.Get(123)
+	require.False(t, ok)
+}

@@ -264,10 +264,11 @@ func (s *Store[K, V]) processDeque(shard *Shard[K, V]) {
 	}
 	// send to slru
 	send := make([]*Entry[K, V], 0, 2)
-	// expired
-	expired := make([]*Entry[K, V], 0, 2)
 	// removed because frequency < slru tail frequency
-	removed := make([]*Entry[K, V], 0, 2)
+	removedkv := make([]dequeKV[K, V], 0, 2)
+	// expired
+	expiredkv := make([]dequeKV[K, V], 0, 2)
+	// expired
 	for shard.qlen > shard.qsize {
 		evicted := shard.deque.PopBack()
 		expire := evicted.expire.Load()
@@ -276,8 +277,8 @@ func (s *Store[K, V]) processDeque(shard *Shard[K, V]) {
 			deleted := shard.delete(evicted)
 			// double check because entry maybe removed already by Delete API
 			if deleted {
-				s.postDelete(evicted, EXPIRED)
-				expired = append(expired, evicted)
+				expiredkv = append(expiredkv, dequeKV[K, V]{k: evicted.key, v: evicted.value})
+				s.postDelete(evicted)
 			}
 		} else {
 			count := evicted.frequency.Load()
@@ -290,24 +291,11 @@ func (s *Store[K, V]) processDeque(shard *Shard[K, V]) {
 				deleted := shard.delete(evicted)
 				// double check because entry maybe removed already by Delete API
 				if deleted {
-					s.postDelete(evicted, EXPIRED)
-					removed = append(removed, evicted)
+					removedkv = append(
+						expiredkv, dequeKV[K, V]{k: evicted.key, v: evicted.value},
+					)
+					s.postDelete(evicted)
 				}
-			}
-		}
-	}
-	removedkv := make([]dequeKV[K, V], 0, 2)
-	expiredkv := make([]dequeKV[K, V], 0, 2)
-	if s.removalListener != nil {
-		// assign k/v to new struct before unlock to avoid race
-		if len(removed) > 0 {
-			for _, entry := range removed {
-				removedkv = append(removedkv, dequeKV[K, V]{k: entry.key, v: entry.value})
-			}
-		}
-		if len(expired) > 0 {
-			for _, entry := range expired {
-				expiredkv = append(expiredkv, dequeKV[K, V]{k: entry.key, v: entry.value})
 			}
 		}
 	}
@@ -358,7 +346,7 @@ func (s *Store[K, V]) index(key K) (uint64, int) {
 	return base, int(h & uint64(s.shardCount-1))
 }
 
-func (s *Store[K, V]) postDelete(entry *Entry[K, V], reason RemoveReason) {
+func (s *Store[K, V]) postDelete(entry *Entry[K, V]) {
 	var zero V
 	entry.value = zero
 	s.entryPool.Put(entry)
@@ -388,7 +376,7 @@ func (s *Store[K, V]) removeEntry(entry *Entry[K, V], reason RemoveReason) {
 			if s.removalListener != nil {
 				s.removalListener(k, v, reason)
 			}
-			s.postDelete(entry, reason)
+			s.postDelete(entry)
 		}
 	// already removed from shard map
 	case REMOVED:

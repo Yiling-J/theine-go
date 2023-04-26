@@ -26,22 +26,23 @@ const (
 
 type Shard[K comparable, V any] struct {
 	hashmap   map[K]*Entry[K, V]
-	mu        sync.RWMutex
 	dookeeper *doorkeeper
-	size      uint
-	qsize     uint
-	counter   uint
 	deque     *deque.Deque[*Entry[K, V]]
 	group     Group[K, Loaded[V]]
+	size      uint
+	qsize     uint
+	qlen      int
+	counter   uint
+	mu        sync.RWMutex
 }
 
 func NewShard[K comparable, V any](size uint, qsize uint) *Shard[K, V] {
 	return &Shard[K, V]{
-		hashmap:   make(map[K]*Entry[K, V], size),
+		hashmap:   make(map[K]*Entry[K, V]),
 		dookeeper: newDoorkeeper(int(20*size), 0.01),
 		size:      size,
 		qsize:     qsize,
-		deque:     deque.New[*Entry[K, V]](int(qsize)),
+		deque:     deque.New[*Entry[K, V]](),
 	}
 }
 
@@ -72,22 +73,22 @@ type Metrics struct {
 }
 
 type Store[K comparable, V any] struct {
-	tailUpdate      bool
-	cap             uint
-	shards          []*Shard[K, V]
-	shardCount      uint
+	entryPool       sync.Pool
+	writebuf        chan WriteBufItem[K, V]
+	hasher          *Hasher[K]
+	removalListener func(key K, value V, reason RemoveReason)
 	policy          *TinyLfu[K, V]
 	timerwheel      *TimerWheel[K, V]
 	readbuf         *Queue[ReadBufItem[K, V]]
-	readCounter     *atomic.Uint32
-	writebuf        chan WriteBufItem[K, V]
-	hasher          *Hasher[K]
-	entryPool       sync.Pool
 	cost            func(V) int64
+	readCounter     *atomic.Uint32
+	shards          []*Shard[K, V]
+	cap             uint
+	shardCount      uint
 	mlock           sync.Mutex
+	tailUpdate      bool
 	doorkeeper      bool
 	closed          bool
-	removalListener func(key K, value V, reason RemoveReason)
 }
 
 // New returns a new data struct with the specified capacity
@@ -201,16 +202,19 @@ func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
 		var reschedule bool
 		var costChange int64
 		exist.value = value
+		oldCost := exist.cost.Swap(cost)
+		if oldCost != cost {
+			costChange = cost - oldCost
+			if exist.deque {
+				shard.qlen += int(costChange)
+			}
+		}
 		shard.mu.Unlock()
 		if expire > 0 {
 			old := exist.expire.Swap(expire)
 			if old != expire {
 				reschedule = true
 			}
-		}
-		oldCost := exist.cost.Swap(cost)
-		if oldCost != cost {
-			costChange = cost - oldCost
 		}
 		if reschedule || costChange != 0 {
 			s.writebuf <- WriteBufItem[K, V]{
@@ -245,23 +249,41 @@ func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
 		s.writebuf <- WriteBufItem[K, V]{entry: entry, code: NEW}
 		return true
 	}
+	entry.deque = true
 	shard.deque.PushFront(entry)
-	var k K
-	var v V
-	if shard.deque.Len() > int(shard.qsize) {
+	shard.qlen += int(cost)
+	s.processDeque(shard)
+	return true
+}
+
+type dequeKV[K comparable, V any] struct {
+	k K
+	v V
+}
+
+func (s *Store[K, V]) processDeque(shard *Shard[K, V]) {
+	if shard.qlen <= int(shard.qsize) {
+		shard.mu.Unlock()
+		return
+	}
+	// send to slru
+	send := make([]*Entry[K, V], 0, 2)
+	// removed because frequency < slru tail frequency
+	removedkv := make([]dequeKV[K, V], 0, 2)
+	// expired
+	expiredkv := make([]dequeKV[K, V], 0, 2)
+	// expired
+	for shard.qlen > int(shard.qsize) {
 		evicted := shard.deque.PopBack()
+		evicted.deque = false
 		expire := evicted.expire.Load()
+		shard.qlen -= int(evicted.cost.Load())
 		if expire != 0 && expire <= s.timerwheel.clock.nowNano() {
 			deleted := shard.delete(evicted)
+			// double check because entry maybe removed already by Delete API
 			if deleted {
-				k, v = evicted.key, evicted.value
-				s.postDelete(evicted, EXPIRED)
-			}
-			shard.mu.Unlock()
-			if deleted {
-				if s.removalListener != nil {
-					s.removalListener(k, v, EXPIRED)
-				}
+				expiredkv = append(expiredkv, dequeKV[K, V]{k: evicted.key, v: evicted.value})
+				s.postDelete(evicted)
 			}
 		} else {
 			count := evicted.frequency.Load()
@@ -269,26 +291,31 @@ func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
 				count = 0
 			}
 			if int32(count) >= s.policy.threshold.Load() {
-				shard.mu.Unlock()
-				s.writebuf <- WriteBufItem[K, V]{entry: evicted, code: NEW}
+				send = append(send, evicted)
 			} else {
 				deleted := shard.delete(evicted)
+				// double check because entry maybe removed already by Delete API
 				if deleted {
-					k, v = evicted.key, evicted.value
-					s.postDelete(evicted, EXPIRED)
-				}
-				shard.mu.Unlock()
-				if deleted {
-					if s.removalListener != nil {
-						s.removalListener(k, v, EVICTED)
-					}
+					removedkv = append(
+						expiredkv, dequeKV[K, V]{k: evicted.key, v: evicted.value},
+					)
+					s.postDelete(evicted)
 				}
 			}
 		}
-	} else {
-		shard.mu.Unlock()
 	}
-	return true
+	shard.mu.Unlock()
+	for _, entry := range send {
+		s.writebuf <- WriteBufItem[K, V]{entry: entry, code: NEW}
+	}
+	if s.removalListener != nil {
+		for _, e := range removedkv {
+			s.removalListener(e.k, e.v, EVICTED)
+		}
+		for _, e := range expiredkv {
+			s.removalListener(e.k, e.v, EXPIRED)
+		}
+	}
 }
 
 func (s *Store[K, V]) Delete(key K) {
@@ -324,7 +351,7 @@ func (s *Store[K, V]) index(key K) (uint64, int) {
 	return base, int(h & uint64(s.shardCount-1))
 }
 
-func (s *Store[K, V]) postDelete(entry *Entry[K, V], reason RemoveReason) {
+func (s *Store[K, V]) postDelete(entry *Entry[K, V]) {
 	var zero V
 	entry.value = zero
 	s.entryPool.Put(entry)
@@ -354,7 +381,7 @@ func (s *Store[K, V]) removeEntry(entry *Entry[K, V], reason RemoveReason) {
 			if s.removalListener != nil {
 				s.removalListener(k, v, reason)
 			}
-			s.postDelete(entry, reason)
+			s.postDelete(entry)
 		}
 	// already removed from shard map
 	case REMOVED:
@@ -410,6 +437,10 @@ func (s *Store[K, V]) maintance() {
 		// lock free because store API never read/modify entry metadata
 		switch item.code {
 		case NEW:
+			if entry.removed {
+				s.mlock.Unlock()
+				continue
+			}
 			if entry.expire.Load() != 0 {
 				s.timerwheel.schedule(entry)
 			}
@@ -422,6 +453,7 @@ func (s *Store[K, V]) maintance() {
 				s.removeEntry(e, EVICTED)
 			}
 		case REMOVE:
+			entry.removed = true
 			s.removeEntry(entry, REMOVED)
 		case UPDATE:
 			if item.rechedule {

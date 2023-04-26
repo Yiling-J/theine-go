@@ -1,10 +1,10 @@
 package internal
 
 type CountMinSketch struct {
+	table          []uint64
 	rowCounterSize uint
 	row64Size      uint
 	rowMask        uint
-	table          []uint64
 	additions      uint
 	sampleSize     uint
 }

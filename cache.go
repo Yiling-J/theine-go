@@ -35,10 +35,10 @@ const (
 )
 
 type Builder[K comparable, V any] struct {
-	maxsize         int64
 	cost            func(V) int64
-	doorkeeper      bool
 	removalListener func(key K, value V, reason RemoveReason)
+	maxsize         int64
+	doorkeeper      bool
 }
 
 func NewBuilder[K comparable, V any](maxsize int64) *Builder[K, V] {

@@ -14,11 +14,11 @@ const (
 // List represents a doubly linked list.
 // The zero value for List is an empty list ready to use.
 type List[K comparable, V any] struct {
-	bounded  bool
-	listType uint8       // 1 tinylfu list, 2 timerwheel list
 	root     Entry[K, V] // sentinel list element, only &root, root.prev, and root.next are used
 	len      int         // current list length excluding (this) sentinel element
 	capacity uint
+	bounded  bool
+	listType uint8 // 1 tinylfu list, 2 timerwheel list
 }
 
 // New returns an initialized list.

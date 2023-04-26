@@ -176,7 +176,7 @@ func TestGetSetDeleteNoRace(t *testing.T) {
 					key := keys[i]
 					client.Get(key)
 					if i%3 == 0 {
-						client.SetWithTTL(key, key, 1, time.Second*time.Duration(i%25+5))
+						client.SetWithTTL(key, key, int64(i%10+1), time.Second*time.Duration(i%25+5))
 					}
 					if i%5 == 0 {
 						client.Delete(key)

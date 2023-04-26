@@ -30,11 +30,11 @@ func (c *Clock) expireNano(ttl time.Duration) int64 {
 }
 
 type TimerWheel[K comparable, V any] struct {
+	clock   *Clock
 	buckets []uint
 	spans   []uint
 	shift   []uint
 	wheel   [][]*List[K, V]
-	clock   *Clock
 	nanos   int64
 }
 

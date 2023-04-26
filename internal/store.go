@@ -38,11 +38,11 @@ type Shard[K comparable, V any] struct {
 
 func NewShard[K comparable, V any](size uint, qsize uint) *Shard[K, V] {
 	return &Shard[K, V]{
-		hashmap:   make(map[K]*Entry[K, V], size),
+		hashmap:   make(map[K]*Entry[K, V]),
 		dookeeper: newDoorkeeper(int(20*size), 0.01),
 		size:      size,
 		qsize:     qsize,
-		deque:     deque.New[*Entry[K, V]](int(qsize)),
+		deque:     deque.New[*Entry[K, V]](),
 	}
 }
 

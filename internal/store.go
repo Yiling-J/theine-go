@@ -31,7 +31,7 @@ type Shard[K comparable, V any] struct {
 	group     Group[K, Loaded[V]]
 	size      uint
 	qsize     uint
-	qlen      uint
+	qlen      int
 	counter   uint
 	mu        sync.RWMutex
 }
@@ -206,7 +206,7 @@ func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
 		if oldCost != cost {
 			costChange = cost - oldCost
 			if exist.deque {
-				shard.qlen += uint(costChange)
+				shard.qlen += int(costChange)
 			}
 		}
 		shard.mu.Unlock()
@@ -251,7 +251,7 @@ func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
 	}
 	entry.deque = true
 	shard.deque.PushFront(entry)
-	shard.qlen += uint(cost)
+	shard.qlen += int(cost)
 	s.processDeque(shard)
 	return true
 }
@@ -262,7 +262,7 @@ type dequeKV[K comparable, V any] struct {
 }
 
 func (s *Store[K, V]) processDeque(shard *Shard[K, V]) {
-	if shard.qlen <= shard.qsize {
+	if shard.qlen <= int(shard.qsize) {
 		shard.mu.Unlock()
 		return
 	}
@@ -273,11 +273,11 @@ func (s *Store[K, V]) processDeque(shard *Shard[K, V]) {
 	// expired
 	expiredkv := make([]dequeKV[K, V], 0, 2)
 	// expired
-	for shard.qlen > shard.qsize {
+	for shard.qlen > int(shard.qsize) {
 		evicted := shard.deque.PopBack()
 		evicted.deque = false
 		expire := evicted.expire.Load()
-		shard.qlen -= uint(evicted.cost.Load())
+		shard.qlen -= int(evicted.cost.Load())
 		if expire != 0 && expire <= s.timerwheel.clock.nowNano() {
 			deleted := shard.delete(evicted)
 			// double check because entry maybe removed already by Delete API

@@ -5,17 +5,17 @@ import (
 )
 
 type TinyLfu[K comparable, V any] struct {
-	size      uint
 	slru      *Slru[K, V]
 	sketch    *CountMinSketch
-	lruFactor uint8
+	hasher    *Hasher[K]
+	size      uint
+	counter   uint
 	total     atomic.Uint32
 	hit       atomic.Uint32
 	hr        float32
-	step      int8
-	hasher    *Hasher[K]
 	threshold atomic.Int32
-	counter   uint
+	lruFactor uint8
+	step      int8
 }
 
 func NewTinyLfu[K comparable, V any](size uint, hasher *Hasher[K]) *TinyLfu[K, V] {

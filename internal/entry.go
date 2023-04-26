@@ -14,29 +14,30 @@ type ReadBufItem[K comparable, V any] struct {
 }
 type WriteBufItem[K comparable, V any] struct {
 	entry      *Entry[K, V]
-	code       int8
 	costChange int64
+	code       int8
 	rechedule  bool
 }
 
 type MetaData[K comparable, V any] struct {
-	root      bool
-	list      uint8 // used in slru, probation or protected
 	prev      *Entry[K, V]
 	next      *Entry[K, V]
 	wheelPrev *Entry[K, V]
 	wheelNext *Entry[K, V]
+	root      bool
+	list      uint8 // used in slru, probation or protected
 }
 
 type Entry[K comparable, V any] struct {
-	shard     uint16
-	cost      atomic.Int64
 	key       K
 	value     V
-	expire    atomic.Int64
 	meta      MetaData[K, V]
+	cost      atomic.Int64
+	expire    atomic.Int64
 	frequency atomic.Int32
+	shard     uint16
 	removed   bool
+	deque     bool
 }
 
 func NewEntry[K comparable, V any](key K, value V, cost int64, expire int64) *Entry[K, V] {

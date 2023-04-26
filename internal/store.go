@@ -26,14 +26,14 @@ const (
 
 type Shard[K comparable, V any] struct {
 	hashmap   map[K]*Entry[K, V]
-	mu        sync.RWMutex
 	dookeeper *doorkeeper
+	deque     *deque.Deque[*Entry[K, V]]
+	group     Group[K, Loaded[V]]
 	size      uint
 	qsize     uint
 	qlen      uint
 	counter   uint
-	deque     *deque.Deque[*Entry[K, V]]
-	group     Group[K, Loaded[V]]
+	mu        sync.RWMutex
 }
 
 func NewShard[K comparable, V any](size uint, qsize uint) *Shard[K, V] {
@@ -73,22 +73,22 @@ type Metrics struct {
 }
 
 type Store[K comparable, V any] struct {
-	tailUpdate      bool
-	cap             uint
-	shards          []*Shard[K, V]
-	shardCount      uint
+	entryPool       sync.Pool
+	writebuf        chan WriteBufItem[K, V]
+	hasher          *Hasher[K]
+	removalListener func(key K, value V, reason RemoveReason)
 	policy          *TinyLfu[K, V]
 	timerwheel      *TimerWheel[K, V]
 	readbuf         *Queue[ReadBufItem[K, V]]
-	readCounter     *atomic.Uint32
-	writebuf        chan WriteBufItem[K, V]
-	hasher          *Hasher[K]
-	entryPool       sync.Pool
 	cost            func(V) int64
+	readCounter     *atomic.Uint32
+	shards          []*Shard[K, V]
+	cap             uint
+	shardCount      uint
 	mlock           sync.Mutex
+	tailUpdate      bool
 	doorkeeper      bool
 	closed          bool
-	removalListener func(key K, value V, reason RemoveReason)
 }
 
 // New returns a new data struct with the specified capacity
@@ -202,16 +202,19 @@ func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
 		var reschedule bool
 		var costChange int64
 		exist.value = value
+		oldCost := exist.cost.Swap(cost)
+		if oldCost != cost {
+			costChange = cost - oldCost
+			if exist.deque {
+				shard.qlen += uint(costChange)
+			}
+		}
 		shard.mu.Unlock()
 		if expire > 0 {
 			old := exist.expire.Swap(expire)
 			if old != expire {
 				reschedule = true
 			}
-		}
-		oldCost := exist.cost.Swap(cost)
-		if oldCost != cost {
-			costChange = cost - oldCost
 		}
 		if reschedule || costChange != 0 {
 			s.writebuf <- WriteBufItem[K, V]{
@@ -246,6 +249,7 @@ func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
 		s.writebuf <- WriteBufItem[K, V]{entry: entry, code: NEW}
 		return true
 	}
+	entry.deque = true
 	shard.deque.PushFront(entry)
 	shard.qlen += uint(cost)
 	s.processDeque(shard)
@@ -271,6 +275,7 @@ func (s *Store[K, V]) processDeque(shard *Shard[K, V]) {
 	// expired
 	for shard.qlen > shard.qsize {
 		evicted := shard.deque.PopBack()
+		evicted.deque = false
 		expire := evicted.expire.Load()
 		shard.qlen -= uint(evicted.cost.Load())
 		if expire != 0 && expire <= s.timerwheel.clock.nowNano() {

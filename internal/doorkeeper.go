@@ -6,9 +6,9 @@ import (
 
 // doorkeeper is a small bloom-filter-based cache admission policy
 type doorkeeper struct {
+	filter bitvector // our filter bit vector
 	m      uint32    // size of bit vector in bits
 	k      uint32    // distinct hash functions needed
-	filter bitvector // our filter bit vector
 }
 
 func newDoorkeeper(capacity int, falsePositiveRate float64) *doorkeeper {

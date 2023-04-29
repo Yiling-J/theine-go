@@ -164,13 +164,17 @@ func (t *TinyLfu[K, V]) EvictEntries() []*Entry[K, V] {
 }
 
 func (t *TinyLfu[K, V]) UpdateThreshold() {
-	tail := t.slru.victim()
-	if tail != nil {
-		t.threshold.Store(
-			int32(t.sketch.Estimate(t.hasher.hash(tail.key)) - uint(t.lruFactor)),
-		)
-	} else {
-		// cache is not full
+	if t.slru.probation.Len()+t.slru.protected.Len() < int(t.slru.maxsize) {
 		t.threshold.Store(-1)
+	} else {
+		tail := t.slru.victim()
+		if tail != nil {
+			t.threshold.Store(
+				int32(t.sketch.Estimate(t.hasher.hash(tail.key)) - uint(t.lruFactor)),
+			)
+		} else {
+			// cache is not full
+			t.threshold.Store(-1)
+		}
 	}
 }

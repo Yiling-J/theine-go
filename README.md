@@ -122,10 +122,12 @@ client.Delete("foo")
 
 ```
 ## Benchmarks
-	
-### throughput
 
 Source: https://github.com/Yiling-J/go-cache-benchmark-plus
+
+This repo includes reproducible throughput/hit-ratios benchmark code, you can also test your own cache package with it.
+	
+### throughput
 
 ```
 cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
@@ -139,8 +141,6 @@ BenchmarkZipfRistrettoParallel-12       21031435                61.82 ns/op     
 ```
 
 ### hit ratios
-
-Source: https://github.com/Yiling-J/go-cache-benchmark-plus
 
 ristretto v0.1.1: https://github.com/dgraph-io/ristretto
 > from Ristretto [README](https://github.com/dgraph-io/ristretto#hit-ratios), the hit ratio should be higher. But I can't reproduce their benchmark results. So I open an issue: https://github.com/dgraph-io/ristretto/issues/336

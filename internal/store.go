@@ -287,19 +287,21 @@ func (s *Store[K, V]) processDeque(shard *Shard[K, V]) {
 			}
 		} else {
 			count := evicted.frequency.Load()
+			threshold := s.policy.threshold.Load()
 			if count == -1 {
-				count = 0
-			}
-			if int32(count) >= s.policy.threshold.Load() {
 				send = append(send, evicted)
 			} else {
-				deleted := shard.delete(evicted)
-				// double check because entry maybe removed already by Delete API
-				if deleted {
-					removedkv = append(
-						expiredkv, dequeKV[K, V]{k: evicted.key, v: evicted.value},
-					)
-					s.postDelete(evicted)
+				if int32(count) >= threshold {
+					send = append(send, evicted)
+				} else {
+					deleted := shard.delete(evicted)
+					// double check because entry maybe removed already by Delete API
+					if deleted {
+						removedkv = append(
+							expiredkv, dequeKV[K, V]{k: evicted.key, v: evicted.value},
+						)
+						s.postDelete(evicted)
+					}
 				}
 			}
 		}
@@ -361,9 +363,6 @@ func (s *Store[K, V]) postDelete(entry *Entry[K, V]) {
 func (s *Store[K, V]) removeEntry(entry *Entry[K, V], reason RemoveReason) {
 	if prev := entry.meta.prev; prev != nil {
 		s.policy.Remove(entry)
-		if prev.meta.root {
-			s.tailUpdate = true
-		}
 	}
 	if entry.meta.wheelPrev != nil {
 		s.timerwheel.deschedule(entry)
@@ -418,10 +417,7 @@ func (s *Store[K, V]) maintance() {
 				return
 			}
 			s.timerwheel.advance(0, s.removeEntry)
-			if s.tailUpdate {
-				s.policy.UpdateThreshold()
-				s.tailUpdate = false
-			}
+			s.policy.UpdateThreshold()
 			s.mlock.Unlock()
 		}
 	}()
@@ -447,14 +443,17 @@ func (s *Store[K, V]) maintance() {
 			evicted := s.policy.Set(entry)
 			if evicted != nil {
 				s.removeEntry(evicted, EVICTED)
+				s.tailUpdate = true
 			}
 			removed := s.policy.EvictEntries()
 			for _, e := range removed {
+				s.tailUpdate = true
 				s.removeEntry(e, EVICTED)
 			}
 		case REMOVE:
 			entry.removed = true
 			s.removeEntry(entry, REMOVED)
+			s.policy.threshold.Store(-1)
 		case UPDATE:
 			if item.rechedule {
 				s.timerwheel.schedule(entry)
@@ -463,6 +462,7 @@ func (s *Store[K, V]) maintance() {
 				s.policy.UpdateCost(entry, item.costChange)
 				removed := s.policy.EvictEntries()
 				for _, e := range removed {
+					s.tailUpdate = true
 					s.removeEntry(e, EVICTED)
 				}
 			}

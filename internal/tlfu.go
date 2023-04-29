@@ -19,13 +19,16 @@ type TinyLfu[K comparable, V any] struct {
 }
 
 func NewTinyLfu[K comparable, V any](size uint, hasher *Hasher[K]) *TinyLfu[K, V] {
-	return &TinyLfu[K, V]{
+	tlfu := &TinyLfu[K, V]{
 		size:   size,
 		slru:   NewSlru[K, V](size),
 		sketch: NewCountMinSketch(size),
 		step:   1,
 		hasher: hasher,
 	}
+	// default threshold to -1 so all entries are admitted until cache is full
+	tlfu.threshold.Store(-1)
+	return tlfu
 }
 
 func (t *TinyLfu[K, V]) climb() {
@@ -91,14 +94,10 @@ func (t *TinyLfu[K, V]) Set(entry *Entry[K, V]) *Entry[K, V] {
 			evictedCount := uint(freq) + uint(t.lruFactor)
 			victimCount := t.sketch.Estimate(t.hasher.hash(victim.key))
 			if evictedCount <= uint(victimCount) {
-				t.threshold.Store(int32(victimCount) - int32(t.lruFactor))
 				return entry
-			} else {
-				t.threshold.Store(-int32(t.lruFactor))
 			}
 		}
 		evicted := t.slru.insert(entry)
-		t.threshold.Store(0)
 		return evicted
 	}
 
@@ -123,7 +122,7 @@ func (t *TinyLfu[K, V]) Access(item ReadBufItem[K, V]) {
 			}
 			t.slru.access(entry)
 			if tail {
-				t.threshold.Store(0)
+				t.UpdateThreshold()
 			}
 		} else {
 			entry.frequency.Store(int32(t.sketch.Estimate(item.hash)))
@@ -154,9 +153,6 @@ func (t *TinyLfu[K, V]) EvictEntries() []*Entry[K, V] {
 		}
 		removed = append(removed, entry)
 	}
-	if len(removed) > 0 {
-		t.threshold.Store(0)
-	}
 	for t.slru.probation.Len()+t.slru.protected.Len() > int(t.slru.maxsize) {
 		entry := t.slru.protected.PopTail()
 		if entry == nil {
@@ -171,9 +167,10 @@ func (t *TinyLfu[K, V]) UpdateThreshold() {
 	tail := t.slru.victim()
 	if tail != nil {
 		t.threshold.Store(
-			int32(t.sketch.Estimate(t.hasher.hash(tail.key))),
+			int32(t.sketch.Estimate(t.hasher.hash(tail.key)) - uint(t.lruFactor)),
 		)
 	} else {
-		t.threshold.Store(0)
+		// cache is not full
+		t.threshold.Store(-1)
 	}
 }

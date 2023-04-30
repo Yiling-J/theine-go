@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gammazero/deque"
+	_ "go.uber.org/automaxprocs"
 )
 
 const (
@@ -102,8 +103,14 @@ func NewStore[K comparable, V any](maxsize int64) *Store[K, V] {
 		writeBufSize = MAX_WRITE_BUFF_SIZE
 	}
 	shardCount := 1
-	for int(shardCount) < runtime.NumCPU()*8 {
+	for shardCount < runtime.GOMAXPROCS(0)*2 {
 		shardCount *= 2
+	}
+	if shardCount < 16 {
+		shardCount = 16
+	}
+	if shardCount > 128 {
+		shardCount = 128
 	}
 	dequeSize := int(maxsize) / 100 / shardCount
 	shardSize := int(maxsize) / shardCount

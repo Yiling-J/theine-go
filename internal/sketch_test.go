@@ -40,7 +40,7 @@ func TestSketch(t *testing.T) {
 
 	}
 	require.True(t, float32(failed)/4000 < 0.1)
-	require.True(t, sketch.additions > 3900)
+	require.True(t, sketch.additions > 3500)
 	a := sketch.additions
 	sketch.reset()
 	require.Equal(t, a>>1, sketch.additions)

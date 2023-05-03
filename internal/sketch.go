@@ -7,6 +7,7 @@ type CountMinSketch struct {
 	rowMask        uint
 	additions      uint
 	sampleSize     uint
+	blockMask      uint
 }
 
 func NewCountMinSketch(size uint) *CountMinSketch {
@@ -21,15 +22,16 @@ func NewCountMinSketch(size uint) *CountMinSketch {
 		table:          table,
 		additions:      0,
 		sampleSize:     10 * rowCounterSize,
+		blockMask:      (rowCounterSize>>2)>>3 - 1,
 	}
 }
 
-func (s *CountMinSketch) indexOf(h uint64, offset uint8) (uint, uint) {
-	hn := h + uint64(offset)*(h>>32)
-	i := uint(hn & uint64(s.rowMask))
-	index := uint(offset)*s.row64Size + (i >> 4)
-	off := (i & 0xF) << 2
-	return index, off
+// indexOf return table index and counter index together
+func (s *CountMinSketch) indexOf(h uint64, block uint64, offset uint8) (uint, uint) {
+	counterHash := h + uint64(1+offset)*(h>>32)
+	// max block + 7(8 * 8 bytes), fit 64 bytes cache line
+	index := block + counterHash&1 + uint64(offset<<1)
+	return uint(index), uint((counterHash & 0xF) << 2)
 }
 
 func (s *CountMinSketch) inc(index uint, offset uint) bool {
@@ -42,10 +44,13 @@ func (s *CountMinSketch) inc(index uint, offset uint) bool {
 }
 
 func (s *CountMinSketch) Add(h uint64) bool {
-	index0, offset0 := s.indexOf(h, 0)
-	index1, offset1 := s.indexOf(h, 1)
-	index2, offset2 := s.indexOf(h, 2)
-	index3, offset3 := s.indexOf(h, 3)
+	hn := spread(h)
+	block := (hn & uint64(s.blockMask)) << 3
+	hc := rehash(h)
+	index0, offset0 := s.indexOf(hc, block, 0)
+	index1, offset1 := s.indexOf(hc, block, 1)
+	index2, offset2 := s.indexOf(hc, block, 2)
+	index3, offset3 := s.indexOf(hc, block, 3)
 
 	added := s.inc(index0, offset0)
 	added = s.inc(index1, offset1) || added
@@ -69,8 +74,8 @@ func (s *CountMinSketch) reset() {
 	s.additions = s.additions >> 1
 }
 
-func (s *CountMinSketch) count(h uint64, offset uint8) uint {
-	index, off := s.indexOf(h, offset)
+func (s *CountMinSketch) count(h uint64, block uint64, offset uint8) uint {
+	index, off := s.indexOf(h, block, offset)
 	count := (s.table[index] >> off) & 0xF
 	return uint(count)
 }
@@ -83,9 +88,27 @@ func min(a, b uint) uint {
 }
 
 func (s *CountMinSketch) Estimate(h uint64) uint {
-	m := min(s.count(h, 0), 100)
-	m = min(s.count(h, 1), m)
-	m = min(s.count(h, 2), m)
-	m = min(s.count(h, 3), m)
+	hn := spread(h)
+	block := (hn & uint64(s.blockMask)) << 3
+	hc := rehash(h)
+	m := min(s.count(hc, block, 0), 100)
+	m = min(s.count(hc, block, 1), m)
+	m = min(s.count(hc, block, 2), m)
+	m = min(s.count(hc, block, 3), m)
 	return m
+}
+
+func spread(h uint64) uint64 {
+	h ^= h >> 17
+	h *= 0xed5ad4bb
+	h ^= h >> 11
+	h *= 0xac4c1b51
+	h ^= h >> 15
+	return h
+}
+
+func rehash(h uint64) uint64 {
+	h *= 0x31848bab
+	h ^= h >> 14
+	return h
 }

@@ -2,10 +2,13 @@ package internal
 
 import (
 	"fmt"
+	"math/rand"
+	"strconv"
 	"testing"
 
 	"github.com/cespare/xxhash/v2"
 	"github.com/stretchr/testify/require"
+	"github.com/zeebo/xxh3"
 )
 
 func TestSketch(t *testing.T) {
@@ -44,4 +47,17 @@ func TestSketch(t *testing.T) {
 	a := sketch.additions
 	sketch.reset()
 	require.Equal(t, a>>1, sketch.additions)
+}
+
+func BenchmarkSketch(b *testing.B) {
+	sketch := NewCountMinSketch(50000000)
+	nums := []uint64{}
+	for i := 0; i < 100000; i++ {
+		h := xxh3.HashString(strconv.Itoa(rand.Intn(100000)))
+		nums = append(nums, h)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		sketch.Estimate(nums[i%100000])
+	}
 }

@@ -130,14 +130,16 @@ This repo includes reproducible throughput/hit-ratios benchmark code, you can al
 ### throughput
 
 ```
+goos: darwin
+goarch: amd64
+pkg: github.com/Yiling-J/go-cache-benchmark-plus
 cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
-
-BenchmarkGetTheineParallel-12           32432190                36.39 ns/op            0 B/op          0 allocs/op
-BenchmarkGetRistrettoParallel-12        63978058                18.86 ns/op           17 B/op          1 allocs/op
-BenchmarkSetTheineParallel-12           20791834                84.49 ns/op            0 B/op          0 allocs/op
-BenchmarkSetRistrettoParallel-12        23354626                65.53 ns/op          116 B/op          3 allocs/op
-BenchmarkZipfTheineParallel-12          14771362                74.72 ns/op            1 B/op          0 allocs/op
-BenchmarkZipfRistrettoParallel-12       21031435                61.82 ns/op          100 B/op          3 allocs/op
+BenchmarkGetParallel/theine-12          40604346                28.72 ns/op            0 B/op          0 allocs/op
+BenchmarkGetParallel/ristretto-12       60166238                23.50 ns/op           17 B/op          1 allocs/op
+BenchmarkSetParallel/theine-12          16067138                67.55 ns/op            0 B/op          0 allocs/op
+BenchmarkSetParallel/ristretto-12       12830085                79.30 ns/op          116 B/op          3 allocs/op
+BenchmarkZipfParallel/theine-12         15908767                70.07 ns/op            0 B/op          0 allocs/op
+BenchmarkZipfParallel/ristretto-12      17200935                80.05 ns/op          100 B/op          3 allocs/op
 ```
 
 ### hit ratios

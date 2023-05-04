@@ -165,6 +165,7 @@ func (s *Store[K, V]) getFromShard(key K, hash uint64, shard *Shard[K, V]) (V, b
 			value = entry.value
 		}
 	}
+	shard.mu.RUnlock()
 	switch {
 	case new < MAX_READ_BUFF_SIZE:
 		var send ReadBufItem[K, V]
@@ -172,19 +173,14 @@ func (s *Store[K, V]) getFromShard(key K, hash uint64, shard *Shard[K, V]) (V, b
 		if ok {
 			send.entry = entry
 		}
-		shard.mu.RUnlock()
 		s.readbuf.Push(send)
 	case new == MAX_READ_BUFF_SIZE:
-		shard.mu.RUnlock()
 		s.drainRead()
-	default:
-		shard.mu.RUnlock()
 	}
 	return value, ok
 }
 
 func (s *Store[K, V]) Get(key K) (V, bool) {
-	s.policy.total.Add(1)
 	h, index := s.index(key)
 	shard := s.shards[index]
 	return s.getFromShard(key, h, shard)
@@ -402,6 +398,7 @@ func (s *Store[K, V]) removeEntry(entry *Entry[K, V], reason RemoveReason) {
 }
 
 func (s *Store[K, V]) drainRead() {
+	s.policy.total.Add(MAX_READ_BUFF_SIZE)
 	s.mlock.Lock()
 	for {
 		v, ok := s.readbuf.Pop()
@@ -517,7 +514,6 @@ func (s *LoadingStore[K, V]) Loader(loader func(ctx context.Context, key K) (Loa
 }
 
 func (s *LoadingStore[K, V]) Get(ctx context.Context, key K) (V, error) {
-	s.policy.total.Add(1)
 	h, index := s.index(key)
 	shard := s.shards[index]
 	v, ok := s.getFromShard(key, h, shard)

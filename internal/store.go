@@ -37,18 +37,27 @@ type Shard[K comparable, V any] struct {
 	mu        sync.RWMutex
 }
 
-func NewShard[K comparable, V any](size uint, qsize uint) *Shard[K, V] {
-	return &Shard[K, V]{
-		hashmap:   make(map[K]*Entry[K, V]),
-		dookeeper: newDoorkeeper(int(20*size), 0.01),
-		size:      size,
-		qsize:     qsize,
-		deque:     deque.New[*Entry[K, V]](),
+func NewShard[K comparable, V any](size uint, qsize uint, doorkeeper bool) *Shard[K, V] {
+	s := &Shard[K, V]{
+		hashmap: make(map[K]*Entry[K, V]),
+		size:    size,
+		qsize:   qsize,
+		deque:   deque.New[*Entry[K, V]](),
 	}
+	if doorkeeper {
+		s.dookeeper = newDoorkeeper(0.01)
+	}
+	return s
 }
 
 func (s *Shard[K, V]) set(key K, entry *Entry[K, V]) {
 	s.hashmap[key] = entry
+	if s.dookeeper != nil {
+		ds := 20 * len(s.hashmap)
+		if ds > s.dookeeper.capacity {
+			s.dookeeper.ensureCapacity(ds)
+		}
+	}
 }
 
 func (s *Shard[K, V]) get(key K) (entry *Entry[K, V], ok bool) {
@@ -93,7 +102,7 @@ type Store[K comparable, V any] struct {
 }
 
 // New returns a new data struct with the specified capacity
-func NewStore[K comparable, V any](maxsize int64) *Store[K, V] {
+func NewStore[K comparable, V any](maxsize int64, doorkeeper bool) *Store[K, V] {
 	hasher := NewHasher[K]()
 	writeBufSize := maxsize / 100
 	if writeBufSize < MIN_WRITE_BUFF_SIZE {
@@ -128,11 +137,11 @@ func NewStore[K comparable, V any](maxsize int64) *Store[K, V] {
 		entryPool:   sync.Pool{New: func() any { return &Entry[K, V]{} }},
 		cost:        func(v V) int64 { return 1 },
 		shardCount:  uint(shardCount),
-		doorkeeper:  false,
+		doorkeeper:  doorkeeper,
 	}
 	s.shards = make([]*Shard[K, V], 0, s.shardCount)
 	for i := 0; i < int(s.shardCount); i++ {
-		s.shards = append(s.shards, NewShard[K, V](uint(shardSize), uint(dequeSize)))
+		s.shards = append(s.shards, NewShard[K, V](uint(shardSize), uint(dequeSize), doorkeeper))
 	}
 
 	s.timerwheel = NewTimerWheel[K, V](uint(maxsize))
@@ -142,9 +151,6 @@ func NewStore[K comparable, V any](maxsize int64) *Store[K, V] {
 
 func (s *Store[K, V]) Cost(cost func(v V) int64) {
 	s.cost = cost
-}
-func (s *Store[K, V]) Doorkeeper(enabled bool) {
-	s.doorkeeper = enabled
 }
 
 func (s *Store[K, V]) RemovalListener(listener func(key K, value V, reason RemoveReason)) {
@@ -227,7 +233,7 @@ func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
 		return true
 	}
 	if s.doorkeeper {
-		if shard.counter > 20*shard.size {
+		if shard.counter > uint(shard.dookeeper.capacity) {
 			shard.dookeeper.reset()
 			shard.counter = 0
 		}

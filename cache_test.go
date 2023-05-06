@@ -29,6 +29,18 @@ func TestSet(t *testing.T) {
 	client.Close()
 }
 
+func TestUpdate(t *testing.T) {
+	client, err := theine.NewBuilder[string, string](1000).Build()
+	require.Nil(t, err)
+	key := "foo"
+	for _, v := range []string{"a", "b", "c", "d", "e", "e"} {
+		client.Set(key, v, 1)
+		vn, ok := client.Get(key)
+		require.True(t, ok)
+		require.Equal(t, v, vn)
+	}
+}
+
 func TestSetParallel(t *testing.T) {
 	client, err := theine.NewBuilder[string, string](1000).Build()
 	require.Nil(t, err)

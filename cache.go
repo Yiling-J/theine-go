@@ -63,14 +63,13 @@ func (b *Builder[K, V]) Build() (*Cache[K, V], error) {
 	if b.maxsize <= 0 {
 		return nil, errors.New("size must be positive")
 	}
-	store := internal.NewStore[K, V](b.maxsize)
+	store := internal.NewStore[K, V](b.maxsize, b.doorkeeper)
 	if b.cost != nil {
 		store.Cost(b.cost)
 	}
 	if b.removalListener != nil {
 		store.RemovalListener(b.removalListener)
 	}
-	store.Doorkeeper(b.doorkeeper)
 	return &Cache[K, V]{store: store}, nil
 }
 
@@ -81,14 +80,13 @@ func (b *Builder[K, V]) BuildWithLoader(loader func(ctx context.Context, key K) 
 	if loader == nil {
 		return nil, errors.New("loader function required")
 	}
-	store := internal.NewStore[K, V](b.maxsize)
+	store := internal.NewStore[K, V](b.maxsize, b.doorkeeper)
 	if b.cost != nil {
 		store.Cost(b.cost)
 	}
 	if b.removalListener != nil {
 		store.RemovalListener(b.removalListener)
 	}
-	store.Doorkeeper(b.doorkeeper)
 	loadingStore := internal.NewLoadingStore(store)
 	loadingStore.Loader(func(ctx context.Context, key K) (internal.Loaded[V], error) {
 		v, err := loader(ctx, key)

@@ -22,7 +22,7 @@ func NewTinyLfu[K comparable, V any](size uint, hasher *Hasher[K]) *TinyLfu[K, V
 	tlfu := &TinyLfu[K, V]{
 		size:   size,
 		slru:   NewSlru[K, V](size),
-		sketch: NewCountMinSketch(size),
+		sketch: NewCountMinSketch(),
 		step:   1,
 		hasher: hasher,
 	}
@@ -79,7 +79,6 @@ func (t *TinyLfu[K, V]) climb() {
 }
 
 func (t *TinyLfu[K, V]) Set(entry *Entry[K, V]) *Entry[K, V] {
-	// new entry
 	t.counter++
 	if t.counter > 10*t.size {
 		t.climb()
@@ -96,6 +95,9 @@ func (t *TinyLfu[K, V]) Set(entry *Entry[K, V]) *Entry[K, V] {
 			if evictedCount <= uint(victimCount) {
 				return entry
 			}
+		} else {
+			count := t.slru.probation.len + t.slru.protected.len
+			t.sketch.ensureCapacity(uint(count + count/100))
 		}
 		evicted := t.slru.insert(entry)
 		return evicted

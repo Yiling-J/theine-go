@@ -12,11 +12,12 @@ import (
 )
 
 func TestSketch(t *testing.T) {
-	sketch := NewCountMinSketch(100)
-	require.Equal(t, uint(512), sketch.rowCounterSize)
-	require.Equal(t, uint(511), sketch.rowMask)
+	sketch := NewCountMinSketch()
+	sketch.ensureCapacity(100)
 	require.Equal(t, 128, len(sketch.table))
-	require.Equal(t, uint(5120), sketch.sampleSize)
+	require.Equal(t, uint(1000), sketch.sampleSize)
+	// override sampleSize so test won't reset
+	sketch.sampleSize = 5120
 
 	failed := 0
 	for i := 0; i < 500; i++ {
@@ -50,7 +51,8 @@ func TestSketch(t *testing.T) {
 }
 
 func BenchmarkSketch(b *testing.B) {
-	sketch := NewCountMinSketch(50000000)
+	sketch := NewCountMinSketch()
+	sketch.ensureCapacity(50000000)
 	nums := []uint64{}
 	for i := 0; i < 100000; i++ {
 		h := xxh3.HashString(strconv.Itoa(rand.Intn(100000)))

@@ -93,7 +93,7 @@ func (s *CountMinSketch) ensureCapacity(size uint) {
 	if newSize < 8 {
 		newSize = 8
 	}
-	s.table = make([]uint64, next2Power(size))
+	s.table = make([]uint64, newSize)
 	s.sampleSize = 10 * size
 	if s.sampleSize < 10 {
 		s.sampleSize = 10

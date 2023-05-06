@@ -6,13 +6,25 @@ import (
 
 // doorkeeper is a small bloom-filter-based cache admission policy
 type doorkeeper struct {
-	filter bitvector // our filter bit vector
-	m      uint32    // size of bit vector in bits
-	k      uint32    // distinct hash functions needed
+	filter            bitvector // our filter bit vector
+	m                 uint32    // size of bit vector in bits
+	k                 uint32    // distinct hash functions needed
+	falsePositiveRate float64
+	capacity          int
 }
 
-func newDoorkeeper(capacity int, falsePositiveRate float64) *doorkeeper {
-	bits := float64(capacity) * -math.Log(falsePositiveRate) / (math.Log(2.0) * math.Log(2.0)) // in bits
+func newDoorkeeper(falsePositiveRate float64) *doorkeeper {
+	d := &doorkeeper{falsePositiveRate: falsePositiveRate}
+	d.ensureCapacity(320)
+	return d
+}
+
+func (d *doorkeeper) ensureCapacity(capacity int) {
+	if capacity <= d.capacity {
+		return
+	}
+	capacity = int(nextPowerOfTwo(uint32(capacity)))
+	bits := float64(capacity) * -math.Log(d.falsePositiveRate) / (math.Log(2.0) * math.Log(2.0)) // in bits
 	m := nextPowerOfTwo(uint32(bits))
 
 	if m < 1024 {
@@ -23,12 +35,10 @@ func newDoorkeeper(capacity int, falsePositiveRate float64) *doorkeeper {
 	if k < 2 {
 		k = 2
 	}
-
-	return &doorkeeper{
-		m:      m,
-		filter: newbv(m),
-		k:      k,
-	}
+	d.capacity = capacity
+	d.m = m
+	d.filter = newbv(m)
+	d.k = k
 }
 
 // insert inserts the byte array b into the bloom filter.  Returns true if the value

@@ -89,15 +89,12 @@ func (s *CountMinSketch) ensureCapacity(size uint) {
 	if len(s.table) >= int(size) {
 		return
 	}
-	newSize := next2Power(size)
-	if newSize < 8 {
-		newSize = 8
+	if size < 16 {
+		size = 16
 	}
+	newSize := next2Power(size)
 	s.table = make([]uint64, newSize)
 	s.sampleSize = 10 * size
-	if s.sampleSize < 10 {
-		s.sampleSize = 10
-	}
 	s.blockMask = uint((len(s.table) >> 3) - 1)
 	s.additions = 0
 }

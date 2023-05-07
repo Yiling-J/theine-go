@@ -126,7 +126,7 @@ client.Range(func(key, value int) bool {
 	return true
 })
 
-// close client, set hashmaps in shard to nil and close all goroutines.
+// close client, set hashmaps in shard to nil and close all goroutines
 client.Close()
 
 ```

@@ -261,3 +261,31 @@ func TestLoadingRemovalListener(t *testing.T) {
 	require.True(t, len(expired) > 0)
 	lock.Unlock()
 }
+
+func TestLoadingRange(t *testing.T) {
+	for _, cap := range []int{100, 200000} {
+		client, err := theine.NewBuilder[int, int](int64(cap)).BuildWithLoader(func(ctx context.Context, key int) (theine.Loaded[int], error) {
+			return theine.Loaded[int]{Value: key, Cost: 1, TTL: 0}, nil
+		})
+		require.Nil(t, err)
+		for i := 0; i < 100; i++ {
+			success := client.Set(i, i, 1)
+			require.True(t, success)
+		}
+		data := map[int]int{}
+		client.Range(func(key, value int) bool {
+			data[key] = value
+			return true
+		})
+		require.Equal(t, 100, len(data))
+		for i := 0; i < 100; i++ {
+			require.Equal(t, i, data[i])
+		}
+		data = map[int]int{}
+		client.Range(func(key, value int) bool {
+			data[key] = value
+			return len(data) < 20
+		})
+		require.Equal(t, 20, len(data))
+	}
+}

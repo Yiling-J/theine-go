@@ -193,6 +193,11 @@ func TestGetSetDeleteNoRace(t *testing.T) {
 					if i%5 == 0 {
 						client.Delete(key)
 					}
+					if i%5000 == 0 {
+						client.Range(func(key, value string) bool {
+							return true
+						})
+					}
 				}
 			}()
 		}
@@ -360,4 +365,52 @@ func TestRemovalListener(t *testing.T) {
 	lock.Lock()
 	require.True(t, len(expired) > 0)
 	lock.Unlock()
+}
+
+func TestRange(t *testing.T) {
+	for _, cap := range []int{100, 200000} {
+		client, err := theine.NewBuilder[int, int](int64(cap)).Build()
+		require.Nil(t, err)
+		for i := 0; i < 100; i++ {
+			success := client.Set(i, i, 1)
+			require.True(t, success)
+		}
+		data := map[int]int{}
+		client.Range(func(key, value int) bool {
+			data[key] = value
+			return true
+		})
+		require.Equal(t, 100, len(data))
+		for i := 0; i < 100; i++ {
+			require.Equal(t, i, data[i])
+		}
+		// return false
+		data = map[int]int{}
+		client.Range(func(key, value int) bool {
+			data[key] = value
+			return len(data) < 20
+		})
+		require.Equal(t, 20, len(data))
+		// expired
+		client, err = theine.NewBuilder[int, int](int64(cap)).Build()
+		require.Nil(t, err)
+		for i := 0; i < 50; i++ {
+			success := client.Set(i, i, 1)
+			require.True(t, success)
+		}
+		for i := 50; i < 100; i++ {
+			success := client.SetWithTTL(i, i, 1, time.Second)
+			require.True(t, success)
+		}
+		time.Sleep(2 * time.Second)
+		data = map[int]int{}
+		client.Range(func(key, value int) bool {
+			data[key] = value
+			return true
+		})
+		require.Equal(t, 50, len(data))
+		for i := 0; i < 50; i++ {
+			require.Equal(t, i, data[i])
+		}
+	}
 }

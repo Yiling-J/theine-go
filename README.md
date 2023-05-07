@@ -120,6 +120,15 @@ value, err := client.Get(ctx, "foo")
 // remove
 client.Delete("foo")
 
+// iterate key/value in cache and apply custom function
+// if function returns false, range stops the iteration
+client.Range(func(key, value int) bool {
+	return true
+})
+
+// close client, set hashmaps in shard to nil and close all goroutines.
+client.Close()
+
 ```
 ## Benchmarks
 

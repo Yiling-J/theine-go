@@ -490,18 +490,6 @@ func (s *Store[K, V]) Range(f func(key K, value V) bool) {
 	now := s.timerwheel.clock.nowNano()
 	for _, shard := range s.shards {
 		shard.mu.RLock()
-		dl := shard.deque.Len()
-		for i := 0; i < dl; i++ {
-			entry := shard.deque.At(i)
-			expire := entry.expire.Load()
-			if expire != 0 && expire <= now {
-				continue
-			}
-			if !f(entry.key, entry.value) {
-				shard.mu.RUnlock()
-				return
-			}
-		}
 		for _, entry := range shard.hashmap {
 			expire := entry.expire.Load()
 			if expire != 0 && expire <= now {

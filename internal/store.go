@@ -486,6 +486,24 @@ func (s *Store[K, V]) maintance() {
 	}
 }
 
+func (s *Store[K, V]) Range(f func(key K, value V) bool) {
+	now := s.timerwheel.clock.nowNano()
+	for _, shard := range s.shards {
+		shard.mu.RLock()
+		for _, entry := range shard.hashmap {
+			expire := entry.expire.Load()
+			if expire != 0 && expire <= now {
+				continue
+			}
+			if !f(entry.key, entry.value) {
+				shard.mu.RUnlock()
+				return
+			}
+		}
+		shard.mu.RUnlock()
+	}
+}
+
 func (s *Store[K, V]) Close() {
 	for _, s := range s.shards {
 		s.mu.RLock()

@@ -45,20 +45,28 @@ func NewBuilder[K comparable, V any](maxsize int64) *Builder[K, V] {
 	return &Builder[K, V]{maxsize: maxsize}
 }
 
+// Cost adds dynamic cost function to builder.
+// There is a default cost function which always return 1.
 func (b *Builder[K, V]) Cost(cost func(v V) int64) *Builder[K, V] {
 	b.cost = cost
 	return b
 }
+
+// Doorkeeper enables doorkeeper.
+// Doorkeeper will drop Set if they are not in bloomfilter yet.
 func (b *Builder[K, V]) Doorkeeper(enabled bool) *Builder[K, V] {
 	b.doorkeeper = true
 	return b
 }
 
+// RemovalListener adds remove callback function to builder.
+// This function is called when entry in cache is evicted/expired/deleted.
 func (b *Builder[K, V]) RemovalListener(listener func(key K, value V, reason RemoveReason)) *Builder[K, V] {
 	b.removalListener = listener
 	return b
 }
 
+// Build builds a cache client from builder.
 func (b *Builder[K, V]) Build() (*Cache[K, V], error) {
 	if b.maxsize <= 0 {
 		return nil, errors.New("size must be positive")
@@ -73,6 +81,7 @@ func (b *Builder[K, V]) Build() (*Cache[K, V], error) {
 	return &Cache[K, V]{store: store}, nil
 }
 
+// BuildWithLoader builds a loading cache client from builder with custom loader function.
 func (b *Builder[K, V]) BuildWithLoader(loader func(ctx context.Context, key K) (Loaded[V], error)) (*LoadingCache[K, V], error) {
 	if b.maxsize <= 0 {
 		return nil, errors.New("size must be positive")
@@ -99,26 +108,40 @@ type Cache[K comparable, V any] struct {
 	store *internal.Store[K, V]
 }
 
+// Get gets value by key.
 func (c *Cache[K, V]) Get(key K) (V, bool) {
 	return c.store.Get(key)
 }
 
+// Set inserts or updates entry in cache with given ttl.
+// Return false when cost > max size.
 func (c *Cache[K, V]) SetWithTTL(key K, value V, cost int64, ttl time.Duration) bool {
 	return c.store.Set(key, value, cost, ttl)
 }
 
+// Set inserts or updates entry in cache.
+// Return false when cost > max size.
 func (c *Cache[K, V]) Set(key K, value V, cost int64) bool {
 	return c.SetWithTTL(key, value, cost, ZERO_TTL)
 }
 
+// Delete deletes key from cache.
 func (c *Cache[K, V]) Delete(key K) {
 	c.store.Delete(key)
 }
 
+// Range calls f sequentially for each key and value present in the cache.
+// If f returns false, range stops the iteration.
+func (c *Cache[K, V]) Range(f func(key K, value V) bool) {
+	c.store.Range(f)
+}
+
+// Len returns number of entries in cache.
 func (c *Cache[K, V]) Len() int {
 	return c.store.Len()
 }
 
+// Close closes all goroutines created by cache.
 func (c *Cache[K, V]) Close() {
 	c.store.Close()
 }
@@ -127,26 +150,40 @@ type LoadingCache[K comparable, V any] struct {
 	store *internal.LoadingStore[K, V]
 }
 
+// Get gets value by key.
 func (c *LoadingCache[K, V]) Get(ctx context.Context, key K) (V, error) {
 	return c.store.Get(ctx, key)
 }
 
+// Set inserts or updates entry in cache with given ttl.
+// Return false when cost > max size.
 func (c *LoadingCache[K, V]) SetWithTTL(key K, value V, cost int64, ttl time.Duration) bool {
 	return c.store.Set(key, value, cost, ttl)
 }
 
+// Set inserts or updates entry in cache.
+// Return false when cost > max size.
 func (c *LoadingCache[K, V]) Set(key K, value V, cost int64) bool {
 	return c.SetWithTTL(key, value, cost, ZERO_TTL)
 }
 
+// Delete deletes key from cache.
 func (c *LoadingCache[K, V]) Delete(key K) {
 	c.store.Delete(key)
 }
 
+// Range calls f sequentially for each key and value present in the cache.
+// If f returns false, range stops the iteration.
+func (c *LoadingCache[K, V]) Range(f func(key K, value V) bool) {
+	c.store.Range(f)
+}
+
+// Len returns number of entries in cache.
 func (c *LoadingCache[K, V]) Len() int {
 	return c.store.Len()
 }
 
+// Close closes all goroutines created by cache.
 func (c *LoadingCache[K, V]) Close() {
 	c.store.Close()
 }

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/gammazero/deque"
-	_ "go.uber.org/automaxprocs"
 )
 
 const (

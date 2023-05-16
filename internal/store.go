@@ -28,7 +28,7 @@ type Shard[K comparable, V any] struct {
 	hashmap   map[K]*Entry[K, V]
 	dookeeper *doorkeeper
 	deque     *deque.Deque[*Entry[K, V]]
-	group     Group[K, Loaded[V]]
+	group     *Group[K, Loaded[V]]
 	size      uint
 	qsize     uint
 	qlen      int
@@ -42,6 +42,7 @@ func NewShard[K comparable, V any](size uint, qsize uint, doorkeeper bool) *Shar
 		size:    size,
 		qsize:   qsize,
 		deque:   deque.New[*Entry[K, V]](),
+		group:   NewGroup[K, Loaded[V]](),
 	}
 	if doorkeeper {
 		s.dookeeper = newDoorkeeper(0.01)

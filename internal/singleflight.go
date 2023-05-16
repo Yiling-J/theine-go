@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"sync"
+	"sync/atomic"
 )
 
 // errGoexit indicates the runtime.Goexit was called in
@@ -52,20 +53,28 @@ type call[V any] struct {
 	val V
 	err error
 
-	chans []chan<- Result
-	wg    sync.WaitGroup
+	wg sync.WaitGroup
 
 	// These fields are read and written with the singleflight
 	// mutex held before the WaitGroup is done, and are read but
 	// not written after the WaitGroup is done.
-	dups int
+	dups atomic.Int32
 }
 
 // Group represents a class of work and forms a namespace in
 // which units of work can be executed with duplicate suppression.
 type Group[K comparable, V any] struct {
-	m  map[K]*call[V] // lazily initialized
-	mu sync.Mutex     // protects m
+	m        map[K]*call[V] // lazily initialized
+	mu       sync.Mutex     // protects m
+	callPool sync.Pool
+}
+
+func NewGroup[K comparable, V any]() *Group[K, V] {
+	return &Group[K, V]{
+		callPool: sync.Pool{New: func() any {
+			return new(call[V])
+		}},
+	}
 }
 
 // Result holds the results of Do, so they can be passed
@@ -87,7 +96,7 @@ func (g *Group[K, V]) Do(key K, fn func() (V, error)) (v V, err error, shared bo
 		g.m = make(map[K]*call[V])
 	}
 	if c, ok := g.m[key]; ok {
-		c.dups++
+		_ = c.dups.Add(1)
 		g.mu.Unlock()
 		c.wg.Wait()
 
@@ -96,41 +105,29 @@ func (g *Group[K, V]) Do(key K, fn func() (V, error)) (v V, err error, shared bo
 		} else if c.err == errGoexit {
 			runtime.Goexit()
 		}
-		return c.val, c.err, true
+		// assign value/err before put back to pool to avoid race
+		v = c.val
+		err = c.err
+		n := c.dups.Add(-1)
+		if n == 0 {
+			g.callPool.Put(c)
+		}
+		return v, err, true
 	}
-	c := new(call[V])
+	c := g.callPool.Get().(*call[V])
+	defer func() {
+		n := c.dups.Add(-1)
+		if n == 0 {
+			g.callPool.Put(c)
+		}
+	}()
+	_ = c.dups.Add(1)
 	c.wg.Add(1)
 	g.m[key] = c
 	g.mu.Unlock()
 
 	g.doCall(c, key, fn)
-	return c.val, c.err, c.dups > 0
-}
-
-// DoChan is like Do but returns a channel that will receive the
-// results when they are ready.
-
-// The returned channel will not be closed.
-func (g *Group[K, V]) DoChan(key K, fn func() (V, error)) <-chan Result {
-	ch := make(chan Result, 1)
-	g.mu.Lock()
-	if g.m == nil {
-		g.m = make(map[K]*call[V])
-	}
-	if c, ok := g.m[key]; ok {
-		c.dups++
-		c.chans = append(c.chans, ch)
-		g.mu.Unlock()
-		return ch
-	}
-	c := &call[V]{chans: []chan<- Result{ch}}
-	c.wg.Add(1)
-	g.m[key] = c
-	g.mu.Unlock()
-
-	go g.doCall(c, key, fn)
-
-	return ch
+	return c.val, c.err, true
 }
 
 // doCall handles the single call for a key.
@@ -154,21 +151,7 @@ func (g *Group[K, V]) doCall(c *call[V], key K, fn func() (V, error)) {
 		}
 
 		if e, ok := c.err.(*panicError); ok {
-			// In order to prevent the waiting channels from being blocked forever,
-			// needs to ensure that this panic cannot be recovered.
-			if len(c.chans) > 0 {
-				go panic(e)
-				select {} // Keep this goroutine around so that it will appear in the crash dump.
-			} else {
-				panic(e)
-			}
-		} else if c.err == errGoexit {
-			// Already in the process of goexit, no need to call again
-		} else {
-			// Normal return
-			for _, ch := range c.chans {
-				ch <- Result{c.val, c.err, c.dups > 0}
-			}
+			panic(e)
 		}
 	}()
 
@@ -195,13 +178,4 @@ func (g *Group[K, V]) doCall(c *call[V], key K, fn func() (V, error)) {
 	if !normalReturn {
 		recovered = true
 	}
-}
-
-// Forget tells the singleflight to forget about a key.  Future calls
-// to Do for this key will call the function rather than waiting for
-// an earlier call to complete.
-func (g *Group[K, V]) Forget(key K) {
-	g.mu.Lock()
-	delete(g.m, key)
-	g.mu.Unlock()
 }

@@ -5,14 +5,12 @@
 package internal
 
 import (
-	"bytes"
+	"crypto/rand"
 	"errors"
 	"fmt"
-	"os"
-	"os/exec"
+	"io"
 	"runtime"
 	"runtime/debug"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -20,7 +18,7 @@ import (
 )
 
 func TestDo(t *testing.T) {
-	var g Group[string, string]
+	g := NewGroup[string, string]()
 	v, err, _ := g.Do("key", func() (string, error) {
 		return "bar", nil
 	})
@@ -33,7 +31,7 @@ func TestDo(t *testing.T) {
 }
 
 func TestDoErr(t *testing.T) {
-	var g Group[string, string]
+	g := NewGroup[string, string]()
 	someErr := errors.New("Some error")
 	v, err, _ := g.Do("key", func() (string, error) {
 		return "", someErr
@@ -47,7 +45,7 @@ func TestDoErr(t *testing.T) {
 }
 
 func TestDoDupSuppress(t *testing.T) {
-	var g Group[string, string]
+	g := NewGroup[string, string]()
 	var wg1, wg2 sync.WaitGroup
 	c := make(chan string, 1)
 	var calls int32
@@ -92,70 +90,10 @@ func TestDoDupSuppress(t *testing.T) {
 	}
 }
 
-// Test that singleflight behaves correctly after Forget called.
-// See https://github.com/golang/go/issues/31420
-func TestForget(t *testing.T) {
-	var g Group[string, int]
-
-	var (
-		firstStarted  = make(chan struct{})
-		unblockFirst  = make(chan struct{})
-		firstFinished = make(chan struct{})
-	)
-
-	go func() {
-		_, _, _ = g.Do("key", func() (i int, e error) {
-			close(firstStarted)
-			<-unblockFirst
-			close(firstFinished)
-			return
-		})
-	}()
-	<-firstStarted
-	g.Forget("key")
-
-	unblockSecond := make(chan struct{})
-	secondResult := g.DoChan("key", func() (i int, e error) {
-		<-unblockSecond
-		return 2, nil
-	})
-
-	close(unblockFirst)
-	<-firstFinished
-
-	thirdResult := g.DoChan("key", func() (i int, e error) {
-		return 3, nil
-	})
-
-	close(unblockSecond)
-	<-secondResult
-	r := <-thirdResult
-	if r.Val != 2 {
-		t.Errorf("We should receive result produced by second call, expected: 2, got %d", r.Val)
-	}
-}
-
-func TestDoChan(t *testing.T) {
-	var g Group[string, string]
-	ch := g.DoChan("key", func() (string, error) {
-		return "bar", nil
-	})
-
-	res := <-ch
-	v := res.Val
-	err := res.Err
-	if got, want := fmt.Sprintf("%v (%T)", v, v), "bar (string)"; got != want {
-		t.Errorf("Do = %v; want %v", got, want)
-	}
-	if err != nil {
-		t.Errorf("Do error = %v", err)
-	}
-}
-
 // Test singleflight behaves correctly after Do panic.
 // See https://github.com/golang/go/issues/41133
 func TestPanicDo(t *testing.T) {
-	var g Group[string, string]
+	g := NewGroup[string, string]()
 	fn := func() (string, error) {
 		panic("invalid memory address or nil pointer dereference")
 	}
@@ -192,7 +130,7 @@ func TestPanicDo(t *testing.T) {
 }
 
 func TestGoexitDo(t *testing.T) {
-	var g Group[string, int]
+	g := NewGroup[string, int]()
 	fn := func() (int, error) {
 		runtime.Goexit()
 		return 0, nil
@@ -223,98 +161,35 @@ func TestGoexitDo(t *testing.T) {
 	}
 }
 
-func TestPanicDoChan(t *testing.T) {
-	if runtime.GOOS == "js" {
-		t.Skipf("js does not support exec")
-	}
+func BenchmarkDo(b *testing.B) {
+	keys := randKeys(b, 10240, 10)
+	benchDo(b, NewGroup[string, int](), keys)
 
-	if os.Getenv("TEST_PANIC_DOCHAN") != "" {
-		defer func() {
-			_ = recover()
-		}()
-
-		g := new(Group[string, string])
-		ch := g.DoChan("", func() (string, error) {
-			panic("Panicking in DoChan")
-		})
-		<-ch
-		t.Fatalf("DoChan unexpectedly returned")
-	}
-
-	t.Parallel()
-
-	cmd := exec.Command(os.Args[0], "-test.run="+t.Name(), "-test.v")
-	cmd.Env = append(os.Environ(), "TEST_PANIC_DOCHAN=1")
-	out := new(bytes.Buffer)
-	cmd.Stdout = out
-	cmd.Stderr = out
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-
-	err := cmd.Wait()
-	t.Logf("%s:\n%s", strings.Join(cmd.Args, " "), out)
-	if err == nil {
-		t.Errorf("Test subprocess passed; want a crash due to panic in DoChan")
-	}
-	if bytes.Contains(out.Bytes(), []byte("DoChan unexpectedly")) {
-		t.Errorf("Test subprocess failed with an unexpected failure mode.")
-	}
-	if !bytes.Contains(out.Bytes(), []byte("Panicking in DoChan")) {
-		t.Errorf("Test subprocess failed, but the crash isn't caused by panicking in DoChan")
-	}
 }
 
-func TestPanicDoSharedByDoChan(t *testing.T) {
-	if runtime.GOOS == "js" {
-		t.Skipf("js does not support exec")
-	}
+func benchDo(b *testing.B, g *Group[string, int], keys []string) {
+	keyc := len(keys)
+	b.ReportAllocs()
+	b.ResetTimer()
 
-	if os.Getenv("TEST_PANIC_DOCHAN") != "" {
-		blocked := make(chan struct{})
-		unblock := make(chan struct{})
-
-		g := new(Group[string, string])
-		go func() {
-			defer func() {
-				_ = recover()
-			}()
-			_, _, _ = g.Do("", func() (string, error) {
-				close(blocked)
-				<-unblock
-				panic("Panicking in Do")
+	b.RunParallel(func(pb *testing.PB) {
+		for i := 0; pb.Next(); i++ {
+			_, _, _ = g.Do(keys[i%keyc], func() (int, error) {
+				return 0, nil
 			})
-		}()
+		}
+	})
+}
 
-		<-blocked
-		ch := g.DoChan("", func() (string, error) {
-			panic("DoChan unexpectedly executed callback")
-		})
-		close(unblock)
-		<-ch
-		t.Fatalf("DoChan unexpectedly returned")
-	}
+func randKeys(b *testing.B, count, length uint) []string {
+	keys := make([]string, 0, count)
+	key := make([]byte, length)
 
-	t.Parallel()
-
-	cmd := exec.Command(os.Args[0], "-test.run="+t.Name(), "-test.v")
-	cmd.Env = append(os.Environ(), "TEST_PANIC_DOCHAN=1")
-	out := new(bytes.Buffer)
-	cmd.Stdout = out
-	cmd.Stderr = out
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
+	for i := uint(0); i < count; i++ {
+		if _, err := io.ReadFull(rand.Reader, key); err != nil {
+			b.Fatalf("Failed to generate random key %d of %d of length %d: %s", i+1, count, length, err)
+		}
+		keys = append(keys, string(key))
 	}
-
-	err := cmd.Wait()
-	t.Logf("%s:\n%s", strings.Join(cmd.Args, " "), out)
-	if err == nil {
-		t.Errorf("Test subprocess passed; want a crash due to panic in Do shared by DoChan")
-	}
-	if bytes.Contains(out.Bytes(), []byte("DoChan unexpectedly")) {
-		t.Errorf("Test subprocess failed with an unexpected failure mode.")
-	}
-	if !bytes.Contains(out.Bytes(), []byte("Panicking in Do")) {
-		t.Errorf("Test subprocess failed, but the crash isn't caused by panicking in Do")
-	}
+	return keys
 }

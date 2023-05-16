@@ -289,3 +289,46 @@ func TestLoadingRange(t *testing.T) {
 		require.Equal(t, 20, len(data))
 	}
 }
+
+func TestLoadingGetSetDeleteNoRace(t *testing.T) {
+	for _, size := range []int{500, 100000} {
+		client, err := theine.NewBuilder[string, string](int64(size)).BuildWithLoader(func(ctx context.Context, key string) (theine.Loaded[string], error) {
+			return theine.Loaded[string]{Value: key, Cost: 1, TTL: 0}, nil
+		})
+		ctx := context.TODO()
+		require.Nil(t, err)
+		var wg sync.WaitGroup
+		keys := []string{}
+		for i := 0; i < 100000; i++ {
+			keys = append(keys, fmt.Sprintf("%d", rand.Intn(1000000)))
+		}
+		for i := 1; i <= 20; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for i := 0; i < 100000; i++ {
+					key := keys[i]
+					v, err := client.Get(ctx, key)
+					if err != nil || v != key {
+						panic(key)
+					}
+					if i%3 == 0 {
+						client.SetWithTTL(key, key, 1, time.Second*time.Duration(i%25+5))
+					}
+					if i%5 == 0 {
+						client.Delete(key)
+					}
+					if i%5000 == 0 {
+						client.Range(func(key, value string) bool {
+							return true
+						})
+					}
+				}
+			}()
+		}
+		wg.Wait()
+		time.Sleep(300 * time.Millisecond)
+		require.True(t, client.Len() < size+50)
+		client.Close()
+	}
+}

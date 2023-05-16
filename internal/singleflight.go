@@ -179,12 +179,3 @@ func (g *Group[K, V]) doCall(c *call[V], key K, fn func() (V, error)) {
 		recovered = true
 	}
 }
-
-// Forget tells the singleflight to forget about a key.  Future calls
-// to Do for this key will call the function rather than waiting for
-// an earlier call to complete.
-func (g *Group[K, V]) Forget(key K) {
-	g.mu.Lock()
-	delete(g.m, key)
-	g.mu.Unlock()
-}

@@ -13,6 +13,8 @@ const (
 	ZERO_TTL = 0 * time.Second
 )
 
+var VersionMismatch = internal.VersionMismatch
+
 type RemoveReason = internal.RemoveReason
 
 type Loaded[V any] struct {
@@ -147,12 +149,12 @@ func (c *Cache[K, V]) Close() {
 	c.store.Close()
 }
 
-func (c *Cache[K, V]) SaveCache(writer io.Writer) error {
-	return c.store.Persist(writer)
+func (c *Cache[K, V]) SaveCache(version uint64, writer io.Writer) error {
+	return c.store.Persist(version, writer)
 }
 
-func (c *Cache[K, V]) LoadCache(reader io.Reader) error {
-	return c.store.Recover(reader)
+func (c *Cache[K, V]) LoadCache(version uint64, reader io.Reader) error {
+	return c.store.Recover(version, reader)
 }
 
 type LoadingCache[K comparable, V any] struct {

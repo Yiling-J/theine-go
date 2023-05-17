@@ -17,7 +17,7 @@ func TestPersistBasic(t *testing.T) {
 	f, err := os.Create("ptest")
 	defer os.Remove("ptest")
 	require.Nil(t, err)
-	err = client.SaveCache(f)
+	err = client.SaveCache(0, f)
 	require.Nil(t, err)
 	f.Close()
 
@@ -25,7 +25,7 @@ func TestPersistBasic(t *testing.T) {
 	require.Nil(t, err)
 	new, err := theine.NewBuilder[int, int](100).Build()
 	require.Nil(t, err)
-	err = new.LoadCache(f)
+	err = new.LoadCache(0, f)
 	require.Nil(t, err)
 	f.Close()
 	m := map[int]int{}
@@ -40,12 +40,52 @@ func TestPersistBasic(t *testing.T) {
 
 }
 
+func TestVersionMismatch(t *testing.T) {
+	client, err := theine.NewBuilder[int, int](100).Build()
+	require.Nil(t, err)
+	f, err := os.Create("ptest")
+	defer os.Remove("ptest")
+	require.Nil(t, err)
+	err = client.SaveCache(0, f)
+	require.Nil(t, err)
+	f.Close()
+
+	f, err = os.Open("ptest")
+	require.Nil(t, err)
+	new, err := theine.NewBuilder[int, int](100).Build()
+	require.Nil(t, err)
+	err = new.LoadCache(1, f)
+	require.Equal(t, theine.VersionMismatch, err)
+}
+
+func TestChecksumMismatch(t *testing.T) {
+	client, err := theine.NewBuilder[int, int](100).Build()
+	require.Nil(t, err)
+	f, err := os.Create("ptest")
+	defer os.Remove("ptest")
+	require.Nil(t, err)
+	err = client.SaveCache(0, f)
+	require.Nil(t, err)
+	// change file content
+	for _, i := range []int64{15, 120, 450} {
+		f.WriteAt([]byte{1}, i)
+	}
+	f.Close()
+
+	f, err = os.Open("ptest")
+	require.Nil(t, err)
+	new, err := theine.NewBuilder[int, int](100).Build()
+	require.Nil(t, err)
+	err = new.LoadCache(1, f)
+	require.Equal(t, "checksum mismatch", err.Error())
+}
+
 func TestPersistOS(t *testing.T) {
 	f, err := os.Open("otest")
 	require.Nil(t, err)
 	client, err := theine.NewBuilder[int, int](100).Build()
 	require.Nil(t, err)
-	err = client.LoadCache(f)
+	err = client.LoadCache(0, f)
 	require.Nil(t, err)
 	f.Close()
 	m := map[int]int{}

@@ -29,6 +29,10 @@ const (
 	EXPIRED
 )
 
+var (
+	VersionMismatch = errors.New("version mismatch")
+)
+
 type Shard[K comparable, V any] struct {
 	hashmap   map[K]*Entry[K, V]
 	dookeeper *doorkeeper
@@ -533,6 +537,7 @@ type DataBlock struct {
 }
 
 type StoreMeta struct {
+	Version   uint64
 	StartNano int64
 	Sketch    *CountMinSketch
 }
@@ -615,10 +620,11 @@ func persistDeque[K comparable, V any](dq *deque.Deque[*Entry[K, V]], writer io.
 	return nil
 }
 
-func (s *Store[K, V]) Persist(writer io.Writer) error {
+func (s *Store[K, V]) Persist(version uint64, writer io.Writer) error {
 	blockEncoder := gob.NewEncoder(writer)
 	s.mlock.Lock()
 	meta := &StoreMeta{
+		Version:   version,
 		StartNano: s.timerwheel.clock.start.UnixNano(),
 		Sketch:    s.policy.sketch,
 	}
@@ -663,9 +669,11 @@ func (s *Store[K, V]) insertSimple(entry *Entry[K, V]) {
 	}
 }
 
-func (s *Store[K, V]) Recover(reader io.Reader) error {
+func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 	blockDecoder := gob.NewDecoder(reader)
 	block := &DataBlock{}
+	s.mlock.Lock()
+	defer s.mlock.Unlock()
 	for {
 		// reset block first
 		block.Data = nil
@@ -694,6 +702,9 @@ func (s *Store[K, V]) Recover(reader io.Reader) error {
 			err = metaDecoder.Decode(m)
 			if err != nil {
 				return err
+			}
+			if m.Version != version {
+				return VersionMismatch
 			}
 			s.policy.sketch = m.Sketch
 			s.timerwheel.clock.setStart(m.StartNano)

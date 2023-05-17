@@ -44,7 +44,7 @@ func TestStorePersistence(t *testing.T) {
 	f, err := os.Create("stest")
 	defer os.Remove("stest")
 	require.Nil(t, err)
-	err = store.Persist(f)
+	err = store.Persist(0, f)
 	require.Nil(t, err)
 	f.Close()
 
@@ -55,7 +55,7 @@ func TestStorePersistence(t *testing.T) {
 	}
 	f, err = os.Open("stest")
 	require.Nil(t, err)
-	err = new.Recover(f)
+	err = new.Recover(0, f)
 	require.Nil(t, err)
 	f.Close()
 	m := map[int]int{}
@@ -90,13 +90,13 @@ func TestStorePersistenceTTL(t *testing.T) {
 	f, err := os.Create("stest")
 	defer os.Remove("stest")
 	require.Nil(t, err)
-	err = store.Persist(f)
+	err = store.Persist(0, f)
 	require.Nil(t, err)
 	f.Close()
 	new := NewStore[int, int](1000, false)
 	f, err = os.Open("stest")
 	require.Nil(t, err)
-	err = new.Recover(f)
+	err = new.Recover(0, f)
 	require.Nil(t, err)
 	f.Close()
 	m := map[int]int{}

@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/gob"
 	"errors"
-	"fmt"
 	"io"
 	"runtime"
 	"sync"
@@ -198,6 +197,20 @@ func (s *Store[K, V]) Get(key K) (V, bool) {
 	return s.getFromShard(key, h, shard)
 }
 
+func (s *Store[K, V]) setEntry(shard *Shard[K, V], cost int64, entry *Entry[K, V]) {
+	shard.set(entry.key, entry)
+	// cost larger than deque size, send to policy directly
+	if cost > int64(shard.qsize) {
+		shard.mu.Unlock()
+		s.writebuf <- WriteBufItem[K, V]{entry: entry, code: NEW}
+		return
+	}
+	entry.deque = true
+	shard.deque.PushFront(entry)
+	shard.qlen += int(cost)
+	s.processDeque(shard)
+}
+
 func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
 	if cost == 0 {
 		cost = s.cost(value)
@@ -256,17 +269,7 @@ func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
 	entry.value = value
 	entry.expire.Store(expire)
 	entry.cost.Store(cost)
-	shard.set(key, entry)
-	// cost larger than deque size, send to policy directly
-	if cost > int64(shard.qsize) {
-		shard.mu.Unlock()
-		s.writebuf <- WriteBufItem[K, V]{entry: entry, code: NEW}
-		return true
-	}
-	entry.deque = true
-	shard.deque.PushFront(entry)
-	shard.qlen += int(cost)
-	s.processDeque(shard)
+	s.setEntry(shard, cost, entry)
 	return true
 }
 
@@ -673,7 +676,6 @@ func (s *Store[K, V]) Recover(reader io.Reader) error {
 		if err != nil {
 			return err
 		}
-		fmt.Println("block", block.Type, block.CheckSum, len(block.Data))
 		if block.CheckSum != xxh3.Hash(block.Data) {
 			return errors.New("checksum mismatch")
 		}
@@ -755,11 +757,11 @@ func (s *Store[K, V]) Recover(reader io.Reader) error {
 				if expire != 0 && expire < s.timerwheel.clock.nowNano() {
 					continue
 				}
-				if s.shards[0].deque.Len() < s.shards[0].deque.Cap() {
-					entry := pentry.entry()
-					s.shards[0].deque.PushFront(entry)
-					s.insertSimple(entry)
-				}
+				entry := pentry.entry()
+				_, index := s.index(entry.key)
+				shard := s.shards[index]
+				shard.mu.Lock()
+				s.setEntry(shard, pentry.Cost, entry)
 			}
 		}
 

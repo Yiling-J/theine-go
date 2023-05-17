@@ -3,6 +3,7 @@ package theine
 import (
 	"context"
 	"errors"
+	"io"
 	"time"
 
 	"github.com/Yiling-J/theine-go/internal"
@@ -144,6 +145,14 @@ func (c *Cache[K, V]) Len() int {
 // Close closes all goroutines created by cache.
 func (c *Cache[K, V]) Close() {
 	c.store.Close()
+}
+
+func (c *Cache[K, V]) SaveCache(writer io.Writer) error {
+	return c.store.Persist(writer)
+}
+
+func (c *Cache[K, V]) LoadCache(reader io.Reader) error {
+	return c.store.Recover(reader)
 }
 
 type LoadingCache[K comparable, V any] struct {

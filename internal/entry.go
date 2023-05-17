@@ -35,7 +35,6 @@ type Entry[K comparable, V any] struct {
 	cost      atomic.Int64
 	expire    atomic.Int64
 	frequency atomic.Int32
-	shard     uint16
 	removed   bool
 	deque     bool
 }
@@ -122,4 +121,37 @@ func (e *Entry[K, V]) setNext(entry *Entry[K, V], listType uint8) {
 	case WHEEL_LIST:
 		e.meta.wheelNext = entry
 	}
+}
+
+func (e *Entry[K, V]) pentry() *Pentry[K, V] {
+	return &Pentry[K, V]{
+		Key:       e.key,
+		Value:     e.value,
+		Cost:      e.cost.Load(),
+		Expire:    e.expire.Load(),
+		Frequency: e.frequency.Load(),
+		Removed:   e.removed,
+	}
+}
+
+// entry for persistence
+type Pentry[K comparable, V any] struct {
+	Key       K
+	Value     V
+	Cost      int64
+	Expire    int64
+	Frequency int32
+	Removed   bool
+}
+
+func (e *Pentry[K, V]) entry() *Entry[K, V] {
+	en := &Entry[K, V]{
+		key:     e.Key,
+		value:   e.Value,
+		removed: e.Removed,
+	}
+	en.cost.Store(e.Cost)
+	en.frequency.Store(e.Frequency)
+	en.expire.Store(e.Expire)
+	return en
 }

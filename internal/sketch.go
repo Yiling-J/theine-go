@@ -1,10 +1,10 @@
 package internal
 
 type CountMinSketch struct {
-	table      []uint64
-	additions  uint
-	sampleSize uint
-	blockMask  uint
+	Table      []uint64
+	Additions  uint
+	SampleSize uint
+	BlockMask  uint
 }
 
 func NewCountMinSketch() *CountMinSketch {
@@ -23,8 +23,8 @@ func (s *CountMinSketch) indexOf(h uint64, block uint64, offset uint8) (uint, ui
 
 func (s *CountMinSketch) inc(index uint, offset uint) bool {
 	mask := uint64(0xF << offset)
-	if s.table[index]&mask != mask {
-		s.table[index] += 1 << offset
+	if s.Table[index]&mask != mask {
+		s.Table[index] += 1 << offset
 		return true
 	}
 	return false
@@ -32,7 +32,7 @@ func (s *CountMinSketch) inc(index uint, offset uint) bool {
 
 func (s *CountMinSketch) Add(h uint64) bool {
 	hn := spread(h)
-	block := (hn & uint64(s.blockMask)) << 3
+	block := (hn & uint64(s.BlockMask)) << 3
 	hc := rehash(h)
 	index0, offset0 := s.indexOf(hc, block, 0)
 	index1, offset1 := s.indexOf(hc, block, 1)
@@ -45,8 +45,8 @@ func (s *CountMinSketch) Add(h uint64) bool {
 	added = s.inc(index3, offset3) || added
 
 	if added {
-		s.additions += 1
-		if s.additions == s.sampleSize {
+		s.Additions += 1
+		if s.Additions == s.SampleSize {
 			s.reset()
 			return true
 		}
@@ -55,15 +55,15 @@ func (s *CountMinSketch) Add(h uint64) bool {
 }
 
 func (s *CountMinSketch) reset() {
-	for i := range s.table {
-		s.table[i] = s.table[i] >> 1
+	for i := range s.Table {
+		s.Table[i] = s.Table[i] >> 1
 	}
-	s.additions = s.additions >> 1
+	s.Additions = s.Additions >> 1
 }
 
 func (s *CountMinSketch) count(h uint64, block uint64, offset uint8) uint {
 	index, off := s.indexOf(h, block, offset)
-	count := (s.table[index] >> off) & 0xF
+	count := (s.Table[index] >> off) & 0xF
 	return uint(count)
 }
 
@@ -76,7 +76,7 @@ func min(a, b uint) uint {
 
 func (s *CountMinSketch) Estimate(h uint64) uint {
 	hn := spread(h)
-	block := (hn & uint64(s.blockMask)) << 3
+	block := (hn & uint64(s.BlockMask)) << 3
 	hc := rehash(h)
 	m := min(s.count(hc, block, 0), 100)
 	m = min(s.count(hc, block, 1), m)
@@ -86,17 +86,17 @@ func (s *CountMinSketch) Estimate(h uint64) uint {
 }
 
 func (s *CountMinSketch) ensureCapacity(size uint) {
-	if len(s.table) >= int(size) {
+	if len(s.Table) >= int(size) {
 		return
 	}
 	if size < 16 {
 		size = 16
 	}
 	newSize := next2Power(size)
-	s.table = make([]uint64, newSize)
-	s.sampleSize = 10 * size
-	s.blockMask = uint((len(s.table) >> 3) - 1)
-	s.additions = 0
+	s.Table = make([]uint64, newSize)
+	s.SampleSize = 10 * size
+	s.BlockMask = uint((len(s.Table) >> 3) - 1)
+	s.Additions = 0
 }
 
 func spread(h uint64) uint64 {

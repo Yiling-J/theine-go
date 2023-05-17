@@ -1,13 +1,19 @@
 package internal
 
 import (
+	"bytes"
 	"context"
+	"encoding/gob"
+	"errors"
+	"fmt"
+	"io"
 	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/gammazero/deque"
+	"github.com/zeebo/xxh3"
 )
 
 const (
@@ -246,7 +252,6 @@ func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
 	}
 	entry := s.entryPool.Get().(*Entry[K, V])
 	entry.frequency.Store(-1)
-	entry.shard = uint16(index)
 	entry.key = key
 	entry.value = value
 	entry.expire.Store(expire)
@@ -380,7 +385,8 @@ func (s *Store[K, V]) removeEntry(entry *Entry[K, V], reason RemoveReason) {
 	var v V
 	switch reason {
 	case EVICTED, EXPIRED:
-		shard := s.shards[entry.shard]
+		_, index := s.index(entry.key)
+		shard := s.shards[index]
 		shard.mu.Lock()
 		deleted := shard.delete(entry)
 		shard.mu.Unlock()
@@ -393,7 +399,8 @@ func (s *Store[K, V]) removeEntry(entry *Entry[K, V], reason RemoveReason) {
 		}
 	// already removed from shard map
 	case REMOVED:
-		shard := s.shards[entry.shard]
+		_, index := s.index(entry.key)
+		shard := s.shards[index]
 		shard.mu.RLock()
 		k, v = entry.key, entry.value
 		shard.mu.RUnlock()
@@ -514,6 +521,250 @@ func (s *Store[K, V]) Close() {
 	s.closed = true
 	s.mlock.Unlock()
 	close(s.writebuf)
+}
+
+type DataBlock struct {
+	Type     uint8
+	CheckSum uint64
+	Data     []byte
+}
+
+type StoreMeta struct {
+	StartNano int64
+	Sketch    *CountMinSketch
+}
+
+func (m *StoreMeta) Persist(writer io.Writer, blockEncoder *gob.Encoder) error {
+	buffer := bytes.NewBuffer(make([]byte, 0, 12*1024*1024))
+	metaEncoder := gob.NewEncoder(buffer)
+	err := metaEncoder.Encode(m)
+	if err != nil {
+		return err
+	}
+	data := buffer.Bytes()
+	db := DataBlock{
+		Type:     1,
+		CheckSum: xxh3.Hash(data),
+		Data:     data,
+	}
+	err = blockEncoder.Encode(db)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *StoreMeta) Recover(reader io.Reader) error {
+	blockDecoder := gob.NewDecoder(reader)
+	block := &DataBlock{}
+	err := blockDecoder.Decode(block)
+	if err != nil {
+		return err
+	}
+	if block.CheckSum != xxh3.Hash(block.Data) {
+		return errors.New("chceksum mismatch")
+	}
+	metaDecoder := gob.NewDecoder(bytes.NewBuffer(block.Data))
+	err = metaDecoder.Decode(m)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func persistDeque[K comparable, V any](dq *deque.Deque[*Entry[K, V]], writer io.Writer, blockEncoder *gob.Encoder) error {
+	bufferSize := 4 * 1024 * 1024
+	buffer := bytes.NewBuffer(make([]byte, 0, bufferSize))
+	entryEncoder := gob.NewEncoder(buffer)
+	for dq.Len() > 0 {
+		e := dq.PopBack().pentry()
+		err := entryEncoder.Encode(e)
+		if err != nil {
+			return err
+		}
+		if buffer.Len() >= bufferSize {
+			data := buffer.Bytes()
+			db := DataBlock{
+				Type:     4,
+				CheckSum: xxh3.Hash(data),
+				Data:     data,
+			}
+			err = blockEncoder.Encode(db)
+			if err != nil {
+				return err
+			}
+			buffer.Reset()
+		}
+	}
+	if buffer.Len() > 0 {
+		data := buffer.Bytes()
+		db := DataBlock{
+			Type:     4,
+			CheckSum: xxh3.Hash(data),
+			Data:     data,
+		}
+		err := blockEncoder.Encode(db)
+		if err != nil {
+			return err
+		}
+		buffer.Reset()
+	}
+	return nil
+}
+
+func (s *Store[K, V]) Persist(writer io.Writer) error {
+	blockEncoder := gob.NewEncoder(writer)
+	s.mlock.Lock()
+	meta := &StoreMeta{
+		StartNano: s.timerwheel.clock.start.UnixNano(),
+		Sketch:    s.policy.sketch,
+	}
+	err := meta.Persist(writer, blockEncoder)
+	if err != nil {
+		return err
+	}
+	err = s.policy.slru.protected.Persist(writer, blockEncoder, 2)
+	if err != nil {
+		return err
+	}
+	err = s.policy.slru.probation.Persist(writer, blockEncoder, 3)
+	if err != nil {
+		return err
+	}
+	s.mlock.Unlock()
+
+	for _, sd := range s.shards {
+		sd.mu.RLock()
+		err = persistDeque(sd.deque, writer, blockEncoder)
+		if err != nil {
+			return err
+		}
+		sd.mu.RUnlock()
+	}
+
+	// write end block
+	data := []byte{}
+	db := DataBlock{
+		Type:     255,
+		CheckSum: xxh3.Hash(data),
+		Data:     data,
+	}
+	return blockEncoder.Encode(db)
+}
+
+func (s *Store[K, V]) insertSimple(entry *Entry[K, V]) {
+	_, index := s.index(entry.key)
+	s.shards[index].set(entry.key, entry)
+	if entry.expire.Load() != 0 {
+		s.timerwheel.schedule(entry)
+	}
+}
+
+func (s *Store[K, V]) Recover(reader io.Reader) error {
+	blockDecoder := gob.NewDecoder(reader)
+	block := &DataBlock{}
+	for {
+		// reset block first
+		block.Data = nil
+		block.Type = 0
+		block.CheckSum = 0
+
+		err := blockDecoder.Decode(block)
+		if err != nil {
+			return err
+		}
+		fmt.Println("block", block.Type, block.CheckSum, len(block.Data))
+		if block.CheckSum != xxh3.Hash(block.Data) {
+			return errors.New("checksum mismatch")
+		}
+
+		reader := bytes.NewReader(block.Data)
+		if err != nil {
+			return err
+		}
+		if block.Type == 255 {
+			break
+		}
+		switch block.Type {
+		case 1:
+			metaDecoder := gob.NewDecoder(reader)
+			m := &StoreMeta{}
+			err = metaDecoder.Decode(m)
+			if err != nil {
+				return err
+			}
+			s.policy.sketch = m.Sketch
+			s.timerwheel.clock.setStart(m.StartNano)
+		case 2:
+			entryDecoder := gob.NewDecoder(reader)
+			for {
+				pentry := &Pentry[K, V]{}
+				err := entryDecoder.Decode(pentry)
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					return err
+				}
+				expire := pentry.Expire
+				if expire != 0 && expire < s.timerwheel.clock.nowNano() {
+					continue
+				}
+				l := s.policy.slru.protected
+				if l.len < int(l.capacity) {
+					entry := pentry.entry()
+					l.PushBack(entry)
+					s.insertSimple(entry)
+				}
+			}
+		case 3:
+			entryDecoder := gob.NewDecoder(reader)
+			for {
+				pentry := &Pentry[K, V]{}
+				err := entryDecoder.Decode(pentry)
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					return err
+				}
+				expire := pentry.Expire
+				if expire != 0 && expire < s.timerwheel.clock.nowNano() {
+					continue
+				}
+				l1 := s.policy.slru.protected
+				l2 := s.policy.slru.probation
+				if l1.len+l2.len < int(s.policy.slru.maxsize) {
+					entry := pentry.entry()
+					l2.PushBack(entry)
+					s.insertSimple(entry)
+				}
+			}
+		case 4:
+			entryDecoder := gob.NewDecoder(reader)
+			for {
+				pentry := &Pentry[K, V]{}
+				err := entryDecoder.Decode(pentry)
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					return err
+				}
+				expire := pentry.Expire
+				if expire != 0 && expire < s.timerwheel.clock.nowNano() {
+					continue
+				}
+				if s.shards[0].deque.Len() < s.shards[0].deque.Cap() {
+					entry := pentry.entry()
+					s.shards[0].deque.PushFront(entry)
+					s.insertSimple(entry)
+				}
+			}
+		}
+
+	}
+	return nil
 }
 
 type Loaded[V any] struct {

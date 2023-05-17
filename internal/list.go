@@ -1,8 +1,13 @@
 package internal
 
 import (
+	"bytes"
+	"encoding/gob"
 	"fmt"
+	"io"
 	"strings"
+
+	"github.com/zeebo/xxh3"
 )
 
 const (
@@ -103,6 +108,11 @@ func (l *List[K, V]) PushFront(e *Entry[K, V]) *Entry[K, V] {
 	return l.insert(e, &l.root)
 }
 
+// Push push entry to the back of list
+func (l *List[K, V]) PushBack(e *Entry[K, V]) *Entry[K, V] {
+	return l.insert(e, l.root.prev(l.listType))
+}
+
 // remove removes e from its list, decrements l.len
 func (l *List[K, V]) remove(e *Entry[K, V]) {
 	e.prev(l.listType).setNext(e.next(l.listType), l.listType)
@@ -182,4 +192,44 @@ func (l *List[K, V]) Contains(entry *Entry[K, V]) bool {
 		}
 	}
 	return false
+}
+
+func (l *List[K, V]) Persist(writer io.Writer, blockEncoder *gob.Encoder, tp uint8) error {
+	bufferSize := 4 * 1024 * 1024
+	buffer := bytes.NewBuffer(make([]byte, 0, bufferSize))
+	entryEncoder := gob.NewEncoder(buffer)
+	for er := l.Front(); er != nil; er = er.Next(l.listType) {
+		e := er.pentry()
+		err := entryEncoder.Encode(e)
+		if err != nil {
+			return err
+		}
+		if buffer.Len() >= bufferSize {
+			data := buffer.Bytes()
+			db := DataBlock{
+				Type:     tp,
+				CheckSum: xxh3.Hash(data),
+				Data:     data,
+			}
+			err = blockEncoder.Encode(db)
+			if err != nil {
+				return err
+			}
+			buffer.Reset()
+		}
+	}
+	if buffer.Len() > 0 {
+		data := buffer.Bytes()
+		db := DataBlock{
+			Type:     tp,
+			CheckSum: xxh3.Hash(data),
+			Data:     data,
+		}
+		err := blockEncoder.Encode(db)
+		if err != nil {
+			return err
+		}
+		buffer.Reset()
+	}
+	return nil
 }

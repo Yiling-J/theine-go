@@ -20,6 +20,7 @@ cache clusters at Twitter](https://www.usenix.org/system/files/osdi20-yang.pdf)
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [API](#api)
+- [Cache Persistence](#cache-persistence)
 - [Benchmarks](#benchmarks)
   * [throughput](#throughput)
   * [hit ratios](#hit-ratios)
@@ -130,6 +131,56 @@ client.Range(func(key, value int) bool {
 client.Close()
 
 ```
+## Cache Persistence
+Theine supports persisting the cache into `io.Writer` and restoring from `io.Reader`. [Gob](https://pkg.go.dev/encoding/gob) is used to encode/decode data, so **make sure your key/value can be encoded by gob correctly first** before using this feature.
+
+#### API
+```go
+func (c *Cache[K, V]) SaveCache(version uint64, writer io.Writer) error
+func (c *Cache[K, V]) LoadCache(version uint64, reader io.Reader) error
+```
+#### Example:
+```go
+// save
+f, err := os.Create("test")
+err := client.SaveCache(0, f)
+f.Close()
+
+// load
+f, err = os.Open("test")
+require.Nil(t, err)
+newClient, err := theine.NewBuilder[int, int](100).Build()
+err = newClient.LoadCache(0, f)
+f.Close()
+```
+Version number must be same when saving and loading, or `LoadCache` will return `theine.VersionMismatch` error. You can change the version number when you want to ignore persisted cache.
+```go
+err := newClient.LoadCache(1, f)
+// VersionMismatch is a global variable
+if err == theine.VersionMismatch {
+	// ignore and skip loading
+} else if err != nil {
+	// panic error
+}
+```
+
+#### Details
+When persisting cache, Theine roughly do:
+- Store version number.
+- Store clock(used in TTL).
+- Store frequency sketch.
+- Store entries one by one in protected LRU in most-recently:least-recently order.
+- Store entries one by one in probation LRU in most-recently:least-recently order.
+- Loop shards and store entries one by one in each shard deque.
+
+When loading cache, Theine roughly do:
+- Load version number, compare to current version number.
+- Load clock.
+- Load frequency sketch.
+- Load protected LRU and insert entries back to new protected LRU and shards, expired entries will be ignored. Because cache capacity may change, this step will stop if max protected LRU size reached.
+- Load probation LRU and insert entries back to new probation LRU and shards, expired entries will be ignored, Because cache capacity may change, this step will stop if max probation LRU size reached.
+- Load deque entries and insert back to shards, expired entries will be ignored.
+
 ## Benchmarks
 
 Source: https://github.com/Yiling-J/go-cache-benchmark-plus

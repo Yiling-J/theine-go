@@ -190,6 +190,12 @@ func (s *Store[K, V]) getFromShard(key K, hash uint64, shard *Shard[K, V]) (V, b
 		}
 		s.readbuf.Push(send)
 	case new == MAX_READ_BUFF_SIZE:
+		var send ReadBufItem[K, V]
+		send.hash = hash
+		if ok {
+			send.entry = entry
+		}
+		s.readbuf.Push(send)
 		s.drainRead()
 	}
 	return value, ok
@@ -530,12 +536,6 @@ func (s *Store[K, V]) Close() {
 	close(s.writebuf)
 }
 
-type DataBlock struct {
-	Type     uint8
-	CheckSum uint64
-	Data     []byte
-}
-
 type StoreMeta struct {
 	Version   uint64
 	StartNano int64
@@ -543,37 +543,13 @@ type StoreMeta struct {
 }
 
 func (m *StoreMeta) Persist(writer io.Writer, blockEncoder *gob.Encoder) error {
-	buffer := bytes.NewBuffer(make([]byte, 0, 12*1024*1024))
-	metaEncoder := gob.NewEncoder(buffer)
-	err := metaEncoder.Encode(m)
+	buffer := bytes.NewBuffer(make([]byte, 0, BlockBufferSize))
+	block := NewBlock[*StoreMeta](1, buffer, blockEncoder)
+	_, err := block.write(m)
 	if err != nil {
 		return err
 	}
-	data := buffer.Bytes()
-	db := DataBlock{
-		Type:     1,
-		CheckSum: xxh3.Hash(data),
-		Data:     data,
-	}
-	err = blockEncoder.Encode(db)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func (m *StoreMeta) Recover(reader io.Reader) error {
-	blockDecoder := gob.NewDecoder(reader)
-	block := &DataBlock{}
-	err := blockDecoder.Decode(block)
-	if err != nil {
-		return err
-	}
-	if block.CheckSum != xxh3.Hash(block.Data) {
-		return errors.New("chceksum mismatch")
-	}
-	metaDecoder := gob.NewDecoder(bytes.NewBuffer(block.Data))
-	err = metaDecoder.Decode(m)
+	err = block.save()
 	if err != nil {
 		return err
 	}
@@ -581,42 +557,24 @@ func (m *StoreMeta) Recover(reader io.Reader) error {
 }
 
 func persistDeque[K comparable, V any](dq *deque.Deque[*Entry[K, V]], writer io.Writer, blockEncoder *gob.Encoder) error {
-	bufferSize := 4 * 1024 * 1024
-	buffer := bytes.NewBuffer(make([]byte, 0, bufferSize))
-	entryEncoder := gob.NewEncoder(buffer)
+	buffer := bytes.NewBuffer(make([]byte, 0, BlockBufferSize))
+	block := NewBlock[*Pentry[K, V]](4, buffer, blockEncoder)
 	for dq.Len() > 0 {
 		e := dq.PopBack().pentry()
-		err := entryEncoder.Encode(e)
+		full, err := block.write(e)
 		if err != nil {
 			return err
 		}
-		if buffer.Len() >= bufferSize {
-			data := buffer.Bytes()
-			db := DataBlock{
-				Type:     4,
-				CheckSum: xxh3.Hash(data),
-				Data:     data,
-			}
-			err = blockEncoder.Encode(db)
-			if err != nil {
-				return err
-			}
+		if full {
 			buffer.Reset()
+			block = NewBlock[*Pentry[K, V]](4, buffer, blockEncoder)
 		}
 	}
-	if buffer.Len() > 0 {
-		data := buffer.Bytes()
-		db := DataBlock{
-			Type:     4,
-			CheckSum: xxh3.Hash(data),
-			Data:     data,
-		}
-		err := blockEncoder.Encode(db)
-		if err != nil {
-			return err
-		}
-		buffer.Reset()
+	err := block.save()
+	if err != nil {
+		return err
 	}
+	buffer.Reset()
 	return nil
 }
 
@@ -652,13 +610,12 @@ func (s *Store[K, V]) Persist(version uint64, writer io.Writer) error {
 	}
 
 	// write end block
-	data := []byte{}
-	db := DataBlock{
-		Type:     255,
-		CheckSum: xxh3.Hash(data),
-		Data:     data,
+	block := NewBlock[int](255, bytes.NewBuffer(make([]byte, 0)), blockEncoder)
+	_, err = block.write(1)
+	if err != nil {
+		return err
 	}
-	return blockEncoder.Encode(db)
+	return block.save()
 }
 
 func (s *Store[K, V]) insertSimple(entry *Entry[K, V]) {
@@ -671,7 +628,7 @@ func (s *Store[K, V]) insertSimple(entry *Entry[K, V]) {
 
 func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 	blockDecoder := gob.NewDecoder(reader)
-	block := &DataBlock{}
+	block := &DataBlock[any]{}
 	s.mlock.Lock()
 	defer s.mlock.Unlock()
 	for {

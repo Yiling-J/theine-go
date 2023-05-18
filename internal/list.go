@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-
-	"github.com/zeebo/xxh3"
 )
 
 const (
@@ -195,41 +193,23 @@ func (l *List[K, V]) Contains(entry *Entry[K, V]) bool {
 }
 
 func (l *List[K, V]) Persist(writer io.Writer, blockEncoder *gob.Encoder, tp uint8) error {
-	bufferSize := 4 * 1024 * 1024
-	buffer := bytes.NewBuffer(make([]byte, 0, bufferSize))
-	entryEncoder := gob.NewEncoder(buffer)
+	buffer := bytes.NewBuffer(make([]byte, 0, BlockBufferSize))
+	block := NewBlock[*Pentry[K, V]](tp, buffer, blockEncoder)
 	for er := l.Front(); er != nil; er = er.Next(l.listType) {
 		e := er.pentry()
-		err := entryEncoder.Encode(e)
+		full, err := block.write(e)
 		if err != nil {
 			return err
 		}
-		if buffer.Len() >= bufferSize {
-			data := buffer.Bytes()
-			db := DataBlock{
-				Type:     tp,
-				CheckSum: xxh3.Hash(data),
-				Data:     data,
-			}
-			err = blockEncoder.Encode(db)
-			if err != nil {
-				return err
-			}
+		if full {
 			buffer.Reset()
+			block = NewBlock[*Pentry[K, V]](tp, buffer, blockEncoder)
 		}
 	}
-	if buffer.Len() > 0 {
-		data := buffer.Bytes()
-		db := DataBlock{
-			Type:     tp,
-			CheckSum: xxh3.Hash(data),
-			Data:     data,
-		}
-		err := blockEncoder.Encode(db)
-		if err != nil {
-			return err
-		}
-		buffer.Reset()
+	err := block.save()
+	if err != nil {
+		return err
 	}
+	buffer.Reset()
 	return nil
 }

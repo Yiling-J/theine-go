@@ -1,8 +1,10 @@
 package theine_test
 
 import (
+	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/Yiling-J/theine-go"
 	"github.com/stretchr/testify/require"
@@ -79,6 +81,51 @@ func TestChecksumMismatch(t *testing.T) {
 	require.Nil(t, err)
 	err = new.LoadCache(1, f)
 	require.Equal(t, "checksum mismatch", err.Error())
+}
+
+type PStruct struct {
+	Id   int
+	Name string
+	Data []byte
+}
+
+func TestPersistLarge(t *testing.T) {
+	client, err := theine.NewBuilder[int, PStruct](100000).Build()
+	require.Nil(t, err)
+	for i := 0; i < 100000; i++ {
+		client.Set(i, PStruct{
+			Id:   i,
+			Name: fmt.Sprintf("struct-%d", i),
+			Data: make([]byte, i%1000),
+		}, 1)
+	}
+	require.Equal(t, 100000, client.Len())
+	f, err := os.Create("ptest")
+	defer os.Remove("ptest")
+	require.Nil(t, err)
+	time.Sleep(time.Second)
+	err = client.SaveCache(0, f)
+	require.Nil(t, err)
+	f.Close()
+
+	f, err = os.Open("ptest")
+	require.Nil(t, err)
+	new, err := theine.NewBuilder[int, PStruct](100000).Build()
+	require.Nil(t, err)
+	err = new.LoadCache(0, f)
+	require.Nil(t, err)
+	f.Close()
+	m := map[int]PStruct{}
+	new.Range(func(key int, value PStruct) bool {
+		m[key] = value
+		return true
+	})
+	require.Equal(t, 100000, len(m))
+	for k, v := range m {
+		require.Equal(t, k, v.Id)
+		require.Equal(t, fmt.Sprintf("struct-%d", k), v.Name)
+		require.Equal(t, k%1000, len(v.Data))
+	}
 }
 
 func TestPersistOS(t *testing.T) {

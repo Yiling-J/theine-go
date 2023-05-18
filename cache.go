@@ -149,10 +149,12 @@ func (c *Cache[K, V]) Close() {
 	c.store.Close()
 }
 
+// SaveCache save cache data to writer.
 func (c *Cache[K, V]) SaveCache(version uint64, writer io.Writer) error {
 	return c.store.Persist(version, writer)
 }
 
+// LoadCache load cache data from reader.
 func (c *Cache[K, V]) LoadCache(version uint64, reader io.Reader) error {
 	return c.store.Recover(version, reader)
 }
@@ -192,6 +194,16 @@ func (c *LoadingCache[K, V]) Range(f func(key K, value V) bool) {
 // Len returns number of entries in cache.
 func (c *LoadingCache[K, V]) Len() int {
 	return c.store.Len()
+}
+
+// SaveCache save cache data to writer.
+func (c *LoadingCache[K, V]) SaveCache(version uint64, writer io.Writer) error {
+	return c.store.Persist(version, writer)
+}
+
+// LoadCache load cache data from reader.
+func (c *LoadingCache[K, V]) LoadCache(version uint64, reader io.Reader) error {
+	return c.store.Recover(version, reader)
 }
 
 // Close closes all goroutines created by cache.

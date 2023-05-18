@@ -1,6 +1,7 @@
 package theine_test
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"testing"
@@ -26,6 +27,42 @@ func TestPersistBasic(t *testing.T) {
 	f, err = os.Open("ptest")
 	require.Nil(t, err)
 	new, err := theine.NewBuilder[int, int](100).Build()
+	require.Nil(t, err)
+	err = new.LoadCache(0, f)
+	require.Nil(t, err)
+	f.Close()
+	m := map[int]int{}
+	new.Range(func(key, value int) bool {
+		m[key] = value
+		return true
+	})
+	require.Equal(t, 100, len(m))
+	for k, v := range m {
+		require.Equal(t, k, v)
+	}
+
+}
+
+func TestLoadingPersistBasic(t *testing.T) {
+	client, err := theine.NewBuilder[int, int](100).BuildWithLoader(func(ctx context.Context, key int) (theine.Loaded[int], error) {
+		return theine.Loaded[int]{Value: key, Cost: 1, TTL: 0}, nil
+	})
+	require.Nil(t, err)
+	for i := 0; i < 1000; i++ {
+		client.Set(i, i, 1)
+	}
+	f, err := os.Create("ptest")
+	defer os.Remove("ptest")
+	require.Nil(t, err)
+	err = client.SaveCache(0, f)
+	require.Nil(t, err)
+	f.Close()
+
+	f, err = os.Open("ptest")
+	require.Nil(t, err)
+	new, err := theine.NewBuilder[int, int](100).BuildWithLoader(func(ctx context.Context, key int) (theine.Loaded[int], error) {
+		return theine.Loaded[int]{Value: key, Cost: 1, TTL: 0}, nil
+	})
 	require.Nil(t, err)
 	err = new.LoadCache(0, f)
 	require.Nil(t, err)

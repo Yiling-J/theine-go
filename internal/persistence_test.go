@@ -85,6 +85,9 @@ func TestStorePersistenceTTL(t *testing.T) {
 	for i := 10; i < 20; i++ {
 		_ = store.Set(i, i, 1, 5*time.Second)
 	}
+	for i := 20; i < 30; i++ {
+		_ = store.Set(i, i, 1, 1*time.Second)
+	}
 	time.Sleep(200 * time.Millisecond)
 
 	f, err := os.Create("stest")
@@ -93,6 +96,8 @@ func TestStorePersistenceTTL(t *testing.T) {
 	err = store.Persist(0, f)
 	require.Nil(t, err)
 	f.Close()
+	// expire 20-29
+	time.Sleep(time.Second)
 	new := NewStore[int, int](1000, false)
 	f, err = os.Open("stest")
 	require.Nil(t, err)

@@ -1,13 +1,18 @@
 package internal
 
 import (
+	"bytes"
 	"context"
+	"encoding/gob"
+	"errors"
+	"io"
 	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/gammazero/deque"
+	"github.com/zeebo/xxh3"
 )
 
 const (
@@ -22,6 +27,10 @@ const (
 	REMOVED RemoveReason = iota
 	EVICTED
 	EXPIRED
+)
+
+var (
+	VersionMismatch = errors.New("version mismatch")
 )
 
 type Shard[K comparable, V any] struct {
@@ -181,6 +190,12 @@ func (s *Store[K, V]) getFromShard(key K, hash uint64, shard *Shard[K, V]) (V, b
 		}
 		s.readbuf.Push(send)
 	case new == MAX_READ_BUFF_SIZE:
+		var send ReadBufItem[K, V]
+		send.hash = hash
+		if ok {
+			send.entry = entry
+		}
+		s.readbuf.Push(send)
 		s.drainRead()
 	}
 	return value, ok
@@ -190,6 +205,20 @@ func (s *Store[K, V]) Get(key K) (V, bool) {
 	h, index := s.index(key)
 	shard := s.shards[index]
 	return s.getFromShard(key, h, shard)
+}
+
+func (s *Store[K, V]) setEntry(shard *Shard[K, V], cost int64, entry *Entry[K, V]) {
+	shard.set(entry.key, entry)
+	// cost larger than deque size, send to policy directly
+	if cost > int64(shard.qsize) {
+		shard.mu.Unlock()
+		s.writebuf <- WriteBufItem[K, V]{entry: entry, code: NEW}
+		return
+	}
+	entry.deque = true
+	shard.deque.PushFront(entry)
+	shard.qlen += int(cost)
+	s.processDeque(shard)
 }
 
 func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
@@ -246,22 +275,11 @@ func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
 	}
 	entry := s.entryPool.Get().(*Entry[K, V])
 	entry.frequency.Store(-1)
-	entry.shard = uint16(index)
 	entry.key = key
 	entry.value = value
 	entry.expire.Store(expire)
 	entry.cost.Store(cost)
-	shard.set(key, entry)
-	// cost larger than deque size, send to policy directly
-	if cost > int64(shard.qsize) {
-		shard.mu.Unlock()
-		s.writebuf <- WriteBufItem[K, V]{entry: entry, code: NEW}
-		return true
-	}
-	entry.deque = true
-	shard.deque.PushFront(entry)
-	shard.qlen += int(cost)
-	s.processDeque(shard)
+	s.setEntry(shard, cost, entry)
 	return true
 }
 
@@ -380,7 +398,8 @@ func (s *Store[K, V]) removeEntry(entry *Entry[K, V], reason RemoveReason) {
 	var v V
 	switch reason {
 	case EVICTED, EXPIRED:
-		shard := s.shards[entry.shard]
+		_, index := s.index(entry.key)
+		shard := s.shards[index]
 		shard.mu.Lock()
 		deleted := shard.delete(entry)
 		shard.mu.Unlock()
@@ -393,7 +412,8 @@ func (s *Store[K, V]) removeEntry(entry *Entry[K, V], reason RemoveReason) {
 		}
 	// already removed from shard map
 	case REMOVED:
-		shard := s.shards[entry.shard]
+		_, index := s.index(entry.key)
+		shard := s.shards[index]
 		shard.mu.RLock()
 		k, v = entry.key, entry.value
 		shard.mu.RUnlock()
@@ -514,6 +534,207 @@ func (s *Store[K, V]) Close() {
 	s.closed = true
 	s.mlock.Unlock()
 	close(s.writebuf)
+}
+
+type StoreMeta struct {
+	Version   uint64
+	StartNano int64
+	Sketch    *CountMinSketch
+}
+
+func (m *StoreMeta) Persist(writer io.Writer, blockEncoder *gob.Encoder) error {
+	buffer := bytes.NewBuffer(make([]byte, 0, BlockBufferSize))
+	block := NewBlock[*StoreMeta](1, buffer, blockEncoder)
+	_, err := block.write(m)
+	if err != nil {
+		return err
+	}
+	err = block.save()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func persistDeque[K comparable, V any](dq *deque.Deque[*Entry[K, V]], writer io.Writer, blockEncoder *gob.Encoder) error {
+	buffer := bytes.NewBuffer(make([]byte, 0, BlockBufferSize))
+	block := NewBlock[*Pentry[K, V]](4, buffer, blockEncoder)
+	for dq.Len() > 0 {
+		e := dq.PopBack().pentry()
+		full, err := block.write(e)
+		if err != nil {
+			return err
+		}
+		if full {
+			buffer.Reset()
+			block = NewBlock[*Pentry[K, V]](4, buffer, blockEncoder)
+		}
+	}
+	err := block.save()
+	if err != nil {
+		return err
+	}
+	buffer.Reset()
+	return nil
+}
+
+func (s *Store[K, V]) Persist(version uint64, writer io.Writer) error {
+	blockEncoder := gob.NewEncoder(writer)
+	s.mlock.Lock()
+	meta := &StoreMeta{
+		Version:   version,
+		StartNano: s.timerwheel.clock.start.UnixNano(),
+		Sketch:    s.policy.sketch,
+	}
+	err := meta.Persist(writer, blockEncoder)
+	if err != nil {
+		return err
+	}
+	err = s.policy.slru.protected.Persist(writer, blockEncoder, 2)
+	if err != nil {
+		return err
+	}
+	err = s.policy.slru.probation.Persist(writer, blockEncoder, 3)
+	if err != nil {
+		return err
+	}
+	s.mlock.Unlock()
+
+	for _, sd := range s.shards {
+		sd.mu.RLock()
+		err = persistDeque(sd.deque, writer, blockEncoder)
+		if err != nil {
+			return err
+		}
+		sd.mu.RUnlock()
+	}
+
+	// write end block
+	block := NewBlock[int](255, bytes.NewBuffer(make([]byte, 0)), blockEncoder)
+	_, err = block.write(1)
+	if err != nil {
+		return err
+	}
+	return block.save()
+}
+
+func (s *Store[K, V]) insertSimple(entry *Entry[K, V]) {
+	_, index := s.index(entry.key)
+	s.shards[index].set(entry.key, entry)
+	if entry.expire.Load() != 0 {
+		s.timerwheel.schedule(entry)
+	}
+}
+
+func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
+	blockDecoder := gob.NewDecoder(reader)
+	block := &DataBlock[any]{}
+	s.mlock.Lock()
+	defer s.mlock.Unlock()
+	for {
+		// reset block first
+		block.Data = nil
+		block.Type = 0
+		block.CheckSum = 0
+
+		err := blockDecoder.Decode(block)
+		if err != nil {
+			return err
+		}
+		if block.CheckSum != xxh3.Hash(block.Data) {
+			return errors.New("checksum mismatch")
+		}
+
+		reader := bytes.NewReader(block.Data)
+		if err != nil {
+			return err
+		}
+		if block.Type == 255 {
+			break
+		}
+		switch block.Type {
+		case 1:
+			metaDecoder := gob.NewDecoder(reader)
+			m := &StoreMeta{}
+			err = metaDecoder.Decode(m)
+			if err != nil {
+				return err
+			}
+			if m.Version != version {
+				return VersionMismatch
+			}
+			s.policy.sketch = m.Sketch
+			s.timerwheel.clock.setStart(m.StartNano)
+		case 2:
+			entryDecoder := gob.NewDecoder(reader)
+			for {
+				pentry := &Pentry[K, V]{}
+				err := entryDecoder.Decode(pentry)
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					return err
+				}
+				expire := pentry.Expire
+				if expire != 0 && expire < s.timerwheel.clock.nowNano() {
+					continue
+				}
+				l := s.policy.slru.protected
+				if l.len < int(l.capacity) {
+					entry := pentry.entry()
+					l.PushBack(entry)
+					s.insertSimple(entry)
+				}
+			}
+		case 3:
+			entryDecoder := gob.NewDecoder(reader)
+			for {
+				pentry := &Pentry[K, V]{}
+				err := entryDecoder.Decode(pentry)
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					return err
+				}
+				expire := pentry.Expire
+				if expire != 0 && expire < s.timerwheel.clock.nowNano() {
+					continue
+				}
+				l1 := s.policy.slru.protected
+				l2 := s.policy.slru.probation
+				if l1.len+l2.len < int(s.policy.slru.maxsize) {
+					entry := pentry.entry()
+					l2.PushBack(entry)
+					s.insertSimple(entry)
+				}
+			}
+		case 4:
+			entryDecoder := gob.NewDecoder(reader)
+			for {
+				pentry := &Pentry[K, V]{}
+				err := entryDecoder.Decode(pentry)
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					return err
+				}
+				expire := pentry.Expire
+				if expire != 0 && expire < s.timerwheel.clock.nowNano() {
+					continue
+				}
+				entry := pentry.entry()
+				_, index := s.index(entry.key)
+				shard := s.shards[index]
+				shard.mu.Lock()
+				s.setEntry(shard, pentry.Cost, entry)
+			}
+		}
+
+	}
+	return nil
 }
 
 type Loaded[V any] struct {

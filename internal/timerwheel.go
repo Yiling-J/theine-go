@@ -29,6 +29,10 @@ func (c *Clock) expireNano(ttl time.Duration) int64 {
 	return c.nowNano() + ttl.Nanoseconds()
 }
 
+func (c *Clock) setStart(ts int64) {
+	c.start = time.Unix(0, ts).UTC()
+}
+
 type TimerWheel[K comparable, V any] struct {
 	clock   *Clock
 	buckets []uint
@@ -39,7 +43,7 @@ type TimerWheel[K comparable, V any] struct {
 }
 
 func NewTimerWheel[K comparable, V any](size uint) *TimerWheel[K, V] {
-	clock := &Clock{start: time.Now()}
+	clock := &Clock{start: time.Now().UTC()}
 	buckets := []uint{64, 64, 32, 4, 1}
 	spans := []uint{
 		next2Power(uint((1 * time.Second).Nanoseconds())),

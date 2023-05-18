@@ -1,7 +1,10 @@
 package internal
 
 import (
+	"bytes"
+	"encoding/gob"
 	"fmt"
+	"io"
 	"strings"
 )
 
@@ -103,6 +106,11 @@ func (l *List[K, V]) PushFront(e *Entry[K, V]) *Entry[K, V] {
 	return l.insert(e, &l.root)
 }
 
+// Push push entry to the back of list
+func (l *List[K, V]) PushBack(e *Entry[K, V]) *Entry[K, V] {
+	return l.insert(e, l.root.prev(l.listType))
+}
+
 // remove removes e from its list, decrements l.len
 func (l *List[K, V]) remove(e *Entry[K, V]) {
 	e.prev(l.listType).setNext(e.next(l.listType), l.listType)
@@ -182,4 +190,26 @@ func (l *List[K, V]) Contains(entry *Entry[K, V]) bool {
 		}
 	}
 	return false
+}
+
+func (l *List[K, V]) Persist(writer io.Writer, blockEncoder *gob.Encoder, tp uint8) error {
+	buffer := bytes.NewBuffer(make([]byte, 0, BlockBufferSize))
+	block := NewBlock[*Pentry[K, V]](tp, buffer, blockEncoder)
+	for er := l.Front(); er != nil; er = er.Next(l.listType) {
+		e := er.pentry()
+		full, err := block.write(e)
+		if err != nil {
+			return err
+		}
+		if full {
+			buffer.Reset()
+			block = NewBlock[*Pentry[K, V]](tp, buffer, blockEncoder)
+		}
+	}
+	err := block.save()
+	if err != nil {
+		return err
+	}
+	buffer.Reset()
+	return nil
 }

@@ -139,6 +139,8 @@ Theine supports persisting the cache into `io.Writer` and restoring from `io.Rea
 func (c *Cache[K, V]) SaveCache(version uint64, writer io.Writer) error
 func (c *Cache[K, V]) LoadCache(version uint64, reader io.Reader) error
 ```
+**- Important:** please `LoadCache` immediately after client created or TTL may broken!
+
 #### Example:
 ```go
 // save
@@ -150,6 +152,7 @@ f.Close()
 f, err = os.Open("test")
 require.Nil(t, err)
 newClient, err := theine.NewBuilder[int, int](100).Build()
+// load immediately after client created
 err = newClient.LoadCache(0, f)
 f.Close()
 ```
@@ -180,6 +183,8 @@ When loading cache, Theine roughly do:
 - Load protected LRU and insert entries back to new protected LRU and shards, expired entries will be ignored. Because cache capacity may change, this step will stop if max protected LRU size reached.
 - Load probation LRU and insert entries back to new probation LRU and shards, expired entries will be ignored, Because cache capacity may change, this step will stop if max probation LRU size reached.
 - Load deque entries and insert back to shards, expired entries will be ignored.
+
+Theine will save checksum when persisting cache and verify checksum first when loading.
 
 ## Benchmarks
 

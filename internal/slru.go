@@ -31,7 +31,7 @@ func (s *Slru[K, V]) victim() *Entry[K, V] {
 }
 
 func (s *Slru[K, V]) access(entry *Entry[K, V]) {
-	switch entry.meta.list {
+	switch entry.list {
 	case LIST_PROBATION:
 		s.probation.remove(entry)
 		evicted := s.protected.PushFront(entry)
@@ -44,7 +44,7 @@ func (s *Slru[K, V]) access(entry *Entry[K, V]) {
 }
 
 func (s *Slru[K, V]) remove(entry *Entry[K, V]) {
-	switch entry.meta.list {
+	switch entry.list {
 	case LIST_PROBATION:
 		s.probation.remove(entry)
 	case LIST_PROTECTED:
@@ -53,7 +53,7 @@ func (s *Slru[K, V]) remove(entry *Entry[K, V]) {
 }
 
 func (s *Slru[K, V]) updateCost(entry *Entry[K, V], delta int64) {
-	switch entry.meta.list {
+	switch entry.list {
 	case LIST_PROBATION:
 		s.probation.len += int(delta)
 	case LIST_PROTECTED:

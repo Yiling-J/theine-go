@@ -24,8 +24,6 @@ type MetaData[K comparable, V any] struct {
 	next      *Entry[K, V]
 	wheelPrev *Entry[K, V]
 	wheelNext *Entry[K, V]
-	root      bool
-	list      uint8 // used in slru, probation or protected
 }
 
 type Entry[K comparable, V any] struct {
@@ -37,6 +35,8 @@ type Entry[K comparable, V any] struct {
 	frequency atomic.Int32
 	removed   bool
 	deque     bool
+	root      bool
+	list      uint8 // used in slru, probation or protected
 }
 
 func NewEntry[K comparable, V any](key K, value V, cost int64, expire int64) *Entry[K, V] {
@@ -54,13 +54,13 @@ func NewEntry[K comparable, V any](key K, value V, cost int64, expire int64) *En
 func (e *Entry[K, V]) Next(listType uint8) *Entry[K, V] {
 	switch listType {
 	case LIST_PROBATION, LIST_PROTECTED:
-		if p := e.meta.next; !p.meta.root {
+		if p := e.meta.next; !p.root {
 			return e.meta.next
 		}
 		return nil
 
 	case WHEEL_LIST:
-		if p := e.meta.wheelNext; !p.meta.root {
+		if p := e.meta.wheelNext; !p.root {
 			return e.meta.wheelNext
 		}
 		return nil
@@ -71,13 +71,13 @@ func (e *Entry[K, V]) Next(listType uint8) *Entry[K, V] {
 func (e *Entry[K, V]) Prev(listType uint8) *Entry[K, V] {
 	switch listType {
 	case LIST_PROBATION, LIST_PROTECTED:
-		if p := e.meta.prev; !p.meta.root {
+		if p := e.meta.prev; !p.root {
 			return e.meta.prev
 		}
 		return nil
 
 	case WHEEL_LIST:
-		if p := e.meta.wheelPrev; !p.meta.root {
+		if p := e.meta.wheelPrev; !p.root {
 			return e.meta.wheelPrev
 		}
 		return nil

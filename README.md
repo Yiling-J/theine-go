@@ -24,6 +24,7 @@ cache clusters at Twitter](https://www.usenix.org/system/files/osdi20-yang.pdf)
 - [Benchmarks](#benchmarks)
   * [throughput](#throughput)
   * [hit ratios](#hit-ratios)
+- [Tips](#tips)
 - [Support](#support)
 
 ## Requirements
@@ -237,6 +238,16 @@ Scarabresearch 1 hour database trace from this [issue](https://github.com/ben-ma
 Meta shared anonymized trace captured from large scale production cache services, from [cachelib](https://cachelib.org/docs/Cache_Library_User_Guides/Cachebench_FB_HW_eval/#running-cachebench-with-the-trace-workload)
 
 ![hit ratios](benchmarks/results/meta.png)
+
+## Tips
+- If your key size is very large, you may consider using a struct with 2 hashes instead:
+```go
+type hashKey struct {
+	key uint64
+	conflict uint64
+}
+```
+This is how Ristretto handle keys. But keep in mind that even though the collision rate is very low, it's still possible.
 
 ## Support
 Open an issue, ask question in discussions or join discord channel: https://discord.gg/StrgfPaQqE 

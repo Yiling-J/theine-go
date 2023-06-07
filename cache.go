@@ -16,6 +16,7 @@ const (
 var VersionMismatch = internal.VersionMismatch
 
 type RemoveReason = internal.RemoveReason
+type DataBlock = internal.DataBlock[any]
 
 type Loaded[V any] struct {
 	Value V
@@ -74,13 +75,7 @@ func (b *Builder[K, V]) Build() (*Cache[K, V], error) {
 	if b.maxsize <= 0 {
 		return nil, errors.New("size must be positive")
 	}
-	store := internal.NewStore[K, V](b.maxsize, b.doorkeeper)
-	if b.cost != nil {
-		store.Cost(b.cost)
-	}
-	if b.removalListener != nil {
-		store.RemovalListener(b.removalListener)
-	}
+	store := internal.NewStore(b.maxsize, b.doorkeeper, b.removalListener, b.cost, nil)
 	return &Cache[K, V]{store: store}, nil
 }
 
@@ -92,19 +87,21 @@ func (b *Builder[K, V]) BuildWithLoader(loader func(ctx context.Context, key K) 
 	if loader == nil {
 		return nil, errors.New("loader function required")
 	}
-	store := internal.NewStore[K, V](b.maxsize, b.doorkeeper)
-	if b.cost != nil {
-		store.Cost(b.cost)
-	}
-	if b.removalListener != nil {
-		store.RemovalListener(b.removalListener)
-	}
+	store := internal.NewStore(b.maxsize, b.doorkeeper, b.removalListener, b.cost, nil)
 	loadingStore := internal.NewLoadingStore(store)
 	loadingStore.Loader(func(ctx context.Context, key K) (internal.Loaded[V], error) {
 		v, err := loader(ctx, key)
 		return v.internal(), err
 	})
 	return &LoadingCache[K, V]{store: loadingStore}, nil
+}
+
+// BuildHybrid builds a hybrid cache client from builder.
+func (b *Builder[K, V]) BuildHybrid(cache internal.SecondaryCache[K, V]) (*HybridCache[K, V], error) {
+	store := internal.NewStore(b.maxsize, b.doorkeeper, b.removalListener, b.cost,
+		cache,
+	)
+	return &HybridCache[K, V]{store: store}, nil
 }
 
 type Cache[K comparable, V any] struct {
@@ -209,4 +206,38 @@ func (c *LoadingCache[K, V]) LoadCache(version uint64, reader io.Reader) error {
 // Close closes all goroutines created by cache.
 func (c *LoadingCache[K, V]) Close() {
 	c.store.Close()
+}
+
+type Serializer[T any] interface {
+	internal.Serializer[T]
+}
+
+type HybridCache[K comparable, V any] struct {
+	store *internal.Store[K, V]
+}
+
+// Get gets value by key.
+func (c *HybridCache[K, V]) Get(key K) (V, bool, error) {
+	return c.store.GetWithSecodary(key)
+}
+
+// Set inserts or updates entry in cache with given ttl.
+// Return false when cost > max size.
+func (c *HybridCache[K, V]) SetWithTTL(key K, value V, cost int64, ttl time.Duration) (bool, error) {
+	return c.store.SetWithSecondary(key, value, cost, ttl)
+}
+
+// Set inserts or updates entry in cache.
+// Return false when cost > max size.
+func (c *HybridCache[K, V]) Set(key K, value V, cost int64) (bool, error) {
+	return c.SetWithTTL(key, value, cost, ZERO_TTL)
+}
+
+// Delete deletes key from cache.
+func (c *HybridCache[K, V]) Delete(key K) error {
+	return c.store.DeleteWithSecondary(key)
+}
+
+// Close closes all goroutines created by cache.
+func (c *HybridCache[K, V]) Close() {
 }

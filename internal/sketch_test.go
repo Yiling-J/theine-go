@@ -13,13 +13,13 @@ import (
 
 func TestEnsureCapacity(t *testing.T) {
 	sketch := NewCountMinSketch()
-	sketch.ensureCapacity(1)
+	sketch.EnsureCapacity(1)
 	require.Equal(t, 16, len(sketch.Table))
 }
 
 func TestSketch(t *testing.T) {
 	sketch := NewCountMinSketch()
-	sketch.ensureCapacity(100)
+	sketch.EnsureCapacity(100)
 	require.Equal(t, 128, len(sketch.Table))
 	require.Equal(t, uint(1000), sketch.SampleSize)
 	// override sampleSize so test won't reset
@@ -58,7 +58,7 @@ func TestSketch(t *testing.T) {
 
 func BenchmarkSketch(b *testing.B) {
 	sketch := NewCountMinSketch()
-	sketch.ensureCapacity(50000000)
+	sketch.EnsureCapacity(50000000)
 	nums := []uint64{}
 	for i := 0; i < 100000; i++ {
 		h := xxh3.HashString(strconv.Itoa(rand.Intn(100000)))

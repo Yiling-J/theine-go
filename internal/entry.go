@@ -36,6 +36,7 @@ type Entry[K comparable, V any] struct {
 	removed   bool
 	deque     bool
 	root      bool
+	nvmClean  bool
 	list      uint8 // used in slru, probation or protected
 }
 

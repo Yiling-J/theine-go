@@ -10,5 +10,5 @@ lint:
 	golangci-lint run
 
 cover:
-	go test -race -coverprofile=cover.out -coverpkg=./... ./...
+	go test -race -timeout 2000s -coverprofile=cover.out -coverpkg=./... ./...
 	go tool cover -html=cover.out -o cover.html

@@ -5,8 +5,10 @@ go 1.19
 require (
 	github.com/cespare/xxhash/v2 v2.1.1
 	github.com/gammazero/deque v0.2.1
+	github.com/ncw/directio v1.0.5
 	github.com/stretchr/testify v1.8.2
 	github.com/zeebo/xxh3 v1.0.2
+	golang.org/x/sys v0.8.0
 )
 
 require (

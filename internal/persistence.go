@@ -10,11 +10,13 @@ import (
 const BlockBufferSize = 4 * 1024 * 1024
 
 type DataBlock[V any] struct {
-	Type     uint8
-	CheckSum uint64
-	Data     []byte
-	clean    bool
-	buffer   *bytes.Buffer // used in entryDecoder
+	Type          uint8
+	SecondaryType uint8
+	CheckSum      uint64
+	Index         uint64 // helper filed, usage depends on Type/SecondaryType
+	Data          []byte
+	clean         bool
+	buffer        *bytes.Buffer // used in entryDecoder
 	// datablock should share single blockEncoder
 	// but use separate entryEncoder
 	blockEncoder *gob.Encoder
@@ -31,7 +33,7 @@ func NewBlock[V any](tp uint8, buffer *bytes.Buffer, blockEncoder *gob.Encoder) 
 	}
 }
 
-func (b *DataBlock[V]) save() error {
+func (b *DataBlock[V]) Save() error {
 	if b.clean {
 		return nil
 	}
@@ -42,7 +44,7 @@ func (b *DataBlock[V]) save() error {
 	return b.blockEncoder.Encode(b)
 }
 
-func (b *DataBlock[V]) write(item V) (full bool, err error) {
+func (b *DataBlock[V]) Write(item V) (full bool, err error) {
 	err = b.entryEncoder.Encode(item)
 	if err != nil {
 		return false, err
@@ -58,4 +60,8 @@ func (b *DataBlock[V]) write(item V) (full bool, err error) {
 	}
 	return false, nil
 
+}
+
+func (b *DataBlock[V]) MarkDirty() {
+	b.clean = false
 }

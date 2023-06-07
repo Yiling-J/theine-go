@@ -197,7 +197,7 @@ func (l *List[K, V]) Persist(writer io.Writer, blockEncoder *gob.Encoder, tp uin
 	block := NewBlock[*Pentry[K, V]](tp, buffer, blockEncoder)
 	for er := l.Front(); er != nil; er = er.Next(l.listType) {
 		e := er.pentry()
-		full, err := block.write(e)
+		full, err := block.Write(e)
 		if err != nil {
 			return err
 		}
@@ -206,7 +206,7 @@ func (l *List[K, V]) Persist(writer io.Writer, blockEncoder *gob.Encoder, tp uin
 			block = NewBlock[*Pentry[K, V]](tp, buffer, blockEncoder)
 		}
 	}
-	err := block.save()
+	err := block.Save()
 	if err != nil {
 		return err
 	}

@@ -12,7 +12,6 @@ import (
 	"github.com/Yiling-J/theine-go/internal/bf"
 	"github.com/Yiling-J/theine-go/internal/clock"
 	"github.com/Yiling-J/theine-go/internal/nvm/serializers"
-	"github.com/ncw/directio"
 	"github.com/zeebo/xxh3"
 )
 
@@ -58,7 +57,6 @@ type BigHash struct {
 	Clock            *clock.Clock
 	headerSerializer serializers.Serializer[BucketHeader]
 	entrySerializer  serializers.Serializer[BucketEntry]
-	bufferPool       sync.Pool
 	file             *os.File
 	allocator        *alloc.Allocator
 	bucketCache      *internal.Store[int, []byte]
@@ -77,11 +75,8 @@ func NewBigHash(cacheSize uint64, bucketSize uint64, allocator *alloc.Allocator)
 		Clock:            &clock.Clock{Start: time.Now().UTC()},
 		headerSerializer: serializers.NewMemorySerializer[BucketHeader](),
 		entrySerializer:  serializers.NewMemorySerializer[BucketEntry](),
-		bufferPool: sync.Pool{New: func() any {
-			return bytes.NewBuffer(directio.AlignedBlock(int(bucketSize)))
-		}},
-		allocator:   allocator,
-		bucketCache: internal.NewStore[int, []byte](int64(uint64(64<<20)/bucketSize), false, nil, nil, nil, 0),
+		allocator:        allocator,
+		bucketCache:      internal.NewStore[int, []byte](int64(uint64(64<<20)/bucketSize), false, nil, nil, nil, 0),
 	}
 	for i := 0; i < int(cacheSize/bucketSize); i++ {
 		b.buckets = append(b.buckets, &Bucket{Bloomfilter: bf.NewWithSize(8)})
@@ -226,10 +221,6 @@ func (h *BigHash) addToBucket(keyh uint64, keyb []byte, value []byte, cost int64
 		header.endOffset = h.headerSize
 	}
 	bucket.Bloomfilter.Reset()
-	if int(header.size)-bucket.Bloomfilter.Capacity/10 > 5 {
-		bucket.Bloomfilter.EnsureCapacity(int(10 * header.size))
-	}
-	bucket.Bloomfilter.EnsureCapacity(int(header.size) * 10)
 	// init new buffer
 	allocNew := h.allocator.Allocate(int(h.BucketSize))
 	defer allocNew.Deallocate()
@@ -341,6 +332,9 @@ func (h *BigHash) getFromBucket(keyh uint64, key []byte) (entry BucketEntry, ite
 		if entry.hash == keyh && bytes.Equal(bucketData[offset:offset+int(entry.keySize)], key) {
 			offset += int(entry.keySize)
 			alloc.Data = alloc.Data[offset : offset+int(entry.valueSize)]
+			if entry.expire > 0 && entry.expire <= h.Clock.NowNano() {
+				return entry, alloc, false, nil
+			}
 			return entry, alloc, true, nil
 
 		} else {

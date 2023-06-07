@@ -16,8 +16,7 @@ import (
 )
 
 func TestBlockCacheSimple(t *testing.T) {
-	bc, err := NewBlockCache(500<<10, 20<<10, 3, 0, alloc.NewAllocator(0, 20<<10, 4096), nil)
-	require.Nil(t, err)
+	bc := NewBlockCache(500<<10, 20<<10, 3, 0, alloc.NewAllocator(0, 20<<10, 4096), nil)
 
 	f, err := os.OpenFile("bfoo", os.O_RDWR|os.O_CREATE, 0666)
 	require.Nil(t, err)
@@ -60,8 +59,7 @@ func (s *IntSerializer) Unmarshal(raw []byte, v *int) error {
 }
 
 func TestBlockCacheParallel(t *testing.T) {
-	bc, err := NewBlockCache(5000<<10, 50<<10, 3, 0, alloc.NewAllocator(0, 50<<10, 4096), nil)
-	require.Nil(t, err)
+	bc := NewBlockCache(5000<<10, 50<<10, 3, 0, alloc.NewAllocator(0, 50<<10, 4096), nil)
 
 	f, err := os.OpenFile("bfoo", os.O_RDWR|os.O_CREATE, 0666)
 	require.Nil(t, err)

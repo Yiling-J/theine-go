@@ -1,6 +1,9 @@
 package nvm
 
 import (
+	"bytes"
+	"encoding/binary"
+	"errors"
 	"os"
 	"testing"
 
@@ -81,4 +84,39 @@ func TestNvmResize(t *testing.T) {
 
 	}
 
+}
+
+type IntSerializerE struct{}
+
+func (s *IntSerializerE) Marshal(i int) ([]byte, error) {
+	buff := bytes.NewBuffer(make([]byte, 0))
+	err := binary.Write(buff, binary.BigEndian, uint64(i))
+	if err != nil {
+		return nil, err
+	}
+	return buff.Bytes(), errors.New("e")
+}
+
+func (s *IntSerializerE) Unmarshal(raw []byte, v *int) error {
+	num := binary.BigEndian.Uint64(raw)
+	*v = int(num)
+	return errors.New("e")
+}
+
+func TestNvmSerializerError(t *testing.T) {
+	defer os.Remove("bfoo")
+	errCount := 0
+	store, err := NewNvmStore[int, int](
+		"bfoo", 512, 1000<<10, 4<<10, 5<<10, 3, 20, func(err error) {
+			errCount += 1
+		},
+		&IntSerializerE{}, &IntSerializerE{},
+	)
+	require.Nil(t, err)
+
+	err = store.Set(1, 1, 1, 0)
+	require.NotNil(t, err)
+
+	_, _, _, _, err = store.Get(1)
+	require.NotNil(t, err)
 }

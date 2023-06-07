@@ -67,7 +67,7 @@ type BlockCache struct {
 	regionManager   *RegionManager
 }
 
-func NewBlockCache(cacheSize int, regionSize int, cleanRegionSize uint32, offset uint64, allocator *alloc.Allocator, errHandler func(err error)) (*BlockCache, error) {
+func NewBlockCache(cacheSize int, regionSize int, cleanRegionSize uint32, offset uint64, allocator *alloc.Allocator, errHandler func(err error)) *BlockCache {
 	regionSize = align(regionSize)
 	regionCount := cacheSize / regionSize
 	b := &BlockCache{
@@ -88,7 +88,7 @@ func NewBlockCache(cacheSize int, regionSize int, cleanRegionSize uint32, offset
 		allocator, errHandler,
 	)
 
-	return b, nil
+	return b
 
 }
 

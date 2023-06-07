@@ -96,21 +96,15 @@ func NewNvmStore[K comparable, V any](
 	allocator := alloc.NewAllocator(bucketSize, regionSize, blockSize)
 	if bhSize > 0 {
 		bhSize = alignDown(bhSize, blockSize)
-		bh, err := NewBigHash(uint64(bhSize), uint64(bucketSize), allocator)
-		if err != nil {
-			return nil, err
-		}
+		bh := NewBigHash(uint64(bhSize), uint64(bucketSize), allocator)
 		bh.file = f
 		store.bighash = bh
 	}
 	if bcSize > 0 {
 		bcSize = alignDown(bcSize, blockSize)
-		bc, err := NewBlockCache(
+		bc := NewBlockCache(
 			bcSize, regionSize, uint32(cleanRegionSize), uint64(bhSize), allocator, errorHandler,
 		)
-		if err != nil {
-			return nil, err
-		}
 		bc.regionManager.file = f
 		store.blockcache = bc
 	}

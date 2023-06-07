@@ -19,8 +19,7 @@ func TestBigHash(t *testing.T) {
 	require.Nil(t, err)
 	err = preallocate.Preallocate(f, 4096*50, true)
 	require.Nil(t, err)
-	bh, err := NewBigHash(4096*50, 4096, alloc.NewAllocator(4096, 16<<20, 4096))
-	require.Nil(t, err)
+	bh := NewBigHash(4096*50, 4096, alloc.NewAllocator(4096, 16<<20, 4096))
 	bh.file = f
 	for i := 0; i < 100; i++ {
 		key := []byte(strconv.Itoa(i))

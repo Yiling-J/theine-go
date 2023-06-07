@@ -719,7 +719,7 @@ func (s *Store[K, V]) insertSimple(entry *Entry[K, V]) {
 
 func (s *Store[K, V]) processSecondary() {
 	for item := range s.secondaryCacheBuf {
-		item.shard.mu.Lock()
+		item.shard.mu.RLock()
 		// first double check key still exists in map,
 		// not exist means key already deleted by Delete API
 		_, exist := item.shard.get(item.entry.key)
@@ -728,20 +728,22 @@ func (s *Store[K, V]) processSecondary() {
 				item.entry.key, item.entry.value,
 				item.entry.cost.Load(), item.entry.expire.Load(),
 			)
-
+			item.shard.mu.RUnlock()
 			if err != nil {
-				item.shard.mu.Unlock()
 				s.secondaryCache.HandleAsyncError(err)
 				continue
 			}
 			if item.reason == EVICTED {
+				item.shard.mu.Lock()
 				deleted := item.shard.delete(item.entry)
 				if deleted {
 					s.postDelete(item.entry)
 				}
+				item.shard.mu.Unlock()
 			}
+		} else {
+			item.shard.mu.RUnlock()
 		}
-		item.shard.mu.Unlock()
 	}
 }
 

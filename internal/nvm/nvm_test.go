@@ -57,45 +57,28 @@ func (s *ByteSerializer) Unmarshal(raw []byte, v *[]byte) error {
 	return nil
 }
 
-func TestNvmChangeSize(t *testing.T) {
-	store, err := NewNvmStore[int, []byte](
-		"bfoo", 16<<10, 100<<20, 4<<10, 50<<10, 3, 0, func(err error) {
-			require.Nil(t, err)
-		},
-		&IntSerializer{}, &ByteSerializer{},
-	)
-	require.Nil(t, err)
+func TestNvmResize(t *testing.T) {
 	defer os.Remove("bfoo")
-
-	for i := 0; i < 100; i++ {
-		err = store.Set(i, make([]byte, 10<<10), 1, 0)
+	for _, size := range []int{30 << 20, 100 << 20, 50 << 20} {
+		store, err := NewNvmStore[int, []byte](
+			"bfoo", 512, size, 4<<10, 100<<10, 3, 20, func(err error) {
+				require.Nil(t, err)
+			},
+			&IntSerializer{}, &ByteSerializer{},
+		)
 		require.Nil(t, err)
-	}
 
-	store, err = NewNvmStore[int, []byte](
-		"bfoo", 16<<10, 200<<20, 4<<10, 50<<10, 3, 0, func(err error) {
+		// insert to soc
+		for i := 0; i < 5000; i++ {
+			err = store.Set(i, make([]byte, 1<<10), 1, 0)
 			require.Nil(t, err)
-		},
-		&IntSerializer{}, &ByteSerializer{},
-	)
-	require.Nil(t, err)
-
-	for i := 0; i < 100; i++ {
-		err = store.Set(i, make([]byte, 10<<10), 1, 0)
-		require.Nil(t, err)
-	}
-
-	store, err = NewNvmStore[int, []byte](
-		"bfoo", 16<<10, 50<<20, 4<<10, 50<<10, 3, 0, func(err error) {
+		}
+		// insert to loc
+		for i := 0; i < 5000; i++ {
+			err = store.Set(i, make([]byte, 20<<10), 1, 0)
 			require.Nil(t, err)
-		},
-		&IntSerializer{}, &ByteSerializer{},
-	)
-	require.Nil(t, err)
+		}
 
-	for i := 0; i < 100; i++ {
-		err = store.Set(i, make([]byte, 10<<10), 1, 0)
-		require.Nil(t, err)
 	}
 
 }

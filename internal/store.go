@@ -6,6 +6,7 @@ import (
 	"encoding/gob"
 	"errors"
 	"io"
+	"math/rand"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -115,12 +116,14 @@ type Store[K comparable, V any] struct {
 	closed            bool
 	secondaryCache    SecondaryCache[K, V]
 	secondaryCacheBuf chan SecondaryCacheItem[K, V]
+	probability       float32
+	rg                *rand.Rand
 }
 
 // New returns a new data struct with the specified capacity
 func NewStore[K comparable, V any](
 	maxsize int64, doorkeeper bool, listener func(key K, value V, reason RemoveReason),
-	cost func(v V) int64, secondaryCache SecondaryCache[K, V], workers int,
+	cost func(v V) int64, secondaryCache SecondaryCache[K, V], workers int, probability float32,
 ) *Store[K, V] {
 	hasher := NewHasher[K]()
 	writeBufSize := maxsize / 100
@@ -170,6 +173,7 @@ func NewStore[K comparable, V any](
 		removalListener: listener,
 		cost:            costfn,
 		secondaryCache:  secondaryCache,
+		probability:     probability,
 	}
 	s.removalCallback = func(kv dequeKV[K, V], reason RemoveReason) error {
 		if s.removalListener != nil {
@@ -190,6 +194,7 @@ func NewStore[K comparable, V any](
 		for i := 0; i < workers; i++ {
 			go s.processSecondary()
 		}
+		s.rg = rand.New(rand.New(rand.NewSource(0)))
 	}
 	return s
 }
@@ -486,22 +491,29 @@ func (s *Store[K, V]) removeEntry(entry *Entry[K, V], reason RemoveReason) {
 		_, index := s.index(entry.key)
 		shard := s.shards[index]
 		if reason == EVICTED && !entry.nvmClean && s.secondaryCache != nil {
-			s.secondaryCacheBuf <- SecondaryCacheItem[K, V]{
-				entry:  entry,
-				reason: reason,
-				shard:  shard,
+			var rn float32 = 1
+			if s.probability < 1 {
+				rn = s.rg.Float32()
 			}
-		} else {
-			shard.mu.Lock()
-			deleted := shard.delete(entry)
-			shard.mu.Unlock()
-			if deleted {
-				k, v := entry.key, entry.value
-				if s.removalListener != nil {
-					s.removalListener(k, v, reason)
+
+			if rn <= s.probability {
+				s.secondaryCacheBuf <- SecondaryCacheItem[K, V]{
+					entry:  entry,
+					reason: reason,
+					shard:  shard,
 				}
-				s.postDelete(entry)
+				return
 			}
+		}
+		shard.mu.Lock()
+		deleted := shard.delete(entry)
+		shard.mu.Unlock()
+		if deleted {
+			k, v := entry.key, entry.value
+			if s.removalListener != nil {
+				s.removalListener(k, v, reason)
+			}
+			s.postDelete(entry)
 		}
 	// already removed from shard map
 	case REMOVED:

@@ -33,7 +33,7 @@ func TestBuilder(t *testing.T) {
 	nvm, err := theine.NewNvmBuilder[int, int]("afoo", 500<<10).RegionSize(5 << 10).KeySerializer(&IntSerializer{}).ValueSerializer(&IntSerializer{}).Build()
 	defer os.Remove("afoo")
 	require.Nil(t, err)
-	builderH := builder.Hybrid(nvm)
+	builderH := builder.Hybrid(nvm).Workers(1).AdmProbability(0.8)
 	cacheH, err := builderH.Build()
 	require.Nil(t, err)
 	require.Equal(t, reflect.TypeOf(&theine.HybridCache[int, int]{}), reflect.TypeOf(cacheH))

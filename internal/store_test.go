@@ -8,7 +8,7 @@ import (
 )
 
 func TestDequeExpire(t *testing.T) {
-	store := NewStore[int, int](20000, false, nil, nil, nil, 0)
+	store := NewStore[int, int](20000, false, nil, nil, nil, 0, 0)
 
 	expired := map[int]int{}
 	store.removalListener = func(key, value int, reason RemoveReason) {
@@ -33,7 +33,7 @@ func TestDequeExpire(t *testing.T) {
 }
 
 func TestProcessDeque(t *testing.T) {
-	store := NewStore[int, int](20000, false, nil, nil, nil, 0)
+	store := NewStore[int, int](20000, false, nil, nil, nil, 0, 0)
 
 	evicted := map[int]int{}
 	store.removalListener = func(key, value int, reason RemoveReason) {
@@ -65,7 +65,7 @@ func TestProcessDeque(t *testing.T) {
 }
 
 func TestRemoveDeque(t *testing.T) {
-	store := NewStore[int, int](20000, false, nil, nil, nil, 0)
+	store := NewStore[int, int](20000, false, nil, nil, nil, 0, 0)
 	_, index := store.index(123)
 	shard := store.shards[index]
 	store.Set(123, 123, 8, 0)
@@ -92,7 +92,7 @@ func TestRemoveDeque(t *testing.T) {
 }
 
 func TestDoorKeeperDynamicSize(t *testing.T) {
-	store := NewStore[int, int](200000, true, nil, nil, nil, 0)
+	store := NewStore[int, int](200000, true, nil, nil, nil, 0, 0)
 	shard := store.shards[0]
 	require.True(t, shard.dookeeper.Capacity == 512)
 	for i := 0; i < 5000; i++ {

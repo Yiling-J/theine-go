@@ -21,6 +21,7 @@ type loadingParams[K comparable, V any] struct {
 type hybridParams[K comparable, V any] struct {
 	secondaryCache internal.SecondaryCache[K, V]
 	workers        int
+	admProbability float32
 }
 
 type Builder[K comparable, V any] struct {
@@ -59,7 +60,7 @@ func (b *Builder[K, V]) Build() (*Cache[K, V], error) {
 	if b.maxsize <= 0 {
 		return nil, errors.New("size must be positive")
 	}
-	store := internal.NewStore(b.maxsize, b.doorkeeper, b.removalListener, b.cost, nil, 0)
+	store := internal.NewStore(b.maxsize, b.doorkeeper, b.removalListener, b.cost, nil, 0, 0)
 	return &Cache[K, V]{store: store}, nil
 }
 
@@ -82,6 +83,7 @@ func (b *Builder[K, V]) Hybrid(cache internal.SecondaryCache[K, V]) *HybridBuild
 		hybridParams: hybridParams[K, V]{
 			secondaryCache: cache,
 			workers:        2,
+			admProbability: 1,
 		},
 	}
 }
@@ -94,7 +96,7 @@ func (b *Builder[K, V]) BuildWithLoader(loader func(ctx context.Context, key K) 
 	if loader == nil {
 		return nil, errors.New("loader function required")
 	}
-	store := internal.NewStore(b.maxsize, b.doorkeeper, b.removalListener, b.cost, nil, 0)
+	store := internal.NewStore(b.maxsize, b.doorkeeper, b.removalListener, b.cost, nil, 0, 0)
 	loadingStore := internal.NewLoadingStore(store)
 	loadingStore.Loader(func(ctx context.Context, key K) (internal.Loaded[V], error) {
 		v, err := loader(ctx, key)
@@ -128,7 +130,7 @@ func (b *LoadingBuilder[K, V]) Build() (*LoadingCache[K, V], error) {
 	if b.loader == nil {
 		return nil, errors.New("loader function required")
 	}
-	store := internal.NewStore(b.maxsize, b.doorkeeper, b.removalListener, b.cost, nil, 0)
+	store := internal.NewStore(b.maxsize, b.doorkeeper, b.removalListener, b.cost, nil, 0, 0)
 	loadingStore := internal.NewLoadingStore(store)
 	loadingStore.Loader(func(ctx context.Context, key K) (internal.Loaded[V], error) {
 		v, err := b.loader(ctx, key)
@@ -146,6 +148,12 @@ type HybridBuilder[K comparable, V any] struct {
 // Worker will send evicted entries to secondary cache.
 func (b *HybridBuilder[K, V]) Workers(w int) *HybridBuilder[K, V] {
 	b.workers = w
+	return b
+}
+
+// Set acceptance probability. The value has to be in the range of [0, 1].
+func (b *HybridBuilder[K, V]) AdmProbability(p float32) *HybridBuilder[K, V] {
+	b.admProbability = p
 	return b
 }
 
@@ -168,7 +176,7 @@ func (b *HybridBuilder[K, V]) Build() (*HybridCache[K, V], error) {
 		return nil, errors.New("workers must be positive")
 	}
 	store := internal.NewStore(b.maxsize, b.doorkeeper, b.removalListener, b.cost,
-		b.secondaryCache, b.workers,
+		b.secondaryCache, b.workers, b.admProbability,
 	)
 	return &HybridCache[K, V]{store: store}, nil
 }
@@ -192,6 +200,7 @@ func (b *HybridLoadingBuilder[K, V]) Build() (*HybridLoadingCache[K, V], error) 
 	}
 	store := internal.NewStore(
 		b.maxsize, b.doorkeeper, b.removalListener, b.cost, b.secondaryCache, b.workers,
+		b.admProbability,
 	)
 	loadingStore := internal.NewLoadingStore(store)
 	loadingStore.Loader(func(ctx context.Context, key K) (internal.Loaded[V], error) {

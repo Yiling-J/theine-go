@@ -130,7 +130,7 @@ func TestHybridCacheMix(t *testing.T) {
 	nvm, err := theine.NewNvmBuilder[int, []byte]("afoo", 150<<20).BigHashPct(30).KeySerializer(&IntSerializer{}).ValueSerializer(&ByteSerializer{}).ErrorHandler(func(err error) {}).Build()
 	require.Nil(t, err)
 	defer os.Remove("afoo")
-	client, err := theine.NewBuilder[int, []byte](100).Hybrid(nvm).Workers(8).Build()
+	client, err := theine.NewBuilder[int, []byte](100).Hybrid(nvm).Workers(8).AdmProbability(1).Build()
 	require.Nil(t, err)
 	s := &IntSerializer{}
 	for i := 0; i < 1000; i++ {
@@ -157,6 +157,40 @@ func TestHybridCacheMix(t *testing.T) {
 		require.Nil(t, err)
 		require.Equal(t, expected, value[:8])
 	}
+}
+
+func TestHybridCacheMixProb(t *testing.T) {
+	nvm, err := theine.NewNvmBuilder[int, []byte]("afoo", 150<<20).BigHashPct(30).KeySerializer(&IntSerializer{}).ValueSerializer(&ByteSerializer{}).ErrorHandler(func(err error) {}).Build()
+	require.Nil(t, err)
+	defer os.Remove("afoo")
+	client, err := theine.NewBuilder[int, []byte](100).Hybrid(nvm).Workers(8).AdmProbability(0.5).Build()
+	require.Nil(t, err)
+	s := &IntSerializer{}
+	for i := 0; i < 1000; i++ {
+		var value []byte
+		base, err := s.Marshal(i)
+		require.Nil(t, err)
+		if i < 600 {
+			value = base
+		} else {
+			value = make([]byte, 4200)
+			copy(value, base)
+		}
+		success := client.Set(i, value, 1)
+		require.Nil(t, err)
+		require.True(t, success)
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	counter := 0
+	for i := 0; i < 1000; i++ {
+		_, success, err := client.Get(i)
+		require.Nil(t, err)
+		if success {
+			counter += 1
+		}
+	}
+	require.True(t, counter < 600)
 }
 
 func TestHybridCacheErrorHandler(t *testing.T) {

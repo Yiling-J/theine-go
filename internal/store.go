@@ -120,7 +120,7 @@ type Store[K comparable, V any] struct {
 // New returns a new data struct with the specified capacity
 func NewStore[K comparable, V any](
 	maxsize int64, doorkeeper bool, listener func(key K, value V, reason RemoveReason),
-	cost func(v V) int64, secondaryCache SecondaryCache[K, V],
+	cost func(v V) int64, secondaryCache SecondaryCache[K, V], workers int,
 ) *Store[K, V] {
 	hasher := NewHasher[K]()
 	writeBufSize := maxsize / 100
@@ -187,7 +187,7 @@ func NewStore[K comparable, V any](
 	if s.secondaryCache != nil {
 		s.secondaryCacheBuf = make(chan SecondaryCacheItem[K, V], 256)
 		s.secondaryCache.SetClock(s.timerwheel.clock)
-		for i := 0; i < 8; i++ {
+		for i := 0; i < workers; i++ {
 			go s.processSecondary()
 		}
 	}
@@ -346,24 +346,6 @@ func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
 	}
 	_, _, ok := s.setInternal(key, value, cost, expire, false)
 	return ok
-}
-
-func (s *Store[K, V]) SetWithSecondary(key K, value V, cost int64, ttl time.Duration) (bool, error) {
-	if cost == 0 {
-		cost = s.cost(value)
-	}
-	if cost > int64(s.cap) {
-		return false, nil
-	}
-	var expire int64
-	if ttl != 0 {
-		expire = s.timerwheel.clock.ExpireNano(ttl)
-	}
-	_, _, ok := s.setInternal(key, value, cost, expire, false)
-	if !ok {
-		return false, nil
-	}
-	return ok, nil
 }
 
 type dequeKV[K comparable, V any] struct {

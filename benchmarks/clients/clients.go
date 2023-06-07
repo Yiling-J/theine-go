@@ -55,14 +55,14 @@ type TheineNvm[K comparable, V any] struct {
 }
 
 func (c *TheineNvm[K, V]) Init(cap int) {
-	nvm, err := theine.NewNvmBuilder[K, V]("foo", 12000<<20).BigHashPct(20).
+	nvm, err := theine.NewNvmBuilder[K, V]("foo", 4000<<20).BigHashPct(20).
 		KeySerializer(c.KeySerializer).ValueSerializer(c.ValueSerializer).ErrorHandler(func(err error) {
 		panic(err)
 	}).Build()
 	if err != nil {
 		panic(err)
 	}
-	client, err := theine.NewBuilder[K, V](int64(cap)).BuildHybrid(nvm)
+	client, err := theine.NewBuilder[K, V](int64(cap)).Hybrid(nvm).Workers(8).Build()
 	if err != nil {
 		panic(err)
 	}
@@ -78,10 +78,7 @@ func (c *TheineNvm[K, V]) Get(key K) (V, bool) {
 }
 
 func (c *TheineNvm[K, V]) Set(key K, value V) {
-	_, err := c.client.Set(key, value, 1)
-	if err != nil {
-		panic(err)
-	}
+	_ = c.client.Set(key, value, 1)
 }
 func (c *TheineNvm[K, V]) Name() string {
 	return "theine"
@@ -200,7 +197,7 @@ func (c *TheinePebble[K, V]) Init(cap int) {
 		keySerializer:   c.KeySerializer,
 		valueSerializer: c.ValueSerializer,
 	}
-	client, err := theine.NewBuilder[K, V](int64(cap)).BuildHybrid(pb)
+	client, err := theine.NewBuilder[K, V](int64(cap)).Hybrid(pb).Workers(8).Build()
 	if err != nil {
 		panic(err)
 	}
@@ -217,12 +214,9 @@ func (c *TheinePebble[K, V]) Get(key K) (V, bool) {
 }
 
 func (c *TheinePebble[K, V]) Set(key K, value V) {
-	success, err := c.client.Set(key, value, 1)
+	success := c.client.Set(key, value, 1)
 	if !success {
 		panic("set failed")
-	}
-	if err != nil {
-		panic(err)
 	}
 }
 func (c *TheinePebble[K, V]) Name() string {

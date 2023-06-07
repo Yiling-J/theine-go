@@ -49,11 +49,10 @@ func TestHybridCacheBighashOnly(t *testing.T) {
 	nvm, err := theine.NewNvmBuilder[int, []byte]("afoo", 150<<20).BigHashPct(100).KeySerializer(&IntSerializer{}).ValueSerializer(&ByteSerializer{}).ErrorHandler(func(err error) {}).Build()
 	require.Nil(t, err)
 	defer os.Remove("afoo")
-	client, err := theine.NewBuilder[int, []byte](100).BuildHybrid(nvm)
+	client, err := theine.NewBuilder[int, []byte](100).Hybrid(nvm).Workers(8).Build()
 	require.Nil(t, err)
 	for i := 0; i < 1000; i++ {
-		success, err := client.Set(i, []byte(strconv.Itoa(i)), 1)
-		require.Nil(t, err)
+		success := client.Set(i, []byte(strconv.Itoa(i)), 1)
 		require.True(t, success)
 	}
 	time.Sleep(50 * time.Millisecond)
@@ -70,7 +69,7 @@ func TestHybridCacheBlockCacheOnly(t *testing.T) {
 	nvm, err := theine.NewNvmBuilder[int, []byte]("afoo", 150<<20).BigHashPct(0).KeySerializer(&IntSerializer{}).ValueSerializer(&ByteSerializer{}).ErrorHandler(func(err error) {}).Build()
 	require.Nil(t, err)
 	defer os.Remove("afoo")
-	client, err := theine.NewBuilder[int, []byte](100).BuildHybrid(nvm)
+	client, err := theine.NewBuilder[int, []byte](100).Hybrid(nvm).Workers(8).Build()
 	require.Nil(t, err)
 	s := &IntSerializer{}
 	for i := 0; i < 1000; i++ {
@@ -78,8 +77,7 @@ func TestHybridCacheBlockCacheOnly(t *testing.T) {
 		require.Nil(t, err)
 		value := make([]byte, 40<<10)
 		copy(value, base)
-		success, err := client.Set(i, value, 1)
-		require.Nil(t, err)
+		success := client.Set(i, value, 1)
 		require.True(t, success)
 	}
 	time.Sleep(50 * time.Millisecond)
@@ -98,7 +96,7 @@ func TestHybridCacheGetSetBlockCacheOnly(t *testing.T) {
 	nvm, err := theine.NewNvmBuilder[int, []byte]("afoo", 40<<20).RegionSize(4 << 20).BigHashPct(0).KeySerializer(&IntSerializer{}).ValueSerializer(&ByteSerializer{}).ErrorHandler(func(err error) {}).Build()
 	require.Nil(t, err)
 	defer os.Remove("afoo")
-	client, err := theine.NewBuilder[int, []byte](100).BuildHybrid(nvm)
+	client, err := theine.NewBuilder[int, []byte](100).Hybrid(nvm).Workers(8).Build()
 	require.Nil(t, err)
 	s := &IntSerializer{}
 	var wg sync.WaitGroup
@@ -115,8 +113,7 @@ func TestHybridCacheGetSetBlockCacheOnly(t *testing.T) {
 				if !success {
 					value := make([]byte, 40<<10)
 					copy(value, base)
-					success, err := client.Set(i, value, 1)
-					require.Nil(t, err)
+					success := client.Set(i, value, 1)
 					require.True(t, success)
 				} else {
 					expected, err := s.Marshal(i)
@@ -133,7 +130,7 @@ func TestHybridCacheMix(t *testing.T) {
 	nvm, err := theine.NewNvmBuilder[int, []byte]("afoo", 150<<20).BigHashPct(30).KeySerializer(&IntSerializer{}).ValueSerializer(&ByteSerializer{}).ErrorHandler(func(err error) {}).Build()
 	require.Nil(t, err)
 	defer os.Remove("afoo")
-	client, err := theine.NewBuilder[int, []byte](100).BuildHybrid(nvm)
+	client, err := theine.NewBuilder[int, []byte](100).Hybrid(nvm).Workers(8).Build()
 	require.Nil(t, err)
 	s := &IntSerializer{}
 	for i := 0; i < 1000; i++ {
@@ -146,7 +143,7 @@ func TestHybridCacheMix(t *testing.T) {
 			value = make([]byte, 4200)
 			copy(value, base)
 		}
-		success, err := client.Set(i, value, 1)
+		success := client.Set(i, value, 1)
 		require.Nil(t, err)
 		require.True(t, success)
 	}
@@ -168,13 +165,13 @@ func TestHybridCacheErrorHandler(t *testing.T) {
 		errCounter.Add(1)
 	}).Build()
 	require.Nil(t, err)
-	client, err := theine.NewBuilder[int, []byte](100).BuildHybrid(nvm)
+	client, err := theine.NewBuilder[int, []byte](100).Hybrid(nvm).Workers(8).Build()
 	require.Nil(t, err)
 	err = os.Truncate("afoo", 1)
 	require.Nil(t, err)
 	defer os.Remove("afoo")
 	for i := 0; i < 1000; i++ {
-		success, err := client.Set(i, []byte(strconv.Itoa(i)), 1)
+		success := client.Set(i, []byte(strconv.Itoa(i)), 1)
 		require.Nil(t, err)
 		require.True(t, success)
 	}
@@ -186,7 +183,7 @@ func TestHybridCacheGetSetNoRace(t *testing.T) {
 	nvm, err := theine.NewNvmBuilder[int, []byte]("afoo", 1000<<20).KeySerializer(&IntSerializer{}).ValueSerializer(&ByteSerializer{}).ErrorHandler(func(err error) {}).Build()
 	require.Nil(t, err)
 	defer os.Remove("afoo")
-	client, err := theine.NewBuilder[int, []byte](100).BuildHybrid(nvm)
+	client, err := theine.NewBuilder[int, []byte](100).Hybrid(nvm).Workers(8).Build()
 	require.Nil(t, err)
 	var wg sync.WaitGroup
 	for i := 1; i <= runtime.GOMAXPROCS(0)*2; i++ {
@@ -208,17 +205,11 @@ func TestHybridCacheGetSetNoRace(t *testing.T) {
 					if i%2 == 0 {
 						value := make([]byte, 1<<10)
 						copy(value, base)
-						_, err := client.Set(key, value, 1)
-						if err != nil {
-							panic(err)
-						}
+						_ = client.Set(key, value, 1)
 					} else {
 						value := make([]byte, 120<<10)
 						copy(value, base)
-						_, err := client.Set(key, value, 1)
-						if err != nil {
-							panic(err)
-						}
+						_ = client.Set(key, value, 1)
 					}
 					if i%5 == 0 {
 						err := client.Delete(key)

@@ -9,7 +9,7 @@ import (
 )
 
 func TestStorePersistence(t *testing.T) {
-	store := NewStore[int, int](1000, false, nil, nil, nil)
+	store := NewStore[int, int](1000, false, nil, nil, nil, 0)
 	for i := 0; i < 20; i++ {
 		_ = store.Set(i, i, 1, 0)
 	}
@@ -48,7 +48,7 @@ func TestStorePersistence(t *testing.T) {
 	require.Nil(t, err)
 	f.Close()
 
-	new := NewStore[int, int](1000, false, nil, nil, nil)
+	new := NewStore[int, int](1000, false, nil, nil, nil, 0)
 	// manually set deque size of shard
 	for _, shard := range new.shards {
 		shard.qsize = 10
@@ -78,7 +78,7 @@ func TestStorePersistence(t *testing.T) {
 }
 
 func TestStorePersistenceTTL(t *testing.T) {
-	store := NewStore[int, int](1000, false, nil, nil, nil)
+	store := NewStore[int, int](1000, false, nil, nil, nil, 0)
 	for i := 0; i < 10; i++ {
 		_ = store.Set(i, i, 1, 2*time.Second)
 	}
@@ -98,7 +98,7 @@ func TestStorePersistenceTTL(t *testing.T) {
 	f.Close()
 	// expire 20-29
 	time.Sleep(time.Second)
-	new := NewStore[int, int](1000, false, nil, nil, nil)
+	new := NewStore[int, int](1000, false, nil, nil, nil, 0)
 	f, err = os.Open("stest")
 	require.Nil(t, err)
 	err = new.Recover(0, f)
@@ -127,7 +127,7 @@ func TestStorePersistenceTTL(t *testing.T) {
 }
 
 func TestStorePersistenceResize(t *testing.T) {
-	store := NewStore[int, int](1000, false, nil, nil, nil)
+	store := NewStore[int, int](1000, false, nil, nil, nil, 0)
 	for i := 0; i < 1000; i++ {
 		_ = store.Set(i, i, 1, 0)
 	}
@@ -147,7 +147,7 @@ func TestStorePersistenceResize(t *testing.T) {
 	require.Nil(t, err)
 	f.Close()
 
-	new := NewStore[int, int](100, false, nil, nil, nil)
+	new := NewStore[int, int](100, false, nil, nil, nil, 0)
 	f, err = os.Open("stest")
 	require.Nil(t, err)
 	err = new.Recover(0, f)

@@ -2,9 +2,7 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"math/rand"
-	"net/http"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -14,7 +12,6 @@ import (
 
 	"github.com/Yiling-J/theine-go"
 	"github.com/Yiling-J/theine-go/benchmarks/clients"
-	"github.com/arl/statsviz"
 	"github.com/brianvoe/gofakeit/v6"
 )
 
@@ -57,11 +54,11 @@ func (m MsgpSerializer) Unmarshal(d []byte, o *Foo) error {
 }
 
 func infinite(client clients.Client[string, Foo], cap int, concurrency int) {
-	statsviz.RegisterDefault()
+	// statsviz.RegisterDefault()
 
-	go func() {
-		log.Println(http.ListenAndServe("0.0.0.0:6060", nil))
-	}()
+	// go func() {
+	// 	log.Println(http.ListenAndServe("0.0.0.0:6060", nil))
+	// }()
 	client.Init(cap)
 	var wg sync.WaitGroup
 	total := atomic.Uint64{}

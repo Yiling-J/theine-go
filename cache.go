@@ -2,7 +2,6 @@ package theine
 
 import (
 	"context"
-	"errors"
 	"io"
 	"time"
 
@@ -37,72 +36,6 @@ const (
 	EVICTED = internal.EVICTED
 	EXPIRED = internal.EXPIRED
 )
-
-type Builder[K comparable, V any] struct {
-	cost            func(V) int64
-	removalListener func(key K, value V, reason RemoveReason)
-	maxsize         int64
-	doorkeeper      bool
-}
-
-func NewBuilder[K comparable, V any](maxsize int64) *Builder[K, V] {
-	return &Builder[K, V]{maxsize: maxsize}
-}
-
-// Cost adds dynamic cost function to builder.
-// There is a default cost function which always return 1.
-func (b *Builder[K, V]) Cost(cost func(v V) int64) *Builder[K, V] {
-	b.cost = cost
-	return b
-}
-
-// Doorkeeper enables doorkeeper.
-// Doorkeeper will drop Set if they are not in bloomfilter yet.
-func (b *Builder[K, V]) Doorkeeper(enabled bool) *Builder[K, V] {
-	b.doorkeeper = true
-	return b
-}
-
-// RemovalListener adds remove callback function to builder.
-// This function is called when entry in cache is evicted/expired/deleted.
-func (b *Builder[K, V]) RemovalListener(listener func(key K, value V, reason RemoveReason)) *Builder[K, V] {
-	b.removalListener = listener
-	return b
-}
-
-// Build builds a cache client from builder.
-func (b *Builder[K, V]) Build() (*Cache[K, V], error) {
-	if b.maxsize <= 0 {
-		return nil, errors.New("size must be positive")
-	}
-	store := internal.NewStore(b.maxsize, b.doorkeeper, b.removalListener, b.cost, nil)
-	return &Cache[K, V]{store: store}, nil
-}
-
-// BuildWithLoader builds a loading cache client from builder with custom loader function.
-func (b *Builder[K, V]) BuildWithLoader(loader func(ctx context.Context, key K) (Loaded[V], error)) (*LoadingCache[K, V], error) {
-	if b.maxsize <= 0 {
-		return nil, errors.New("size must be positive")
-	}
-	if loader == nil {
-		return nil, errors.New("loader function required")
-	}
-	store := internal.NewStore(b.maxsize, b.doorkeeper, b.removalListener, b.cost, nil)
-	loadingStore := internal.NewLoadingStore(store)
-	loadingStore.Loader(func(ctx context.Context, key K) (internal.Loaded[V], error) {
-		v, err := loader(ctx, key)
-		return v.internal(), err
-	})
-	return &LoadingCache[K, V]{store: loadingStore}, nil
-}
-
-// BuildHybrid builds a hybrid cache client from builder.
-func (b *Builder[K, V]) BuildHybrid(cache internal.SecondaryCache[K, V]) (*HybridCache[K, V], error) {
-	store := internal.NewStore(b.maxsize, b.doorkeeper, b.removalListener, b.cost,
-		cache,
-	)
-	return &HybridCache[K, V]{store: store}, nil
-}
 
 type Cache[K comparable, V any] struct {
 	store *internal.Store[K, V]
@@ -223,13 +156,13 @@ func (c *HybridCache[K, V]) Get(key K) (V, bool, error) {
 
 // Set inserts or updates entry in cache with given ttl.
 // Return false when cost > max size.
-func (c *HybridCache[K, V]) SetWithTTL(key K, value V, cost int64, ttl time.Duration) (bool, error) {
-	return c.store.SetWithSecondary(key, value, cost, ttl)
+func (c *HybridCache[K, V]) SetWithTTL(key K, value V, cost int64, ttl time.Duration) bool {
+	return c.store.Set(key, value, cost, ttl)
 }
 
 // Set inserts or updates entry in cache.
 // Return false when cost > max size.
-func (c *HybridCache[K, V]) Set(key K, value V, cost int64) (bool, error) {
+func (c *HybridCache[K, V]) Set(key K, value V, cost int64) bool {
 	return c.SetWithTTL(key, value, cost, ZERO_TTL)
 }
 
@@ -240,4 +173,8 @@ func (c *HybridCache[K, V]) Delete(key K) error {
 
 // Close closes all goroutines created by cache.
 func (c *HybridCache[K, V]) Close() {
+}
+
+type HybridLoadingCache[K comparable, V any] struct {
+	store *internal.LoadingStore[K, V]
 }

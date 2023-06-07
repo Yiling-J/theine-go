@@ -81,7 +81,7 @@ func NewBigHash(cacheSize uint64, bucketSize uint64, allocator *alloc.Allocator)
 			return bytes.NewBuffer(directio.AlignedBlock(int(bucketSize)))
 		}},
 		allocator:   allocator,
-		bucketCache: internal.NewStore[int, []byte](int64(uint64(64<<20)/bucketSize), false, nil, nil, nil),
+		bucketCache: internal.NewStore[int, []byte](int64(uint64(64<<20)/bucketSize), false, nil, nil, nil, 0),
 	}
 	for i := 0; i < int(cacheSize/bucketSize); i++ {
 		b.buckets = append(b.buckets, &Bucket{Bloomfilter: bf.NewWithSize(8)})

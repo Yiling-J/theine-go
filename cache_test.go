@@ -62,20 +62,22 @@ func TestSetParallel(t *testing.T) {
 	client.Close()
 }
 
-func TestGetSet(t *testing.T) {
+func TestGetSetGetDeleteGet(t *testing.T) {
 	client, err := theine.NewBuilder[string, string](1000).Build()
 	require.Nil(t, err)
 	for i := 0; i < 20000; i++ {
 		key := fmt.Sprintf("key:%d", rand.Intn(3000))
+		_, ok := client.Get(key)
+		require.False(t, ok)
+		client.Set(key, key, 1)
 		v, ok := client.Get(key)
-		if !ok {
-			client.Set(key, key, 1)
-		} else {
-			require.Equal(t, key, v)
-		}
+		require.True(t, ok)
+		require.Equal(t, key, v)
+		client.Delete(key)
+		_, ok = client.Get(key)
+		require.False(t, ok)
+
 	}
-	time.Sleep(300 * time.Millisecond)
-	require.True(t, client.Len() < 1200)
 	client.Close()
 }
 

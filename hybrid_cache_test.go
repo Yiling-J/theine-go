@@ -127,6 +127,37 @@ func TestHybridCacheGetSetBlockCacheOnly(t *testing.T) {
 	wg.Wait()
 }
 
+func TestHybridCacheGetSetGetDeleteGet(t *testing.T) {
+	nvm, err := theine.NewNvmBuilder[int, []byte]("afoo", 150<<20).BigHashPct(30).KeySerializer(&IntSerializer{}).ValueSerializer(&ByteSerializer{}).ErrorHandler(func(err error) {}).Build()
+	require.Nil(t, err)
+	defer os.Remove("afoo")
+	client, err := theine.NewBuilder[int, []byte](100).Hybrid(nvm).Workers(8).AdmProbability(1).Build()
+	require.Nil(t, err)
+	s := &IntSerializer{}
+	for i := 0; i < 1000; i++ {
+		var value []byte
+		base, err := s.Marshal(i)
+		require.Nil(t, err)
+		if i < 600 {
+			value = base
+		} else {
+			value = make([]byte, 4200)
+			copy(value, base)
+		}
+		_, ok, _ := client.Get(i)
+		require.False(t, ok)
+		ok = client.Set(i, value, 1)
+		require.True(t, ok)
+		v, ok, _ := client.Get(i)
+		require.True(t, ok)
+		require.Equal(t, value, v)
+		err = client.Delete(i)
+		require.Nil(t, err)
+		_, ok, _ = client.Get(i)
+		require.False(t, ok)
+	}
+}
+
 func TestHybridCacheMix(t *testing.T) {
 	nvm, err := theine.NewNvmBuilder[int, []byte]("afoo", 150<<20).BigHashPct(30).KeySerializer(&IntSerializer{}).ValueSerializer(&ByteSerializer{}).ErrorHandler(func(err error) {}).Build()
 	require.Nil(t, err)

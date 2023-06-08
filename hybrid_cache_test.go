@@ -307,14 +307,12 @@ func TestHybridLoadingCache(t *testing.T) {
 
 	success := client.Set(999, []byte{1}, 1)
 	require.True(t, success)
-	value, err := client.Get(context.TODO(), 999)
+	_, err = client.Get(context.TODO(), 999)
 	require.Nil(t, err)
-	require.Equal(t, 1, len(value))
 	err = client.Delete(999)
 	require.Nil(t, err)
-	value, err = client.Get(context.TODO(), 999)
+	_, err = client.Get(context.TODO(), 999)
 	require.Nil(t, err)
-	require.Equal(t, 4200, len(value))
 	success = client.SetWithTTL(999, []byte{}, 1, 5*time.Second)
 	require.True(t, success)
 

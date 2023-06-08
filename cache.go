@@ -178,3 +178,51 @@ func (c *HybridCache[K, V]) Close() {
 type HybridLoadingCache[K comparable, V any] struct {
 	store *internal.LoadingStore[K, V]
 }
+
+// Get gets value by key.
+func (c *HybridLoadingCache[K, V]) Get(ctx context.Context, key K) (V, error) {
+	return c.store.Get(ctx, key)
+}
+
+// Set inserts or updates entry in cache with given ttl.
+// Return false when cost > max size.
+func (c *HybridLoadingCache[K, V]) SetWithTTL(key K, value V, cost int64, ttl time.Duration) bool {
+	return c.store.Set(key, value, cost, ttl)
+}
+
+// Set inserts or updates entry in cache.
+// Return false when cost > max size.
+func (c *HybridLoadingCache[K, V]) Set(key K, value V, cost int64) bool {
+	return c.SetWithTTL(key, value, cost, ZERO_TTL)
+}
+
+// Delete deletes key from cache.
+func (c *HybridLoadingCache[K, V]) Delete(key K) error {
+	return c.store.DeleteWithSecondary(key)
+}
+
+// Range calls f sequentially for each key and value present in the cache.
+// If f returns false, range stops the iteration.
+func (c *HybridLoadingCache[K, V]) Range(f func(key K, value V) bool) {
+	c.store.Range(f)
+}
+
+// Len returns number of entries in cache.
+func (c *HybridLoadingCache[K, V]) Len() int {
+	return c.store.Len()
+}
+
+// SaveCache save cache data to writer.
+func (c *HybridLoadingCache[K, V]) SaveCache(version uint64, writer io.Writer) error {
+	return c.store.Persist(version, writer)
+}
+
+// LoadCache load cache data from reader.
+func (c *HybridLoadingCache[K, V]) LoadCache(version uint64, reader io.Reader) error {
+	return c.store.Recover(version, reader)
+}
+
+// Close closes all goroutines created by cache.
+func (c *HybridLoadingCache[K, V]) Close() {
+	c.store.Close()
+}

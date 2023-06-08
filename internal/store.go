@@ -896,6 +896,18 @@ func (s *LoadingStore[K, V]) Get(ctx context.Context, key K) (V, error) {
 	v, ok := s.getFromShard(key, h, shard)
 	if !ok {
 		loaded, err, _ := shard.group.Do(key, func() (Loaded[V], error) {
+			// first try get from secondary cache
+			if s.secondaryCache != nil {
+				vs, cost, expire, ok, err := s.secondaryCache.Get(key)
+				var notFound *NotFound
+				if err != nil && !errors.As(err, &notFound) {
+					return Loaded[V]{}, err
+				}
+				if ok {
+					_, _, _ = s.setInternal(key, vs, cost, expire, true)
+					return Loaded[V]{Value: vs}, nil
+				}
+			}
 			loaded, err := s.loader(ctx, key)
 			if err == nil {
 				s.Set(key, loaded.Value, loaded.Cost, loaded.TTL)

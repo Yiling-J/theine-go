@@ -2,6 +2,7 @@ package theine_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"math/rand"
 	"os"
@@ -266,4 +267,47 @@ func TestHybridCacheGetSetNoRace(t *testing.T) {
 	wg.Wait()
 	time.Sleep(500 * time.Millisecond)
 	client.Close()
+}
+
+func TestHybridLoadingCache(t *testing.T) {
+	nvm, err := theine.NewNvmBuilder[int, []byte]("afoo", 150<<20).BigHashPct(30).KeySerializer(&IntSerializer{}).ValueSerializer(&ByteSerializer{}).ErrorHandler(func(err error) {}).Build()
+	require.Nil(t, err)
+	defer os.Remove("afoo")
+	s := &IntSerializer{}
+	client, err := theine.NewBuilder[int, []byte](100).Hybrid(nvm).Workers(8).AdmProbability(1).
+		Loading(func(ctx context.Context, key int) (theine.Loaded[[]byte], error) {
+			var value []byte
+			base, err := s.Marshal(key)
+			require.Nil(t, err)
+			if key < 600 {
+				value = base
+			} else {
+				value = make([]byte, 4200)
+				copy(value, base)
+			}
+			return theine.Loaded[[]byte]{Value: value, Cost: 1, TTL: 0}, nil
+		}).Build()
+	require.Nil(t, err)
+
+	for i := 0; i < 1000; i++ {
+		value, err := client.Get(context.TODO(), i)
+		require.Nil(t, err)
+		expected, err := s.Marshal(i)
+		require.Nil(t, err)
+		require.Equal(t, expected, value[:8])
+	}
+
+	success := client.Set(999, []byte{1}, 1)
+	require.True(t, success)
+	value, err := client.Get(context.TODO(), 999)
+	require.Nil(t, err)
+	require.Equal(t, 1, len(value))
+	err = client.Delete(999)
+	require.Nil(t, err)
+	value, err = client.Get(context.TODO(), 999)
+	require.Nil(t, err)
+	require.Equal(t, 4200, len(value))
+	success = client.SetWithTTL(999, []byte{}, 1, 5*time.Second)
+	require.True(t, success)
+
 }

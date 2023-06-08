@@ -147,6 +147,19 @@ func TestLoadingCache(t *testing.T) {
 	wg.Wait()
 	require.True(t, counter.Load() < 50)
 
+	success := client.Set(9999, 9999, 1)
+	require.True(t, success)
+	value, err := client.Get(context.TODO(), 9999)
+	require.Nil(t, err)
+	require.Equal(t, 9999, value)
+	client.Delete(9999)
+	require.Nil(t, err)
+	value, err = client.Get(context.TODO(), 9999)
+	require.Nil(t, err)
+	require.Equal(t, 9999, value)
+	success = client.SetWithTTL(9999, 9999, 1, 5*time.Second)
+	require.True(t, success)
+
 }
 
 func TestLoadError(t *testing.T) {

@@ -8,14 +8,15 @@ import (
 
 func TestBloom(t *testing.T) {
 	bf := NewWithSize(5)
+	bf.FalsePositiveRate = 0.1
 	bf.EnsureCapacity(5)
 	bf.EnsureCapacity(500)
 	bf.EnsureCapacity(200)
 
-	success := bf.Insert(123)
-	require.True(t, success)
+	exist := bf.Insert(123)
+	require.False(t, exist)
 
-	exist := bf.Exist(123)
+	exist = bf.Exist(123)
 	require.True(t, exist)
 
 	exist = bf.Exist(456)

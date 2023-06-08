@@ -73,9 +73,6 @@ func (d *Bloomfilter) Insert(h uint64) bool {
 
 // Reset clears the bloom filter
 func (d *Bloomfilter) Reset() {
-	if d == nil {
-		return
-	}
 	for i := range d.Filter {
 		d.Filter[i] = 0
 	}

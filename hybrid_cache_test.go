@@ -297,6 +297,14 @@ func TestHybridLoadingCache(t *testing.T) {
 		require.Equal(t, expected, value[:8])
 	}
 
+	for i := 0; i < 1000; i++ {
+		value, err := client.Get(context.TODO(), i)
+		require.Nil(t, err)
+		expected, err := s.Marshal(i)
+		require.Nil(t, err)
+		require.Equal(t, expected, value[:8])
+	}
+
 	success := client.Set(999, []byte{1}, 1)
 	require.True(t, success)
 	value, err := client.Get(context.TODO(), 999)

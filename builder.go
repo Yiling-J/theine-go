@@ -7,6 +7,19 @@ import (
 	"github.com/Yiling-J/theine-go/internal"
 )
 
+type params interface {
+	validate() error
+}
+
+func validateParams(params ...params) error {
+	for _, p := range params {
+		if err := p.validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 type baseParams[K comparable, V any] struct {
 	cost            func(V) int64
 	removalListener func(key K, value V, reason RemoveReason)
@@ -14,14 +27,38 @@ type baseParams[K comparable, V any] struct {
 	doorkeeper      bool
 }
 
+func (p *baseParams[K, V]) validate() error {
+	if p.maxsize <= 0 {
+		return errors.New("size must be positive")
+	}
+	return nil
+}
+
 type loadingParams[K comparable, V any] struct {
 	loader func(ctx context.Context, key K) (Loaded[V], error)
+}
+
+func (p *loadingParams[K, V]) validate() error {
+	if p.loader == nil {
+		return errors.New("loader function required")
+	}
+	return nil
 }
 
 type hybridParams[K comparable, V any] struct {
 	secondaryCache internal.SecondaryCache[K, V]
 	workers        int
 	admProbability float32
+}
+
+func (p *hybridParams[K, V]) validate() error {
+	if p.secondaryCache == nil {
+		return errors.New("secondary cache required")
+	}
+	if p.workers <= 0 {
+		return errors.New("workers must be positive")
+	}
+	return nil
 }
 
 type Builder[K comparable, V any] struct {
@@ -57,8 +94,8 @@ func (b *Builder[K, V]) RemovalListener(listener func(key K, value V, reason Rem
 
 // Build builds a cache client from builder.
 func (b *Builder[K, V]) Build() (*Cache[K, V], error) {
-	if b.maxsize <= 0 {
-		return nil, errors.New("size must be positive")
+	if err := validateParams(&b.baseParams); err != nil {
+		return nil, err
 	}
 	store := internal.NewStore(b.maxsize, b.doorkeeper, b.removalListener, b.cost, nil, 0, 0)
 	return &Cache[K, V]{store: store}, nil
@@ -124,11 +161,8 @@ func (b *LoadingBuilder[K, V]) Hybrid(cache internal.SecondaryCache[K, V]) *Hybr
 
 // Build builds a cache client from builder.
 func (b *LoadingBuilder[K, V]) Build() (*LoadingCache[K, V], error) {
-	if b.maxsize <= 0 {
-		return nil, errors.New("size must be positive")
-	}
-	if b.loader == nil {
-		return nil, errors.New("loader function required")
+	if err := validateParams(&b.baseParams, &b.loadingParams); err != nil {
+		return nil, err
 	}
 	store := internal.NewStore(b.maxsize, b.doorkeeper, b.removalListener, b.cost, nil, 0, 0)
 	loadingStore := internal.NewLoadingStore(store)
@@ -172,8 +206,8 @@ func (b *HybridBuilder[K, V]) Loading(
 
 // Build builds a cache client from builder.
 func (b *HybridBuilder[K, V]) Build() (*HybridCache[K, V], error) {
-	if b.workers <= 0 {
-		return nil, errors.New("workers must be positive")
+	if err := validateParams(&b.baseParams, &b.hybridParams); err != nil {
+		return nil, err
 	}
 	store := internal.NewStore(b.maxsize, b.doorkeeper, b.removalListener, b.cost,
 		b.secondaryCache, b.workers, b.admProbability,
@@ -189,14 +223,8 @@ type HybridLoadingBuilder[K comparable, V any] struct {
 
 // Build builds a cache client from builder.
 func (b *HybridLoadingBuilder[K, V]) Build() (*HybridLoadingCache[K, V], error) {
-	if b.maxsize <= 0 {
-		return nil, errors.New("size must be positive")
-	}
-	if b.loader == nil {
-		return nil, errors.New("loader function required")
-	}
-	if b.workers <= 0 {
-		return nil, errors.New("workers must be positive")
+	if err := validateParams(&b.baseParams, &b.hybridParams, &b.loadingParams); err != nil {
+		return nil, err
 	}
 	store := internal.NewStore(
 		b.maxsize, b.doorkeeper, b.removalListener, b.cost, b.secondaryCache, b.workers,

@@ -164,12 +164,12 @@ func TestLoadingCache(t *testing.T) {
 
 func TestLoadError(t *testing.T) {
 	builder := theine.NewBuilder[int, int](100)
-	client, err := builder.BuildWithLoader(func(ctx context.Context, key int) (theine.Loaded[int], error) {
+	client, err := builder.Loading(func(ctx context.Context, key int) (theine.Loaded[int], error) {
 		if key != 1 {
 			return theine.Loaded[int]{}, errors.New("error")
 		}
 		return theine.Loaded[int]{Value: key, Cost: 1, TTL: theine.ZERO_TTL}, nil
-	})
+	}).Build()
 	require.Nil(t, err)
 	_, err = client.Get(context.TODO(), 2)
 	require.NotNil(t, err)

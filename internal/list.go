@@ -18,7 +18,8 @@ const (
 // The zero value for List is an empty list ready to use.
 type List[K comparable, V any] struct {
 	root     Entry[K, V] // sentinel list element, only &root, root.prev, and root.next are used
-	len      int         // current list length excluding (this) sentinel element
+	len      int         // current list length(sum of costs) excluding (this) sentinel element
+	count    int         // count of entries in list
 	capacity uint
 	bounded  bool
 	listType uint8 // 1 tinylfu list, 2 timerwheel list
@@ -97,6 +98,7 @@ func (l *List[K, V]) insert(e, at *Entry[K, V]) *Entry[K, V] {
 	e.next(l.listType).setPrev(e, l.listType)
 	if l.bounded {
 		l.len += int(e.cost.Load())
+		l.count += 1
 	}
 	return evicted
 }
@@ -122,6 +124,7 @@ func (l *List[K, V]) remove(e *Entry[K, V]) {
 	}
 	if l.bounded {
 		l.len -= int(e.cost.Load())
+		l.count -= 1
 	}
 }
 

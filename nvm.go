@@ -1,10 +1,20 @@
 package theine
 
 import (
-	"errors"
+	"encoding/json"
 
 	"github.com/Yiling-J/theine-go/internal/nvm"
 )
+
+type JsonSerializer[T any] struct{}
+
+func (s *JsonSerializer[T]) Marshal(v T) ([]byte, error) {
+	return json.Marshal(v)
+}
+
+func (s *JsonSerializer[T]) Unmarshal(raw []byte, v *T) error {
+	return json.Unmarshal(raw, v)
+}
 
 type NvmBuilder[K comparable, V any] struct {
 	file            string
@@ -90,8 +100,11 @@ func (b *NvmBuilder[K, V]) ValueSerializer(s Serializer[V]) *NvmBuilder[K, V] {
 
 // Build cache.
 func (b *NvmBuilder[K, V]) Build() (*nvm.NvmStore[K, V], error) {
-	if b.keySerializer == nil || b.valueSerializer == nil {
-		return nil, errors.New("missing serializer")
+	if b.keySerializer == nil {
+		b.keySerializer = &JsonSerializer[K]{}
+	}
+	if b.valueSerializer == nil {
+		b.valueSerializer = &JsonSerializer[V]{}
 	}
 	return nvm.NewNvmStore[K, V](
 		b.file, b.blockSize, b.cacheSize, b.bucketSize,

@@ -169,7 +169,7 @@ All settings are optional, unless marked as "Required".
 
 * **[Common]** `BlockSize` default 4096
     Device block size in bytes (minimum IO granularity).
-* **[Common][Required]** `KeySerializer`
+* **[Common]** `KeySerializer` default JsonSerializer
     KeySerializer is used to marshal/unmarshal between your key type and bytes.
     ```go
     type Serializer[T any] interface {
@@ -177,7 +177,7 @@ All settings are optional, unless marked as "Required".
 	    Unmarshal(raw []byte, v *T) error
     }
     ```
-* **[Common][Required]** `ValueSerializer`
+* **[Common]** `ValueSerializer` default JsonSerializer
     ValueSerializer is used to marshal/unmarshal between your value type and bytes. Same interface as KeySerializer.
 * **[BlockCache]** `ErrorHandler` default do nothing
     Nvm cache flush data to disk async, so errors will be handled by this error handler.

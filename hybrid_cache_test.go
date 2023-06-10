@@ -47,7 +47,7 @@ func (s *IntSerializer) Unmarshal(raw []byte, v *int) error {
 }
 
 func TestHybridCacheBighashOnly(t *testing.T) {
-	nvm, err := theine.NewNvmBuilder[int, []byte]("afoo", 150<<20).BigHashPct(100).KeySerializer(&IntSerializer{}).ValueSerializer(&ByteSerializer{}).ErrorHandler(func(err error) {}).Build()
+	nvm, err := theine.NewNvmBuilder[int, []byte]("afoo", 150<<20).BigHashPct(100).ErrorHandler(func(err error) {}).Build()
 	require.Nil(t, err)
 	defer os.Remove("afoo")
 	client, err := theine.NewBuilder[int, []byte](100).Hybrid(nvm).Workers(8).Build()

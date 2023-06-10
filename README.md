@@ -168,8 +168,10 @@ client, err := theine.NewBuilder[int, int](100).Hybrid(nvm).Build()
 All settings are optional, unless marked as "Required".
 
 * **[Common]** `BlockSize` default 4096
+
     Device block size in bytes (minimum IO granularity).
 * **[Common]** `KeySerializer` default JsonSerializer
+
     KeySerializer is used to marshal/unmarshal between your key type and bytes.
     ```go
     type Serializer[T any] interface {
@@ -178,18 +180,25 @@ All settings are optional, unless marked as "Required".
     }
     ```
 * **[Common]** `ValueSerializer` default JsonSerializer
+
     ValueSerializer is used to marshal/unmarshal between your value type and bytes. Same interface as KeySerializer.
 * **[BlockCache]** `ErrorHandler` default do nothing
+
     Nvm cache flush data to disk async, so errors will be handled by this error handler.
 * **[BlockCache]** `RegionSize` default 16 << 20 (16 mb)
+
     Region size in bytes.
 * **[BlockCache]** `CleanRegionSize` default 3
+
     How many regions do we reserve for future writes. Set this to be equivalent to your per-second write rate. It should ensure your writes will not have to retry to wait for a region reclamation to finish.
 * **[BigHash]** `BucketSize` defalut 4 << 10 (4 kb)
+
     Bucket size in bytes.
 * **[BigHash]** `BigHashPct` default 10
+
     Percentage of space to reserve for BigHash. Set the percentage > 0 to enable BigHash. The remaining part is for BlockCache. The value has to be in the range of [0, 100]. Set to 100 will disable block cache.
 * **[BigHash]** `BigHashMaxItemSize` default (bucketSize - 80)
+
     Maximum size of a small item to be stored in BigHash. Must be less than (bucket size - 80).
 
 #### Hybrid Mode Settings
@@ -197,9 +206,11 @@ All settings are optional, unless marked as "Required".
 After you call `Hybrid(...)` in a cache builder. Theine will convert current builder to hybrid builder. Hybrid builder has several settings.
 
 * `Workers` defalut 2
+
     Theine evicts entries in a separate policy goroutinue, but insert to NVM can be done parallel. To make this work, Theine send evicted entries to workers, and worker will sync data to NVM cache. This setting controls how many workers are used to sync data.
 	
 * `AdmProbability` defalut 1
+
     This is a admission policy for nvm cache. When entries are evicted from DRAM cache, this policy will be used to control the insert percentage. 1 means all entries evicted from DRAM will be insert into NVM. Value should be in the range of [0, 1].
 
 #### Limitations

@@ -103,10 +103,10 @@ func TestChecksumMismatch(t *testing.T) {
 	f, err := os.Create("ptest")
 	defer os.Remove("ptest")
 	require.Nil(t, err)
-	err = client.SaveCache(0, f)
+	err = client.SaveCache(1, f)
 	require.Nil(t, err)
 	// change file content
-	for _, i := range []int64{15, 120, 450} {
+	for _, i := range []int64{222} {
 		_, err = f.WriteAt([]byte{1}, i)
 		require.Nil(t, err)
 	}

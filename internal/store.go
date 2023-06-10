@@ -6,11 +6,13 @@ import (
 	"encoding/gob"
 	"errors"
 	"io"
+	"math/rand"
 	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/Yiling-J/theine-go/internal/bf"
 	"github.com/gammazero/deque"
 	"github.com/zeebo/xxh3"
 )
@@ -35,9 +37,10 @@ var (
 
 type Shard[K comparable, V any] struct {
 	hashmap   map[K]*Entry[K, V]
-	dookeeper *doorkeeper
+	dookeeper *bf.Bloomfilter
 	deque     *deque.Deque[*Entry[K, V]]
 	group     *Group[K, Loaded[V]]
+	vgroup    *Group[K, V] // used in secondary cache
 	size      uint
 	qsize     uint
 	qlen      int
@@ -52,9 +55,10 @@ func NewShard[K comparable, V any](size uint, qsize uint, doorkeeper bool) *Shar
 		qsize:   qsize,
 		deque:   deque.New[*Entry[K, V]](),
 		group:   NewGroup[K, Loaded[V]](),
+		vgroup:  NewGroup[K, V](),
 	}
 	if doorkeeper {
-		s.dookeeper = newDoorkeeper(0.01)
+		s.dookeeper = bf.New(0.01)
 	}
 	return s
 }
@@ -63,8 +67,8 @@ func (s *Shard[K, V]) set(key K, entry *Entry[K, V]) {
 	s.hashmap[key] = entry
 	if s.dookeeper != nil {
 		ds := 20 * len(s.hashmap)
-		if ds > s.dookeeper.capacity {
-			s.dookeeper.ensureCapacity(ds)
+		if ds > s.dookeeper.Capacity {
+			s.dookeeper.EnsureCapacity(ds)
 		}
 	}
 }
@@ -92,26 +96,35 @@ type Metrics struct {
 }
 
 type Store[K comparable, V any] struct {
-	entryPool       sync.Pool
-	writebuf        chan WriteBufItem[K, V]
-	hasher          *Hasher[K]
-	removalListener func(key K, value V, reason RemoveReason)
-	policy          *TinyLfu[K, V]
-	timerwheel      *TimerWheel[K, V]
-	readbuf         *Queue[ReadBufItem[K, V]]
-	cost            func(V) int64
-	readCounter     *atomic.Uint32
-	shards          []*Shard[K, V]
-	cap             uint
-	shardCount      uint
-	mlock           sync.Mutex
-	tailUpdate      bool
-	doorkeeper      bool
-	closed          bool
+	entryPool         sync.Pool
+	writebuf          chan WriteBufItem[K, V]
+	hasher            *Hasher[K]
+	removalListener   func(key K, value V, reason RemoveReason)
+	removalCallback   func(kv dequeKV[K, V], reason RemoveReason) error
+	kvBuilder         func(entry *Entry[K, V]) dequeKV[K, V]
+	policy            *TinyLfu[K, V]
+	timerwheel        *TimerWheel[K, V]
+	readbuf           *Queue[ReadBufItem[K, V]]
+	cost              func(V) int64
+	readCounter       *atomic.Uint32
+	shards            []*Shard[K, V]
+	cap               uint
+	shardCount        uint
+	mlock             sync.Mutex
+	tailUpdate        bool
+	doorkeeper        bool
+	closed            bool
+	secondaryCache    SecondaryCache[K, V]
+	secondaryCacheBuf chan SecondaryCacheItem[K, V]
+	probability       float32
+	rg                *rand.Rand
 }
 
 // New returns a new data struct with the specified capacity
-func NewStore[K comparable, V any](maxsize int64, doorkeeper bool) *Store[K, V] {
+func NewStore[K comparable, V any](
+	maxsize int64, doorkeeper bool, listener func(key K, value V, reason RemoveReason),
+	cost func(v V) int64, secondaryCache SecondaryCache[K, V], workers int, probability float32,
+) *Store[K, V] {
 	hasher := NewHasher[K]()
 	writeBufSize := maxsize / 100
 	if writeBufSize < MIN_WRITE_BUFF_SIZE {
@@ -136,6 +149,11 @@ func NewStore[K comparable, V any](maxsize int64, doorkeeper bool) *Store[K, V] 
 		shardSize = 50
 	}
 	policySize := int(maxsize) - (dequeSize * shardCount)
+	costfn := func(v V) int64 { return 1 }
+	if cost != nil {
+		costfn = cost
+	}
+
 	s := &Store[K, V]{
 		cap:         uint(maxsize),
 		hasher:      hasher,
@@ -144,9 +162,24 @@ func NewStore[K comparable, V any](maxsize int64, doorkeeper bool) *Store[K, V] 
 		readbuf:     NewQueue[ReadBufItem[K, V]](),
 		writebuf:    make(chan WriteBufItem[K, V], writeBufSize),
 		entryPool:   sync.Pool{New: func() any { return &Entry[K, V]{} }},
-		cost:        func(v V) int64 { return 1 },
 		shardCount:  uint(shardCount),
 		doorkeeper:  doorkeeper,
+		kvBuilder: func(entry *Entry[K, V]) dequeKV[K, V] {
+			return dequeKV[K, V]{
+				k: entry.key,
+				v: entry.value,
+			}
+		},
+		removalListener: listener,
+		cost:            costfn,
+		secondaryCache:  secondaryCache,
+		probability:     probability,
+	}
+	s.removalCallback = func(kv dequeKV[K, V], reason RemoveReason) error {
+		if s.removalListener != nil {
+			s.removalListener(kv.k, kv.v, reason)
+		}
+		return nil
 	}
 	s.shards = make([]*Shard[K, V], 0, s.shardCount)
 	for i := 0; i < int(s.shardCount); i++ {
@@ -155,15 +188,15 @@ func NewStore[K comparable, V any](maxsize int64, doorkeeper bool) *Store[K, V] 
 
 	s.timerwheel = NewTimerWheel[K, V](uint(maxsize))
 	go s.maintance()
+	if s.secondaryCache != nil {
+		s.secondaryCacheBuf = make(chan SecondaryCacheItem[K, V], 256)
+		s.secondaryCache.SetClock(s.timerwheel.clock)
+		for i := 0; i < workers; i++ {
+			go s.processSecondary()
+		}
+		s.rg = rand.New(rand.New(rand.NewSource(0)))
+	}
 	return s
-}
-
-func (s *Store[K, V]) Cost(cost func(v V) int64) {
-	s.cost = cost
-}
-
-func (s *Store[K, V]) RemovalListener(listener func(key K, value V, reason RemoveReason)) {
-	s.removalListener = listener
 }
 
 func (s *Store[K, V]) getFromShard(key K, hash uint64, shard *Shard[K, V]) (V, bool) {
@@ -173,7 +206,7 @@ func (s *Store[K, V]) getFromShard(key K, hash uint64, shard *Shard[K, V]) (V, b
 	var value V
 	if ok {
 		expire := entry.expire.Load()
-		if expire != 0 && expire <= s.timerwheel.clock.nowNano() {
+		if expire != 0 && expire <= s.timerwheel.clock.NowNano() {
 			ok = false
 		} else {
 			s.policy.hit.Add(1)
@@ -207,6 +240,36 @@ func (s *Store[K, V]) Get(key K) (V, bool) {
 	return s.getFromShard(key, h, shard)
 }
 
+func (s *Store[K, V]) GetWithSecodary(key K) (value V, ok bool, err error) {
+	h, index := s.index(key)
+	shard := s.shards[index]
+	value, ok = s.getFromShard(key, h, shard)
+	if ok {
+		return value, true, nil
+	}
+
+	value, err, _ = shard.vgroup.Do(key, func() (v V, err error) {
+		v, cost, expire, ok, err := s.secondaryCache.Get(key)
+		if err != nil {
+			return v, err
+		}
+		if !ok {
+			return v, &NotFound{}
+		}
+		// insert to cache
+		_, _, _ = s.setInternal(key, v, cost, expire, true)
+		return v, err
+	})
+	var notFound *NotFound
+	if errors.As(err, &notFound) {
+		return value, false, nil
+	}
+	if err != nil {
+		return value, false, err
+	}
+	return value, true, nil
+}
+
 func (s *Store[K, V]) setEntry(shard *Shard[K, V], cost int64, entry *Entry[K, V]) {
 	shard.set(entry.key, entry)
 	// cost larger than deque size, send to policy directly
@@ -221,19 +284,9 @@ func (s *Store[K, V]) setEntry(shard *Shard[K, V], cost int64, entry *Entry[K, V
 	s.processDeque(shard)
 }
 
-func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
-	if cost == 0 {
-		cost = s.cost(value)
-	}
-	if cost > int64(s.cap) {
-		return false
-	}
+func (s *Store[K, V]) setInternal(key K, value V, cost int64, expire int64, nvmClean bool) (*Shard[K, V], *Entry[K, V], bool) {
 	h, index := s.index(key)
 	shard := s.shards[index]
-	var expire int64
-	if ttl != 0 {
-		expire = s.timerwheel.clock.expireNano(ttl)
-	}
 	shard.mu.Lock()
 	exist, ok := shard.get(key)
 	if ok {
@@ -259,18 +312,18 @@ func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
 				entry: exist, code: UPDATE, costChange: costChange, rechedule: reschedule,
 			}
 		}
-		return true
+		return shard, exist, true
 	}
 	if s.doorkeeper {
-		if shard.counter > uint(shard.dookeeper.capacity) {
-			shard.dookeeper.reset()
+		if shard.counter > uint(shard.dookeeper.Capacity) {
+			shard.dookeeper.Reset()
 			shard.counter = 0
 		}
-		hit := shard.dookeeper.insert(h)
+		hit := shard.dookeeper.Insert(h)
 		if !hit {
 			shard.counter += 1
 			shard.mu.Unlock()
-			return false
+			return shard, nil, false
 		}
 	}
 	entry := s.entryPool.Get().(*Entry[K, V])
@@ -279,8 +332,25 @@ func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
 	entry.value = value
 	entry.expire.Store(expire)
 	entry.cost.Store(cost)
+	entry.nvmClean = nvmClean
 	s.setEntry(shard, cost, entry)
-	return true
+	return shard, entry, true
+
+}
+
+func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
+	if cost == 0 {
+		cost = s.cost(value)
+	}
+	if cost > int64(s.cap) {
+		return false
+	}
+	var expire int64
+	if ttl != 0 {
+		expire = s.timerwheel.clock.ExpireNano(ttl)
+	}
+	_, _, ok := s.setInternal(key, value, cost, expire, false)
+	return ok
 }
 
 type dequeKV[K comparable, V any] struct {
@@ -305,11 +375,11 @@ func (s *Store[K, V]) processDeque(shard *Shard[K, V]) {
 		evicted.deque = false
 		expire := evicted.expire.Load()
 		shard.qlen -= int(evicted.cost.Load())
-		if expire != 0 && expire <= s.timerwheel.clock.nowNano() {
+		if expire != 0 && expire <= s.timerwheel.clock.NowNano() {
 			deleted := shard.delete(evicted)
 			// double check because entry maybe removed already by Delete API
 			if deleted {
-				expiredkv = append(expiredkv, dequeKV[K, V]{k: evicted.key, v: evicted.value})
+				expiredkv = append(expiredkv, s.kvBuilder(evicted))
 				s.postDelete(evicted)
 			}
 		} else {
@@ -325,7 +395,7 @@ func (s *Store[K, V]) processDeque(shard *Shard[K, V]) {
 					// double check because entry maybe removed already by Delete API
 					if deleted {
 						removedkv = append(
-							expiredkv, dequeKV[K, V]{k: evicted.key, v: evicted.value},
+							expiredkv, s.kvBuilder(evicted),
 						)
 						s.postDelete(evicted)
 					}
@@ -339,10 +409,10 @@ func (s *Store[K, V]) processDeque(shard *Shard[K, V]) {
 	}
 	if s.removalListener != nil {
 		for _, e := range removedkv {
-			s.removalListener(e.k, e.v, EVICTED)
+			_ = s.removalCallback(e, EVICTED)
 		}
 		for _, e := range expiredkv {
-			s.removalListener(e.k, e.v, EXPIRED)
+			_ = s.removalCallback(e, EXPIRED)
 		}
 	}
 }
@@ -359,6 +429,28 @@ func (s *Store[K, V]) Delete(key K) {
 	if ok {
 		s.writebuf <- WriteBufItem[K, V]{entry: entry, code: REMOVE}
 	}
+}
+
+func (s *Store[K, V]) DeleteWithSecondary(key K) error {
+	_, index := s.index(key)
+	shard := s.shards[index]
+	shard.mu.Lock()
+	entry, ok := shard.get(key)
+	if ok {
+		shard.delete(entry)
+		if s.secondaryCache != nil {
+			err := s.secondaryCache.Delete(key)
+			if err != nil {
+				shard.mu.Unlock()
+				return err
+			}
+		}
+	}
+	shard.mu.Unlock()
+	if ok {
+		s.writebuf <- WriteBufItem[K, V]{entry: entry, code: REMOVE}
+	}
+	return nil
 }
 
 func (s *Store[K, V]) Len() int {
@@ -394,17 +486,30 @@ func (s *Store[K, V]) removeEntry(entry *Entry[K, V], reason RemoveReason) {
 	if entry.meta.wheelPrev != nil {
 		s.timerwheel.deschedule(entry)
 	}
-	var k K
-	var v V
 	switch reason {
 	case EVICTED, EXPIRED:
 		_, index := s.index(entry.key)
 		shard := s.shards[index]
+		if reason == EVICTED && !entry.nvmClean && s.secondaryCache != nil {
+			var rn float32 = 1
+			if s.probability < 1 {
+				rn = s.rg.Float32()
+			}
+
+			if rn <= s.probability {
+				s.secondaryCacheBuf <- SecondaryCacheItem[K, V]{
+					entry:  entry,
+					reason: reason,
+					shard:  shard,
+				}
+				return
+			}
+		}
 		shard.mu.Lock()
 		deleted := shard.delete(entry)
 		shard.mu.Unlock()
 		if deleted {
-			k, v = entry.key, entry.value
+			k, v := entry.key, entry.value
 			if s.removalListener != nil {
 				s.removalListener(k, v, reason)
 			}
@@ -415,11 +520,9 @@ func (s *Store[K, V]) removeEntry(entry *Entry[K, V], reason RemoveReason) {
 		_, index := s.index(entry.key)
 		shard := s.shards[index]
 		shard.mu.RLock()
-		k, v = entry.key, entry.value
+		kv := s.kvBuilder(entry)
 		shard.mu.RUnlock()
-		if s.removalListener != nil {
-			s.removalListener(k, v, reason)
-		}
+		_ = s.removalCallback(kv, reason)
 	}
 }
 
@@ -507,7 +610,7 @@ func (s *Store[K, V]) maintance() {
 }
 
 func (s *Store[K, V]) Range(f func(key K, value V) bool) {
-	now := s.timerwheel.clock.nowNano()
+	now := s.timerwheel.clock.NowNano()
 	for _, shard := range s.shards {
 		shard.mu.RLock()
 		for _, entry := range shard.hashmap {
@@ -545,11 +648,11 @@ type StoreMeta struct {
 func (m *StoreMeta) Persist(writer io.Writer, blockEncoder *gob.Encoder) error {
 	buffer := bytes.NewBuffer(make([]byte, 0, BlockBufferSize))
 	block := NewBlock[*StoreMeta](1, buffer, blockEncoder)
-	_, err := block.write(m)
+	_, err := block.Write(m)
 	if err != nil {
 		return err
 	}
-	err = block.save()
+	err = block.Save()
 	if err != nil {
 		return err
 	}
@@ -561,7 +664,7 @@ func persistDeque[K comparable, V any](dq *deque.Deque[*Entry[K, V]], writer io.
 	block := NewBlock[*Pentry[K, V]](4, buffer, blockEncoder)
 	for dq.Len() > 0 {
 		e := dq.PopBack().pentry()
-		full, err := block.write(e)
+		full, err := block.Write(e)
 		if err != nil {
 			return err
 		}
@@ -570,7 +673,7 @@ func persistDeque[K comparable, V any](dq *deque.Deque[*Entry[K, V]], writer io.
 			block = NewBlock[*Pentry[K, V]](4, buffer, blockEncoder)
 		}
 	}
-	err := block.save()
+	err := block.Save()
 	if err != nil {
 		return err
 	}
@@ -583,7 +686,7 @@ func (s *Store[K, V]) Persist(version uint64, writer io.Writer) error {
 	s.mlock.Lock()
 	meta := &StoreMeta{
 		Version:   version,
-		StartNano: s.timerwheel.clock.start.UnixNano(),
+		StartNano: s.timerwheel.clock.Start.UnixNano(),
 		Sketch:    s.policy.sketch,
 	}
 	err := meta.Persist(writer, blockEncoder)
@@ -611,11 +714,11 @@ func (s *Store[K, V]) Persist(version uint64, writer io.Writer) error {
 
 	// write end block
 	block := NewBlock[int](255, bytes.NewBuffer(make([]byte, 0)), blockEncoder)
-	_, err = block.write(1)
+	_, err = block.Write(1)
 	if err != nil {
 		return err
 	}
-	return block.save()
+	return block.Save()
 }
 
 func (s *Store[K, V]) insertSimple(entry *Entry[K, V]) {
@@ -623,6 +726,36 @@ func (s *Store[K, V]) insertSimple(entry *Entry[K, V]) {
 	s.shards[index].set(entry.key, entry)
 	if entry.expire.Load() != 0 {
 		s.timerwheel.schedule(entry)
+	}
+}
+
+func (s *Store[K, V]) processSecondary() {
+	for item := range s.secondaryCacheBuf {
+		item.shard.mu.RLock()
+		// first double check key still exists in map,
+		// not exist means key already deleted by Delete API
+		_, exist := item.shard.get(item.entry.key)
+		if exist {
+			err := s.secondaryCache.Set(
+				item.entry.key, item.entry.value,
+				item.entry.cost.Load(), item.entry.expire.Load(),
+			)
+			item.shard.mu.RUnlock()
+			if err != nil {
+				s.secondaryCache.HandleAsyncError(err)
+				continue
+			}
+			if item.reason == EVICTED {
+				item.shard.mu.Lock()
+				deleted := item.shard.delete(item.entry)
+				if deleted {
+					s.postDelete(item.entry)
+				}
+				item.shard.mu.Unlock()
+			}
+		} else {
+			item.shard.mu.RUnlock()
+		}
 	}
 }
 
@@ -664,7 +797,7 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 				return VersionMismatch
 			}
 			s.policy.sketch = m.Sketch
-			s.timerwheel.clock.setStart(m.StartNano)
+			s.timerwheel.clock.SetStart(m.StartNano)
 		case 2:
 			entryDecoder := gob.NewDecoder(reader)
 			for {
@@ -677,7 +810,7 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 					return err
 				}
 				expire := pentry.Expire
-				if expire != 0 && expire < s.timerwheel.clock.nowNano() {
+				if expire != 0 && expire < s.timerwheel.clock.NowNano() {
 					continue
 				}
 				l := s.policy.slru.protected
@@ -699,7 +832,7 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 					return err
 				}
 				expire := pentry.Expire
-				if expire != 0 && expire < s.timerwheel.clock.nowNano() {
+				if expire != 0 && expire < s.timerwheel.clock.NowNano() {
 					continue
 				}
 				l1 := s.policy.slru.protected
@@ -722,7 +855,7 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 					return err
 				}
 				expire := pentry.Expire
-				if expire != 0 && expire < s.timerwheel.clock.nowNano() {
+				if expire != 0 && expire < s.timerwheel.clock.NowNano() {
 					continue
 				}
 				entry := pentry.entry()
@@ -732,7 +865,6 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 				s.setEntry(shard, pentry.Cost, entry)
 			}
 		}
-
 	}
 	return nil
 }
@@ -764,6 +896,18 @@ func (s *LoadingStore[K, V]) Get(ctx context.Context, key K) (V, error) {
 	v, ok := s.getFromShard(key, h, shard)
 	if !ok {
 		loaded, err, _ := shard.group.Do(key, func() (Loaded[V], error) {
+			// first try get from secondary cache
+			if s.secondaryCache != nil {
+				vs, cost, expire, ok, err := s.secondaryCache.Get(key)
+				var notFound *NotFound
+				if err != nil && !errors.As(err, &notFound) {
+					return Loaded[V]{}, err
+				}
+				if ok {
+					_, _, _ = s.setInternal(key, vs, cost, expire, true)
+					return Loaded[V]{Value: vs}, nil
+				}
+			}
 			loaded, err := s.loader(ctx, key)
 			if err == nil {
 				s.Set(key, loaded.Value, loaded.Cost, loaded.TTL)
@@ -773,4 +917,10 @@ func (s *LoadingStore[K, V]) Get(ctx context.Context, key K) (V, error) {
 		return loaded.Value, err
 	}
 	return v, nil
+}
+
+type NotFound struct{}
+
+func (e *NotFound) Error() string {
+	return "not found"
 }

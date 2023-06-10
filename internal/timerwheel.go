@@ -3,6 +3,8 @@ package internal
 import (
 	"math/bits"
 	"time"
+
+	"github.com/Yiling-J/theine-go/internal/clock"
 )
 
 func next2Power(x uint) uint {
@@ -17,24 +19,8 @@ func next2Power(x uint) uint {
 	return x
 }
 
-type Clock struct {
-	start time.Time
-}
-
-func (c *Clock) nowNano() int64 {
-	return time.Since(c.start).Nanoseconds()
-}
-
-func (c *Clock) expireNano(ttl time.Duration) int64 {
-	return c.nowNano() + ttl.Nanoseconds()
-}
-
-func (c *Clock) setStart(ts int64) {
-	c.start = time.Unix(0, ts).UTC()
-}
-
 type TimerWheel[K comparable, V any] struct {
-	clock   *Clock
+	clock   *clock.Clock
 	buckets []uint
 	spans   []uint
 	shift   []uint
@@ -43,7 +29,7 @@ type TimerWheel[K comparable, V any] struct {
 }
 
 func NewTimerWheel[K comparable, V any](size uint) *TimerWheel[K, V] {
-	clock := &Clock{start: time.Now().UTC()}
+	clock := &clock.Clock{Start: time.Now().UTC()}
 	buckets := []uint{64, 64, 32, 4, 1}
 	spans := []uint{
 		next2Power(uint((1 * time.Second).Nanoseconds())),
@@ -76,7 +62,7 @@ func NewTimerWheel[K comparable, V any](size uint) *TimerWheel[K, V] {
 		spans:   spans,
 		shift:   shift,
 		wheel:   wheel,
-		nanos:   clock.nowNano(),
+		nanos:   clock.NowNano(),
 		clock:   clock,
 	}
 
@@ -111,7 +97,7 @@ func (tw *TimerWheel[K, V]) schedule(entry *Entry[K, V]) {
 
 func (tw *TimerWheel[K, V]) advance(now int64, remove func(entry *Entry[K, V], reason RemoveReason)) {
 	if now == 0 {
-		now = tw.clock.nowNano()
+		now = tw.clock.NowNano()
 	}
 	previous := tw.nanos
 	tw.nanos = now

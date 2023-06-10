@@ -147,16 +147,29 @@ func TestLoadingCache(t *testing.T) {
 	wg.Wait()
 	require.True(t, counter.Load() < 50)
 
+	success := client.Set(9999, 9999, 1)
+	require.True(t, success)
+	value, err := client.Get(context.TODO(), 9999)
+	require.Nil(t, err)
+	require.Equal(t, 9999, value)
+	client.Delete(9999)
+	require.Nil(t, err)
+	value, err = client.Get(context.TODO(), 9999)
+	require.Nil(t, err)
+	require.Equal(t, 9999, value)
+	success = client.SetWithTTL(9999, 9999, 1, 5*time.Second)
+	require.True(t, success)
+
 }
 
 func TestLoadError(t *testing.T) {
 	builder := theine.NewBuilder[int, int](100)
-	client, err := builder.BuildWithLoader(func(ctx context.Context, key int) (theine.Loaded[int], error) {
+	client, err := builder.Loading(func(ctx context.Context, key int) (theine.Loaded[int], error) {
 		if key != 1 {
 			return theine.Loaded[int]{}, errors.New("error")
 		}
 		return theine.Loaded[int]{Value: key, Cost: 1, TTL: theine.ZERO_TTL}, nil
-	})
+	}).Build()
 	require.Nil(t, err)
 	_, err = client.Get(context.TODO(), 2)
 	require.NotNil(t, err)

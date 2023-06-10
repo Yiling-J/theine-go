@@ -9,7 +9,7 @@ type CountMinSketch struct {
 
 func NewCountMinSketch() *CountMinSketch {
 	new := &CountMinSketch{}
-	new.ensureCapacity(16)
+	new.EnsureCapacity(16)
 	return new
 }
 
@@ -85,7 +85,7 @@ func (s *CountMinSketch) Estimate(h uint64) uint {
 	return m
 }
 
-func (s *CountMinSketch) ensureCapacity(size uint) {
+func (s *CountMinSketch) EnsureCapacity(size uint) {
 	if len(s.Table) >= int(size) {
 		return
 	}

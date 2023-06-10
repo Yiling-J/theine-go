@@ -182,9 +182,9 @@ All settings are optional, unless marked as "Required".
 * **[Common]** `ValueSerializer` default JsonSerializer
 
     ValueSerializer is used to marshal/unmarshal between your value type and bytes. Same interface as KeySerializer.
-* **[BlockCache]** `ErrorHandler` default do nothing
+* **[Common]** `ErrorHandler` default do nothing
 
-    Nvm cache flush data to disk async, so errors will be handled by this error handler.
+    Theine evicts entries to Nvm asynchronously, so errors will be handled by this error handler.
 * **[BlockCache]** `RegionSize` default 16 << 20 (16 mb)
 
     Region size in bytes.

@@ -203,8 +203,9 @@ After you call `Hybrid(...)` in a cache builder. Theine will convert current bui
     This is a admission policy for nvm cache. When entries are evicted from DRAM cache, this policy will be used to control the insert percentage. 1 means all entries evicted from DRAM will be insert into NVM. Value should be in the range of [0, 1].
 
 #### Limitations
-- Cache Persistence is not supported currently, but may added future. You can still use Persistence API in hybrid enabled cache, but only DRAM part will be saved/loaded.
-- Only REMOVED event(entry removed by explictly call Delete API) will be sent to removal listener.
+- Cache Persistence is not currently supported, but it may be added in the future. You can still use the Persistence API in a hybrid-enabled cache, but only the DRAM part of the cache will be saved or loaded.
+- The removal listener will only receive REMOVED events, which are generated when an entry is explicitly removed by calling the Delete API.
+
 
 ## Cache Persistence
 Theine supports persisting the cache into `io.Writer` and restoring from `io.Reader`. [Gob](https://pkg.go.dev/encoding/gob) is used to encode/decode data, so **make sure your key/value can be encoded by gob correctly first** before using this feature.

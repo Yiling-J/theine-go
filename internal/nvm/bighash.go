@@ -7,7 +7,6 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/Yiling-J/theine-go/internal"
 	"github.com/Yiling-J/theine-go/internal/alloc"
 	"github.com/Yiling-J/theine-go/internal/bf"
 	"github.com/Yiling-J/theine-go/internal/clock"
@@ -59,7 +58,6 @@ type BigHash struct {
 	entrySerializer  serializers.Serializer[BucketEntry]
 	file             *os.File
 	allocator        *alloc.Allocator
-	bucketCache      *internal.Store[int, []byte]
 }
 
 func NewBigHash(cacheSize uint64, bucketSize uint64, allocator *alloc.Allocator) *BigHash {
@@ -76,7 +74,6 @@ func NewBigHash(cacheSize uint64, bucketSize uint64, allocator *alloc.Allocator)
 		headerSerializer: serializers.NewMemorySerializer[BucketHeader](),
 		entrySerializer:  serializers.NewMemorySerializer[BucketEntry](),
 		allocator:        allocator,
-		bucketCache:      internal.NewStore[int, []byte](int64(uint64(64<<20)/bucketSize), false, nil, nil, nil, 0, 0),
 	}
 	for i := 0; i < int(cacheSize/bucketSize); i++ {
 		b.buckets = append(b.buckets, &Bucket{Bloomfilter: bf.NewWithSize(8)})
@@ -86,19 +83,14 @@ func NewBigHash(cacheSize uint64, bucketSize uint64, allocator *alloc.Allocator)
 
 // load bucket data to bytes
 func (h *BigHash) loadBucketData(index int) (*alloc.AllocItem, *BucketHeader, error) {
-	bucketData, ok := h.bucketCache.Get(index)
 	alloc := h.allocator.Allocate(int(h.BucketSize))
-	if !ok {
-		offset := index * int(h.BucketSize)
-		_, err := h.file.ReadAt(alloc.Data, int64(offset))
-		if err != nil {
-			return alloc, nil, err
-		}
-	} else {
-		_ = copy(alloc.Data, bucketData)
+	offset := index * int(h.BucketSize)
+	_, err := h.file.ReadAt(alloc.Data, int64(offset))
+	if err != nil {
+		return alloc, nil, err
 	}
 	var header BucketHeader
-	err := h.headerSerializer.Unmarshal(alloc.Data[:h.headerSize], &header)
+	err = h.headerSerializer.Unmarshal(alloc.Data[:h.headerSize], &header)
 	if err != nil {
 		return alloc, nil, err
 	}
@@ -132,7 +124,6 @@ func (h *BigHash) saveBucketData(index int, data []byte) error {
 	}
 	cached := make([]byte, len(data))
 	_ = copy(cached, data)
-	_ = h.bucketCache.Set(index, cached, 1, 0)
 	return nil
 }
 

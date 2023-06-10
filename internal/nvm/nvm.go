@@ -41,7 +41,7 @@ func alignUp(num int, alignment int) int {
 
 func NewNvmStore[K comparable, V any](
 	file string, blockSize int, cacheSize int, bucketSize int, regionSize int,
-	cleanRegionSize int, sizePct uint8, errorHandler func(err error),
+	cleanRegionSize int, sizePct uint8, bigHashMaxEntrySize int, errorHandler func(err error),
 	keySerializer internal.Serializer[K],
 	valueSerializer internal.Serializer[V],
 ) (*NvmStore[K, V], error) {
@@ -109,7 +109,15 @@ func NewNvmStore[K comparable, V any](
 		store.blockcache = bc
 	}
 
-	store.bigHashMaxEntrySize = bucketSize - int(unsafe.Sizeof(BucketHeader{})) + int(unsafe.Sizeof(BucketEntry{}))
+	max := bucketSize - int(unsafe.Sizeof(BucketHeader{})) + int(unsafe.Sizeof(BucketEntry{}))
+	if bigHashMaxEntrySize > 0 {
+		if bigHashMaxEntrySize >= max {
+			return nil, errors.New("bigHashMaxEntrySize too large")
+		}
+		store.bigHashMaxEntrySize = bigHashMaxEntrySize
+	} else {
+		store.bigHashMaxEntrySize = max
+	}
 	store.blockCacheMaxEntrySize = align(regionSize)
 	return store, nil
 }

@@ -16,7 +16,7 @@ func TestNvmSetup(t *testing.T) {
 	// bighash raw size is 25357910, align to 25346048
 	// block cache raw size is 101431640, align to 101416960
 	store, err := NewNvmStore[int, int](
-		"bfoo", 16<<10, 126789550, 4<<10, 4<<20, 3, 20, func(err error) {},
+		"bfoo", 16<<10, 126789550, 4<<10, 4<<20, 3, 20, 500, func(err error) {},
 		nil, nil,
 	)
 	require.Nil(t, err)
@@ -28,10 +28,11 @@ func TestNvmSetup(t *testing.T) {
 	require.Equal(t, 101416960, int(store.blockcache.CacheSize))
 	require.Equal(t, 4<<20, int(store.blockcache.RegionSize))
 	require.Equal(t, 24, int(store.blockcache.regionManager.regionCount))
+	require.Equal(t, 500, store.bigHashMaxEntrySize)
 
 	// no bighash
 	store, err = NewNvmStore[int, int](
-		"bfoo", 16<<10, 126789550, 4<<10, 4<<20, 3, 0, func(err error) {},
+		"bfoo", 16<<10, 126789550, 4<<10, 4<<20, 3, 0, 0, func(err error) {},
 		nil, nil,
 	)
 	require.Nil(t, err)
@@ -40,12 +41,19 @@ func TestNvmSetup(t *testing.T) {
 
 	// no block cache
 	store, err = NewNvmStore[int, int](
-		"bfoo", 16<<10, 126789550, 4<<10, 4<<20, 3, 100, func(err error) {},
+		"bfoo", 16<<10, 126789550, 4<<10, 4<<20, 3, 100, 0, func(err error) {},
 		nil, nil,
 	)
 	require.Nil(t, err)
 	require.Nil(t, store.blockcache)
 	require.Equal(t, 126779392, int(store.bighash.CacheSize))
+
+	// tool large bighahsh max size
+	_, err = NewNvmStore[int, int](
+		"bfoo", 16<<10, 126789550, 4<<10, 4<<20, 3, 20, 10<<50, func(err error) {},
+		nil, nil,
+	)
+	require.NotNil(t, err)
 }
 
 type ByteSerializer struct{}
@@ -64,7 +72,7 @@ func TestNvmResize(t *testing.T) {
 	defer os.Remove("bfoo")
 	for _, size := range []int{30 << 20, 100 << 20, 50 << 20} {
 		store, err := NewNvmStore[int, []byte](
-			"bfoo", 512, size, 4<<10, 100<<10, 3, 20, func(err error) {
+			"bfoo", 512, size, 4<<10, 100<<10, 3, 20, 0, func(err error) {
 				require.Nil(t, err)
 			},
 			&IntSerializer{}, &ByteSerializer{},
@@ -107,7 +115,7 @@ func TestNvmSerializerError(t *testing.T) {
 	defer os.Remove("bfoo")
 	errCount := 0
 	store, err := NewNvmStore[int, int](
-		"bfoo", 512, 1000<<10, 4<<10, 5<<10, 3, 20, func(err error) {
+		"bfoo", 512, 1000<<10, 4<<10, 5<<10, 3, 20, 0, func(err error) {
 			errCount += 1
 		},
 		&IntSerializerE{}, &IntSerializerE{},

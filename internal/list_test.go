@@ -55,6 +55,24 @@ func TestList(t *testing.T) {
 
 }
 
+func TestListCountCost(t *testing.T) {
+	l := NewList[string, string](100, LIST_PROBATION)
+	require.Equal(t, uint(100), l.capacity)
+	require.Equal(t, LIST_PROBATION, l.listType)
+	for i := 0; i < 5; i++ {
+		evicted := l.PushFront(NewEntry(fmt.Sprintf("%d", i), "", 20, 0))
+		require.Nil(t, evicted)
+	}
+	require.Equal(t, 100, l.len)
+	require.Equal(t, 5, l.count)
+	for i := 0; i < 3; i++ {
+		entry := l.PopTail()
+		require.NotNil(t, entry)
+	}
+	require.Equal(t, 40, l.len)
+	require.Equal(t, 2, l.count)
+}
+
 func TestWheelList(t *testing.T) {
 	l := NewList[string, string](5, WHEEL_LIST)
 	require.Equal(t, uint(5), l.capacity)

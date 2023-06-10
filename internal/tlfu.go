@@ -96,8 +96,8 @@ func (t *TinyLfu[K, V]) Set(entry *Entry[K, V]) *Entry[K, V] {
 				return entry
 			}
 		} else {
-			count := t.slru.probation.len + t.slru.protected.len
-			t.sketch.EnsureCapacity(uint(count + count/100))
+			count := t.slru.probation.count + t.slru.protected.count
+			t.sketch.ensureCapacity(uint(count + count/100))
 		}
 		evicted := t.slru.insert(entry)
 		return evicted

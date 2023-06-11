@@ -21,7 +21,7 @@ func TestBigHash(t *testing.T) {
 	err = preallocate.Preallocate(f, 4096*50, true)
 	require.Nil(t, err)
 	bh := NewBigHash(4096*50, 4096, 8, alloc.NewAllocator(4096, 16<<20, 4096))
-	require.Equal(t, 64, bh.buckets[0].Bloomfilter.M)
+	require.Equal(t, 64, int(bh.buckets[0].Bloomfilter.M))
 	bh.file = f
 	for i := 0; i < 100; i++ {
 		key := []byte(strconv.Itoa(i))

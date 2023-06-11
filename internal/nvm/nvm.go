@@ -41,7 +41,7 @@ func alignUp(num int, alignment int) int {
 
 func NewNvmStore[K comparable, V any](
 	file string, blockSize int, cacheSize int, bucketSize int, regionSize int,
-	cleanRegionSize int, sizePct uint8, bigHashMaxEntrySize int, errorHandler func(err error),
+	cleanRegionSize int, sizePct uint8, bigHashMaxEntrySize int, bfSize int, errorHandler func(err error),
 	keySerializer internal.Serializer[K],
 	valueSerializer internal.Serializer[V],
 ) (*NvmStore[K, V], error) {
@@ -96,7 +96,7 @@ func NewNvmStore[K comparable, V any](
 	allocator := alloc.NewAllocator(bucketSize, regionSize, blockSize)
 	if bhSize > 0 {
 		bhSize = alignDown(bhSize, blockSize)
-		bh := NewBigHash(uint64(bhSize), uint64(bucketSize), allocator)
+		bh := NewBigHash(uint64(bhSize), uint64(bucketSize), uint32(bfSize), allocator)
 		bh.file = f
 		store.bighash = bh
 	}

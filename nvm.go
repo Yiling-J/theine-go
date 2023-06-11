@@ -25,6 +25,7 @@ type NvmBuilder[K comparable, V any] struct {
 	maxItemSize     int
 	cleanRegionSize int
 	bhPct           int
+	bfSize          int
 	errorHandler    func(err error)
 	keySerializer   Serializer[K]
 	valueSerializer Serializer[V]
@@ -39,6 +40,7 @@ func NewNvmBuilder[K comparable, V any](file string, cacheSize int) *NvmBuilder[
 		cleanRegionSize: 3,
 		bucketSize:      4 << 10, // 4kb
 		bhPct:           10,      // 10%
+		bfSize:          8,       // 8 bytes bloomfilter
 		errorHandler:    func(err error) {},
 	}
 }
@@ -98,6 +100,11 @@ func (b *NvmBuilder[K, V]) ValueSerializer(s Serializer[V]) *NvmBuilder[K, V] {
 	return b
 }
 
+func (b *NvmBuilder[K, V]) BucketBfSize(size int) *NvmBuilder[K, V] {
+	b.bfSize = size
+	return b
+}
+
 // Build cache.
 func (b *NvmBuilder[K, V]) Build() (*nvm.NvmStore[K, V], error) {
 	if b.keySerializer == nil {
@@ -108,7 +115,7 @@ func (b *NvmBuilder[K, V]) Build() (*nvm.NvmStore[K, V], error) {
 	}
 	return nvm.NewNvmStore[K, V](
 		b.file, b.blockSize, b.cacheSize, b.bucketSize,
-		b.regionSize, b.cleanRegionSize, uint8(b.bhPct), b.maxItemSize, b.errorHandler,
+		b.regionSize, b.cleanRegionSize, uint8(b.bhPct), b.maxItemSize, b.bfSize, b.errorHandler,
 		b.keySerializer, b.valueSerializer,
 	)
 }

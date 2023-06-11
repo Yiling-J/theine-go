@@ -186,13 +186,13 @@ All settings are optional, unless marked as "Required".
 * **[Common]** `ErrorHandler` default do nothing
 
     Theine evicts entries to Nvm asynchronously, so errors will be handled by this error handler.
-* **[BlockCache]** `RegionSize` default 16 << 20 (16 mb)
+* **[BlockCache]** `RegionSize` default 16 << 20 (16 MB)
 
     Region size in bytes.
 * **[BlockCache]** `CleanRegionSize` default 3
 
     How many regions do we reserve for future writes. Set this to be equivalent to your per-second write rate. It should ensure your writes will not have to retry to wait for a region reclamation to finish.
-* **[BigHash]** `BucketSize` defalut 4 << 10 (4 kb)
+* **[BigHash]** `BucketSize` defalut 4 << 10 (4 KB)
 
     Bucket size in bytes.
 * **[BigHash]** `BigHashPct` default 10
@@ -203,7 +203,7 @@ All settings are optional, unless marked as "Required".
     Maximum size of a small item to be stored in BigHash. Must be less than (bucket size - 80).
 * **[BigHash]** `BucketBfSize` default 8 bytes
 
-    Bloom filter, bytes per bucket.
+    Bloom filter size, bytes per bucket.
 
 #### Hybrid Mode Settings
 
@@ -220,6 +220,7 @@ After you call `Hybrid(...)` in a cache builder. Theine will convert current bui
 #### Limitations
 - Cache Persistence is not currently supported, but it may be added in the future. You can still use the Persistence API in a hybrid-enabled cache, but only the DRAM part of the cache will be saved or loaded.
 - The removal listener will only receive REMOVED events, which are generated when an entry is explicitly removed by calling the Delete API.
+- No Range/Len API.
 
 
 ## Cache Persistence

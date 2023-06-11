@@ -191,6 +191,42 @@ func TestHybridCacheMix(t *testing.T) {
 	}
 }
 
+func TestHybridCacheMixTTL(t *testing.T) {
+	nvm, err := theine.NewNvmBuilder[int, []byte]("afoo", 150<<20).BigHashPct(30).KeySerializer(&IntSerializer{}).ValueSerializer(&ByteSerializer{}).ErrorHandler(func(err error) {}).Build()
+	require.Nil(t, err)
+	defer os.Remove("afoo")
+	client, err := theine.NewBuilder[int, []byte](100).Hybrid(nvm).Workers(8).AdmProbability(1).Build()
+	require.Nil(t, err)
+	s := &IntSerializer{}
+	for i := 0; i < 1000; i++ {
+		var value []byte
+		base, err := s.Marshal(i)
+		require.Nil(t, err)
+		if i < 600 {
+			value = base
+		} else {
+			value = make([]byte, 4200)
+			copy(value, base)
+		}
+		success := client.SetWithTTL(i, value, 1, time.Second)
+		require.Nil(t, err)
+		require.True(t, success)
+	}
+	time.Sleep(50 * time.Millisecond)
+	for i := 0; i < 1000; i++ {
+		_, success, err := client.Get(i)
+		require.Nil(t, err)
+		require.True(t, success)
+	}
+	time.Sleep(2 * time.Second)
+
+	for i := 0; i < 1000; i++ {
+		_, success, err := client.Get(i)
+		require.Nil(t, err)
+		require.False(t, success)
+	}
+}
+
 func TestHybridCacheMixProb(t *testing.T) {
 	nvm, err := theine.NewNvmBuilder[int, []byte]("afoo", 150<<20).BigHashPct(30).KeySerializer(&IntSerializer{}).ValueSerializer(&ByteSerializer{}).ErrorHandler(func(err error) {}).Build()
 	require.Nil(t, err)

@@ -212,7 +212,7 @@ After you call `Hybrid(...)` in a cache builder. Theine will convert current bui
 	
 * `AdmProbability` defalut 1
 
-    This is a admission policy for nvm cache. When entries are evicted from DRAM cache, this policy will be used to control the insert percentage. 1 means all entries evicted from DRAM will be insert into NVM. Value should be in the range of [0, 1].
+    This is an admission policy for endurance and performance reason. When entries are evicted from DRAM cache, this policy will be used to control the insertion percentage. A value of 1 means that all entries evicted from DRAM will be inserted into NVM. Values should be in the range of [0, 1].
 
 #### Limitations
 - Cache Persistence is not currently supported, but it may be added in the future. You can still use the Persistence API in a hybrid-enabled cache, but only the DRAM part of the cache will be saved or loaded.

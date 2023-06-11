@@ -171,6 +171,16 @@ func (c *HybridCache[K, V]) Delete(key K) error {
 	return c.store.DeleteWithSecondary(key)
 }
 
+// SaveCache save cache data to writer.
+func (c *HybridCache[K, V]) SaveCache(version uint64, writer io.Writer) error {
+	return c.store.Persist(version, writer)
+}
+
+// LoadCache load cache data from reader.
+func (c *HybridCache[K, V]) LoadCache(version uint64, reader io.Reader) error {
+	return c.store.Recover(version, reader)
+}
+
 // Close closes all goroutines created by cache.
 func (c *HybridCache[K, V]) Close() {
 }
@@ -199,17 +209,6 @@ func (c *HybridLoadingCache[K, V]) Set(key K, value V, cost int64) bool {
 // Delete deletes key from cache.
 func (c *HybridLoadingCache[K, V]) Delete(key K) error {
 	return c.store.DeleteWithSecondary(key)
-}
-
-// Range calls f sequentially for each key and value present in the cache.
-// If f returns false, range stops the iteration.
-func (c *HybridLoadingCache[K, V]) Range(f func(key K, value V) bool) {
-	c.store.Range(f)
-}
-
-// Len returns number of entries in cache.
-func (c *HybridLoadingCache[K, V]) Len() int {
-	return c.store.Len()
 }
 
 // SaveCache save cache data to writer.

@@ -60,7 +60,7 @@ type BigHash struct {
 	allocator        *alloc.Allocator
 }
 
-func NewBigHash(cacheSize uint64, bucketSize uint64, allocator *alloc.Allocator) *BigHash {
+func NewBigHash(cacheSize uint64, bucketSize uint64, bfSize uint32, allocator *alloc.Allocator) *BigHash {
 
 	b := &BigHash{
 		headerSize:       uint64(unsafe.Sizeof(BucketHeader{})),
@@ -76,7 +76,7 @@ func NewBigHash(cacheSize uint64, bucketSize uint64, allocator *alloc.Allocator)
 		allocator:        allocator,
 	}
 	for i := 0; i < int(cacheSize/bucketSize); i++ {
-		b.buckets = append(b.buckets, &Bucket{Bloomfilter: bf.NewWithSize(8)})
+		b.buckets = append(b.buckets, &Bucket{Bloomfilter: bf.NewWithSize(bfSize)})
 	}
 	return b
 }

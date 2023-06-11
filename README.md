@@ -201,6 +201,9 @@ All settings are optional, unless marked as "Required".
 * **[BigHash]** `BigHashMaxItemSize` default (bucketSize - 80)
 
     Maximum size of a small item to be stored in BigHash. Must be less than (bucket size - 80).
+* **[BigHash]** `BucketBfSize` default 8 bytes
+
+    Bloom filter, bytes per bucket.
 
 #### Hybrid Mode Settings
 

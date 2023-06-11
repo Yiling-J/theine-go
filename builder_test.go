@@ -36,7 +36,7 @@ func TestBuilder(t *testing.T) {
 	// hybrid cache
 	_, err = builder.Hybrid(nil).Build()
 	require.Error(t, err)
-	nvm, err := theine.NewNvmBuilder[int, int]("afoo", 500<<10).RegionSize(5 << 10).KeySerializer(&IntSerializer{}).ValueSerializer(&IntSerializer{}).Build()
+	nvm, err := theine.NewNvmBuilder[int, int]("afoo", 500<<10).RegionSize(5 << 10).KeySerializer(&IntSerializer{}).ValueSerializer(&IntSerializer{}).BucketBfSize(16).Build()
 	defer os.Remove("afoo")
 	require.Nil(t, err)
 	_, err = builder.Hybrid(nvm).Workers(0).Build()

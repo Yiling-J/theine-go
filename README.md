@@ -1,10 +1,11 @@
 # Theine
 [![codecov](https://codecov.io/gh/Yiling-J/theine-go/branch/main/graph/badge.svg?token=E1HJLJH07V)](https://codecov.io/gh/Yiling-J/theine-go)
 
-High performance in-memory cache inspired by [Caffeine](https://github.com/ben-manes/caffeine).
+High performance in-memory & hybrid cache inspired by [Caffeine](https://github.com/ben-manes/caffeine).
 
 
 - Good performance
+- Built-in ability to leverage DRAM and SSD
 - Support for Generics
 - High hit ratio with adaptive [W-TinyLFU](https://arxiv.org/pdf/1512.00727.pdf) eviction policy
 - Expired data are removed automatically using [hierarchical timer wheel](http://www.cs.columbia.edu/~nahum/w6998/papers/ton97-timing-wheels.pdf)
@@ -89,11 +90,11 @@ import "github.com/Yiling-J/theine-go"
 
 // loader function: func(ctx context.Context, key K) (theine.Loaded[V], error)
 // Loaded struct should include cache value, cost and ttl, which required by Set method
-client, err := theine.NewBuilder[string, string](1000).BuildWithLoader(
+client, err := theine.NewBuilder[string, string](1000).Loading(
 	func(ctx context.Context, key string) (theine.Loaded[string], error) {
 		return theine.Loaded[string]{Value: key, Cost: 1, TTL: 0}, nil
 	},
-)
+).Build()
 if err != nil {
 	panic(err)
 }
@@ -211,7 +212,7 @@ After you call `Hybrid(...)` in a cache builder. Theine will convert current bui
 	
 * `AdmProbability` defalut 1
 
-    This is a admission policy for nvm cache. When entries are evicted from DRAM cache, this policy will be used to control the insert percentage. 1 means all entries evicted from DRAM will be insert into NVM. Value should be in the range of [0, 1].
+    This is an admission policy for endurance and performance reason. When entries are evicted from DRAM cache, this policy will be used to control the insertion percentage. A value of 1 means that all entries evicted from DRAM will be inserted into NVM. Values should be in the range of [0, 1].
 
 #### Limitations
 - Cache Persistence is not currently supported, but it may be added in the future. You can still use the Persistence API in a hybrid-enabled cache, but only the DRAM part of the cache will be saved or loaded.

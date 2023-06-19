@@ -323,9 +323,6 @@ func (h *BigHash) getFromBucket(keyh uint64, key []byte) (entry BucketEntry, ite
 		if entry.hash == keyh && bytes.Equal(bucketData[offset:offset+int(entry.keySize)], key) {
 			offset += int(entry.keySize)
 			alloc.Data = alloc.Data[offset : offset+int(entry.valueSize)]
-			if entry.expire > 0 && entry.expire <= h.Clock.NowNano() {
-				return entry, alloc, false, nil
-			}
 			return entry, alloc, true, nil
 
 		} else {

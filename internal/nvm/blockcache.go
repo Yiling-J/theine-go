@@ -127,10 +127,6 @@ func (c *BlockCache) Lookup(key []byte) (item *alloc.AllocItem, cost int64, expi
 		return item, cost, expire, false, errors.New("checksum mismatch")
 	}
 
-	if entry.expire > 0 && entry.expire <= c.Clock.NowNano() {
-		return item, cost, expire, false, err
-	}
-
 	if !bytes.Equal(key, item.Data[c.entrySize:c.entrySize+entry.keySize]) {
 		return item, cost, expire, false, err
 	}

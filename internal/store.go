@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Yiling-J/theine-go/internal/bf"
+	"github.com/Yiling-J/theine-go/internal/stats"
 	"github.com/gammazero/deque"
 	"github.com/zeebo/xxh3"
 )
@@ -118,12 +119,14 @@ type Store[K comparable, V any] struct {
 	secondaryCacheBuf chan SecondaryCacheItem[K, V]
 	probability       float32
 	rg                *rand.Rand
+	stats             *stats.CacheStatsInternal
 }
 
 // New returns a new data struct with the specified capacity
 func NewStore[K comparable, V any](
 	maxsize int64, doorkeeper bool, listener func(key K, value V, reason RemoveReason),
 	cost func(v V) int64, secondaryCache SecondaryCache[K, V], workers int, probability float32,
+	recordStats bool,
 ) *Store[K, V] {
 	hasher := NewHasher[K]()
 	writeBufSize := maxsize / 100
@@ -196,6 +199,9 @@ func NewStore[K comparable, V any](
 		}
 		s.rg = rand.New(rand.New(rand.NewSource(0)))
 	}
+	if recordStats {
+		s.stats = stats.NewStats(s.timerwheel.clock)
+	}
 	return s
 }
 
@@ -207,6 +213,7 @@ func (s *Store[K, V]) getFromShard(key K, hash uint64, shard *Shard[K, V]) (V, b
 	if ok {
 		expire := entry.expire.Load()
 		if expire != 0 && expire <= s.timerwheel.clock.NowNano() {
+			s.stats.Add(stats.NumCacheGetExpires, 1)
 			ok = false
 		} else {
 			s.policy.hit.Add(1)
@@ -235,12 +242,18 @@ func (s *Store[K, V]) getFromShard(key K, hash uint64, shard *Shard[K, V]) (V, b
 }
 
 func (s *Store[K, V]) Get(key K) (V, bool) {
+	s.stats.Add(stats.NumCacheGets, 1)
 	h, index := s.index(key)
 	shard := s.shards[index]
-	return s.getFromShard(key, h, shard)
+	v, ok := s.getFromShard(key, h, shard)
+	if !ok {
+		s.stats.Add(stats.NumCacheGetMiss, 1)
+	}
+	return v, ok
 }
 
 func (s *Store[K, V]) GetWithSecodary(key K) (value V, ok bool, err error) {
+	s.stats.Add(stats.NumCacheGets, 1)
 	h, index := s.index(key)
 	shard := s.shards[index]
 	value, ok = s.getFromShard(key, h, shard)
@@ -248,6 +261,7 @@ func (s *Store[K, V]) GetWithSecodary(key K) (value V, ok bool, err error) {
 		return value, true, nil
 	}
 
+	s.stats.Add(stats.NumNvmGets, 1)
 	value, err, _ = shard.vgroup.Do(key, func() (v V, err error) {
 		v, cost, expire, ok, err := s.secondaryCache.Get(key)
 		if err != nil {
@@ -256,12 +270,19 @@ func (s *Store[K, V]) GetWithSecodary(key K) (value V, ok bool, err error) {
 		if !ok {
 			return v, &NotFound{}
 		}
+		if expire != 0 && expire <= s.timerwheel.clock.NowNano() {
+			s.stats.Add(stats.NumCacheGetExpires, 1)
+			s.stats.Add(stats.NumNvmGetExpires, 1)
+			return v, &NotFound{}
+		}
 		// insert to cache
 		_, _, _ = s.setInternal(key, v, cost, expire, true)
 		return v, err
 	})
 	var notFound *NotFound
 	if errors.As(err, &notFound) {
+		s.stats.Add(stats.NumCacheGetMiss, 1)
+		s.stats.Add(stats.NumNvmGetMiss, 1)
 		return value, false, nil
 	}
 	if err != nil {
@@ -397,6 +418,7 @@ func (s *Store[K, V]) processDeque(shard *Shard[K, V]) {
 						removedkv = append(
 							expiredkv, s.kvBuilder(evicted),
 						)
+						s.stats.Add(stats.NumCacheEvictions, 1)
 						s.postDelete(evicted)
 					}
 				}
@@ -575,11 +597,13 @@ func (s *Store[K, V]) maintance() {
 			}
 			evicted := s.policy.Set(entry)
 			if evicted != nil {
+				s.stats.Add(stats.NumCacheEvictions, 1)
 				s.removeEntry(evicted, EVICTED)
 				s.tailUpdate = true
 			}
 			removed := s.policy.EvictEntries()
 			for _, e := range removed {
+				s.stats.Add(stats.NumCacheEvictions, 1)
 				s.tailUpdate = true
 				s.removeEntry(e, EVICTED)
 			}
@@ -595,6 +619,7 @@ func (s *Store[K, V]) maintance() {
 				s.policy.UpdateCost(entry, item.costChange)
 				removed := s.policy.EvictEntries()
 				for _, e := range removed {
+					s.stats.Add(stats.NumCacheEvictions, 1)
 					s.tailUpdate = true
 					s.removeEntry(e, EVICTED)
 				}
@@ -891,6 +916,7 @@ func (s *LoadingStore[K, V]) Loader(loader func(ctx context.Context, key K) (Loa
 }
 
 func (s *LoadingStore[K, V]) Get(ctx context.Context, key K) (V, error) {
+	s.stats.Add(stats.NumCacheGets, 1)
 	h, index := s.index(key)
 	shard := s.shards[index]
 	v, ok := s.getFromShard(key, h, shard)
@@ -898,6 +924,7 @@ func (s *LoadingStore[K, V]) Get(ctx context.Context, key K) (V, error) {
 		loaded, err, _ := shard.group.Do(key, func() (Loaded[V], error) {
 			// first try get from secondary cache
 			if s.secondaryCache != nil {
+				s.stats.Add(stats.NumNvmGets, 1)
 				vs, cost, expire, ok, err := s.secondaryCache.Get(key)
 				var notFound *NotFound
 				if err != nil && !errors.As(err, &notFound) {
@@ -906,9 +933,14 @@ func (s *LoadingStore[K, V]) Get(ctx context.Context, key K) (V, error) {
 				if ok {
 					_, _, _ = s.setInternal(key, vs, cost, expire, true)
 					return Loaded[V]{Value: vs}, nil
+				} else {
+					s.stats.Add(stats.NumNvmGetMiss, 1)
 				}
 			}
+			s.stats.Add(stats.NumCacheGetMiss, 1)
+			start := time.Now()
 			loaded, err := s.loader(ctx, key)
+			s.stats.Add(stats.LoadingCacheLatency, uint64(time.Since(start).Nanoseconds()))
 			if err == nil {
 				s.Set(key, loaded.Value, loaded.Cost, loaded.TTL)
 			}

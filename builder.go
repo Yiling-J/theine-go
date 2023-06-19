@@ -25,6 +25,7 @@ type baseParams[K comparable, V any] struct {
 	removalListener func(key K, value V, reason RemoveReason)
 	maxsize         int64
 	doorkeeper      bool
+	stats           bool
 }
 
 func (p *baseParams[K, V]) validate() error {
@@ -92,12 +93,17 @@ func (b *Builder[K, V]) RemovalListener(listener func(key K, value V, reason Rem
 	return b
 }
 
+func (b *Builder[K, V]) RecordStats() *Builder[K, V] {
+	b.stats = true
+	return b
+}
+
 // Build builds a cache client from builder.
 func (b *Builder[K, V]) Build() (*Cache[K, V], error) {
 	if err := validateParams(&b.baseParams); err != nil {
 		return nil, err
 	}
-	store := internal.NewStore(b.maxsize, b.doorkeeper, b.removalListener, b.cost, nil, 0, 0)
+	store := internal.NewStore(b.maxsize, b.doorkeeper, b.removalListener, b.cost, nil, 0, 0, b.stats)
 	return &Cache[K, V]{store: store}, nil
 }
 
@@ -133,7 +139,7 @@ func (b *Builder[K, V]) BuildWithLoader(loader func(ctx context.Context, key K) 
 	if loader == nil {
 		return nil, errors.New("loader function required")
 	}
-	store := internal.NewStore(b.maxsize, b.doorkeeper, b.removalListener, b.cost, nil, 0, 0)
+	store := internal.NewStore(b.maxsize, b.doorkeeper, b.removalListener, b.cost, nil, 0, 0, b.stats)
 	loadingStore := internal.NewLoadingStore(store)
 	loadingStore.Loader(func(ctx context.Context, key K) (internal.Loaded[V], error) {
 		v, err := loader(ctx, key)
@@ -164,7 +170,7 @@ func (b *LoadingBuilder[K, V]) Build() (*LoadingCache[K, V], error) {
 	if err := validateParams(&b.baseParams, &b.loadingParams); err != nil {
 		return nil, err
 	}
-	store := internal.NewStore(b.maxsize, b.doorkeeper, b.removalListener, b.cost, nil, 0, 0)
+	store := internal.NewStore(b.maxsize, b.doorkeeper, b.removalListener, b.cost, nil, 0, 0, b.stats)
 	loadingStore := internal.NewLoadingStore(store)
 	loadingStore.Loader(func(ctx context.Context, key K) (internal.Loaded[V], error) {
 		v, err := b.loader(ctx, key)
@@ -210,7 +216,7 @@ func (b *HybridBuilder[K, V]) Build() (*HybridCache[K, V], error) {
 		return nil, err
 	}
 	store := internal.NewStore(b.maxsize, b.doorkeeper, b.removalListener, b.cost,
-		b.secondaryCache, b.workers, b.admProbability,
+		b.secondaryCache, b.workers, b.admProbability, b.stats,
 	)
 	return &HybridCache[K, V]{store: store}, nil
 }
@@ -228,7 +234,7 @@ func (b *HybridLoadingBuilder[K, V]) Build() (*HybridLoadingCache[K, V], error) 
 	}
 	store := internal.NewStore(
 		b.maxsize, b.doorkeeper, b.removalListener, b.cost, b.secondaryCache, b.workers,
-		b.admProbability,
+		b.admProbability, b.stats,
 	)
 	loadingStore := internal.NewLoadingStore(store)
 	loadingStore.Loader(func(ctx context.Context, key K) (internal.Loaded[V], error) {

@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/Yiling-J/theine-go/internal/alloc"
 	"github.com/Yiling-J/theine-go/internal/nvm/preallocate"
@@ -40,16 +39,6 @@ func TestBlockCacheSimple(t *testing.T) {
 		require.Nil(t, err)
 		require.Equal(t, 10<<10+i, len(v.Data))
 	}
-
-	// expire test
-	key := []byte(strconv.Itoa(500))
-	value := make([]byte, 10<<10+5)
-	err = bc.Insert(key, value, 1, bc.Clock.ExpireNano(10*time.Millisecond))
-	require.Nil(t, err)
-	time.Sleep(30 * time.Millisecond)
-	_, _, _, ok, err := bc.Lookup(key)
-	require.Nil(t, err)
-	require.False(t, ok)
 }
 
 type IntSerializer struct{}

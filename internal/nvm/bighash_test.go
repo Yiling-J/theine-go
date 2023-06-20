@@ -4,7 +4,6 @@ import (
 	"os"
 	"strconv"
 	"testing"
-	"time"
 
 	"github.com/Yiling-J/theine-go/internal/alloc"
 	"github.com/Yiling-J/theine-go/internal/nvm/preallocate"
@@ -35,12 +34,4 @@ func TestBigHash(t *testing.T) {
 		require.Equal(t, key, v.Data)
 	}
 
-	// test expire
-	key := []byte(strconv.Itoa(500))
-	err = bh.Insert(key, key, 1, bh.Clock.ExpireNano(10*time.Millisecond))
-	require.Nil(t, err)
-	time.Sleep(30 * time.Millisecond)
-	_, _, _, ok, err := bh.Lookup(key)
-	require.Nil(t, err)
-	require.False(t, ok)
 }

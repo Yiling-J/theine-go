@@ -21,4 +21,14 @@ func TestStats(t *testing.T) {
 	for i := 1; i <= 100; i++ {
 		stats.Add(LoadingCacheLatency, uint64(i))
 	}
+
+	data := stats.Collect()
+	require.Equal(t, uint64(1), data.NumCacheGets)
+	require.Equal(t, uint64(1), data.NumItems)
+	require.Equal(t, uint64(1), data.NumNvmEvictions)
+
+	require.Equal(t, 50.5, data.LoadingCacheLatency.P50)
+	require.Equal(t, 90.5, data.LoadingCacheLatency.P90)
+	require.Equal(t, 99.5, data.LoadingCacheLatency.P99)
+	require.Equal(t, 100.0, data.LoadingCacheLatency.P100)
 }

@@ -9,38 +9,15 @@ import (
 
 var windowSize = time.Second.Nanoseconds()
 
-var kQuantiles = []float32{
-	0,
-	0.05,
-	0.1,
-	0.25,
-	0.5,
-	0.75,
-	0.9,
-	0.95,
-	0.99,
-	0.999,
-	0.9999,
-	0.99999,
-	0.999999,
-	1.0,
-}
-
 type PercentileStatsData struct {
-	p0      float64
-	p5      float64
-	p10     float64
-	p25     float64
-	p50     float64
-	p75     float64
-	p90     float64
-	p95     float64
-	p99     float64
-	p999    float64
-	p9999   float64
-	p99999  float64
-	p999999 float64
-	p100    float64
+	P50     float64
+	P90     float64
+	P99     float64
+	P999    float64
+	P9999   float64
+	P99999  float64
+	P999999 float64
+	P100    float64
 }
 
 type DigestBuilder struct {
@@ -171,4 +148,18 @@ func (ps *PercentileStats) estimate(now uint64) *tdigest.TDigest {
 		final.Merge(&d)
 	}
 	return final
+}
+
+func (ps *PercentileStats) Collect(now uint64) *PercentileStatsData {
+	td := ps.estimate(now)
+	return &PercentileStatsData{
+		P50:     td.Quantile(0.5),
+		P90:     td.Quantile(0.9),
+		P99:     td.Quantile(0.99),
+		P999:    td.Quantile(0.999),
+		P9999:   td.Quantile(0.9999),
+		P99999:  td.Quantile(0.99999),
+		P999999: td.Quantile(0.999999),
+		P100:    td.Quantile(1.0),
+	}
 }

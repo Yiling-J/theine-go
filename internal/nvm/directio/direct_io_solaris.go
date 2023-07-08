@@ -1,3 +1,5 @@
+//go:build solaris illumos plan9 openbsd
+
 package directio
 
 import (

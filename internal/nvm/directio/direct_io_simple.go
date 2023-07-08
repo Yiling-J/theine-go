@@ -1,4 +1,4 @@
-//go:build solaris illumos plan9 openbsd
+//go:build solaris || illumos || plan9 || openbsd
 
 package directio
 

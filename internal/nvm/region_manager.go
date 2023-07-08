@@ -9,7 +9,7 @@ import (
 
 	"github.com/Yiling-J/theine-go/internal"
 	"github.com/Yiling-J/theine-go/internal/alloc"
-	"github.com/ncw/directio"
+	"github.com/Yiling-J/theine-go/internal/nvm/directio"
 )
 
 type Region struct {

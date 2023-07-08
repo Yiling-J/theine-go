@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/Yiling-J/theine-go/internal/alloc"
+	"github.com/Yiling-J/theine-go/internal/nvm/directio"
 	"github.com/Yiling-J/theine-go/internal/nvm/preallocate"
-	"github.com/ncw/directio"
 	"github.com/stretchr/testify/require"
 )
 

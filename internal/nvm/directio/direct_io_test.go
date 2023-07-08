@@ -3,16 +3,15 @@ package directio_test
 import (
 	"bytes"
 	"io"
-	"io/ioutil"
 	"os"
 	"testing"
 
-	"github.com/ncw/directio"
+	"github.com/Yiling-J/theine-go/internal/nvm/directio"
 )
 
 func TestDirectIo(t *testing.T) {
 	// Make a temporary file name
-	fd, err := ioutil.TempFile("", "direct_io_test")
+	fd, err := os.CreateTemp("", "direct_io_test")
 	if err != nil {
 		t.Fatal("Failed to make temp file", err)
 	}

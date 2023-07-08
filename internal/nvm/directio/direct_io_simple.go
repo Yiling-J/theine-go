@@ -4,7 +4,6 @@ package directio
 
 import (
 	"os"
-	"syscall"
 )
 
 const (

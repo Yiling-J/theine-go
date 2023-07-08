@@ -64,3 +64,21 @@ jobs:
           go test ./... -run=TestPersistOS
           go test ./... -run=TestHybridCacheGetSetNoRace
           go test ./... -run=TestNvmResize
+
+  build-os:
+    name: build-os
+    strategy:
+      matrix:
+        go: ["1.19.x", "1.20.x"]
+        os: [darwin, windows, freebsd, solaris, illumos, openbsd, plan9]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Go
+        with:
+          go-version: ${{ matrix.go }}
+        uses: actions/setup-go@v2
+        
+      - uses: actions/checkout@v2
+      
+      - name: Build
+        run: GOOS=${{ matrix.os }} CGO_ENABLED=0 go build

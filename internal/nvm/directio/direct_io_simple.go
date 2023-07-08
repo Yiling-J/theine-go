@@ -1,4 +1,4 @@
-//go:build solaris || illumos || plan9 || openbsd
+// +build solaris,illumos,plan9,openbsd
 
 package directio
 
@@ -15,7 +15,7 @@ const (
 	BlockSize = 4096
 )
 
-// OpenFile is a modified version of os.OpenFile which sets O_DIRECT
+// OpenFile just call os.OpenFile with same params
 func OpenFile(name string, flag int, perm os.FileMode) (file *os.File, err error) {
 	return os.OpenFile(name, flag, perm)
 }

@@ -1,6 +1,6 @@
 // Direct IO for Unix
 
-// +build !windows,!darwin,!openbsd,!plan9
+// +build !windows,!darwin,!openbsd,!plan9,!solaris,!illumos
 
 package directio
 

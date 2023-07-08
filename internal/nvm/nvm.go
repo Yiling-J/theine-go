@@ -8,8 +8,8 @@ import (
 	"github.com/Yiling-J/theine-go/internal"
 	"github.com/Yiling-J/theine-go/internal/alloc"
 	"github.com/Yiling-J/theine-go/internal/clock"
+	"github.com/Yiling-J/theine-go/internal/nvm/directio"
 	"github.com/Yiling-J/theine-go/internal/nvm/preallocate"
-	"github.com/ncw/directio"
 )
 
 type NvmStore[K comparable, V any] struct {

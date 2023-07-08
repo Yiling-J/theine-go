@@ -5,7 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/ncw/directio"
+	"github.com/Yiling-J/theine-go/internal/nvm/directio"
 )
 
 func alignDown(num int, alignment int) int {

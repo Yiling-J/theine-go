@@ -1,4 +1,4 @@
-// +build solaris,illumos,plan9,openbsd
+// +build solaris illumos plan9 openbsd
 
 package directio
 

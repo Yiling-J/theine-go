@@ -28,7 +28,7 @@ func TestCacheStats(t *testing.T) {
 				copy(value, base)
 			}
 			return theine.Loaded[[]byte]{
-				Value: base,
+				Value: value,
 				Cost:  1,
 			}, nil
 		},

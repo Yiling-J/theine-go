@@ -53,6 +53,16 @@ type CacheStats struct {
 	NvmRemoveLatency    PercentileStatsData
 }
 
+// HitRatio return memory cacche hit ratio.
+func (s *CacheStats) HitRatio() float64 {
+	return float64(s.NumCacheGets-s.NumNvmGets) / float64(s.NumCacheGets)
+}
+
+// NvmHitRatio return nvm cacche hit ratio.
+func (s *CacheStats) NvmHitRatio() float64 {
+	return float64(s.NumNvmGets-s.NumCacheGetMiss) / float64(s.NumNvmGets)
+}
+
 type CacheStatsInternal struct {
 	counterData    []atomic.Uint64
 	percentileData []PercentileStats

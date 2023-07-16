@@ -89,6 +89,11 @@ func (c *Cache[K, V]) LoadCache(version uint64, reader io.Reader) error {
 	return c.store.Recover(version, reader)
 }
 
+// CollectStats collect and return cache stats.
+func (c *Cache[K, V]) CollectStats() *CacheStats {
+	return c.store.Stats().Collect()
+}
+
 type LoadingCache[K comparable, V any] struct {
 	store *internal.LoadingStore[K, V]
 }
@@ -136,6 +141,11 @@ func (c *LoadingCache[K, V]) LoadCache(version uint64, reader io.Reader) error {
 	return c.store.Recover(version, reader)
 }
 
+// CollectStats collect and return cache stats.
+func (c *LoadingCache[K, V]) CollectStats() *CacheStats {
+	return c.store.Stats().Collect()
+}
+
 // Close closes all goroutines created by cache.
 func (c *LoadingCache[K, V]) Close() {
 	c.store.Close()
@@ -181,6 +191,11 @@ func (c *HybridCache[K, V]) LoadCache(version uint64, reader io.Reader) error {
 	return c.store.Recover(version, reader)
 }
 
+// CollectStats collect and return cache stats.
+func (c *HybridCache[K, V]) CollectStats() *CacheStats {
+	return c.store.Stats().Collect()
+}
+
 // Close closes all goroutines created by cache.
 func (c *HybridCache[K, V]) Close() {
 }
@@ -219,6 +234,11 @@ func (c *HybridLoadingCache[K, V]) SaveCache(version uint64, writer io.Writer) e
 // LoadCache load cache data from reader.
 func (c *HybridLoadingCache[K, V]) LoadCache(version uint64, reader io.Reader) error {
 	return c.store.Recover(version, reader)
+}
+
+// CollectStats collect and return cache stats.
+func (c *HybridLoadingCache[K, V]) CollectStats() *CacheStats {
+	return c.store.Stats().Collect()
 }
 
 // Close closes all goroutines created by cache.

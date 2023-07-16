@@ -263,7 +263,9 @@ func (s *Store[K, V]) GetWithSecodary(key K) (value V, ok bool, err error) {
 
 	s.stats.Add(stats.NumNvmGets, 1)
 	value, err, _ = shard.vgroup.Do(key, func() (v V, err error) {
+		start := time.Now()
 		v, cost, expire, ok, err := s.secondaryCache.Get(key)
+		s.stats.Add(stats.NvmLookupLatency, uint64(time.Since(start).Nanoseconds()))
 		if err != nil {
 			return v, err
 		}
@@ -761,10 +763,12 @@ func (s *Store[K, V]) processSecondary() {
 		// not exist means key already deleted by Delete API
 		_, exist := item.shard.get(item.entry.key)
 		if exist {
+			start := time.Now()
 			err := s.secondaryCache.Set(
 				item.entry.key, item.entry.value,
 				item.entry.cost.Load(), item.entry.expire.Load(),
 			)
+			s.stats.Add(stats.NvmInsertLatency, uint64(time.Since(start).Nanoseconds()))
 			item.shard.mu.RUnlock()
 			if err != nil {
 				s.secondaryCache.HandleAsyncError(err)
@@ -894,6 +898,10 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 	return nil
 }
 
+func (s *Store[K, V]) Stats() *stats.CacheStatsInternal {
+	return s.stats
+}
+
 type Loaded[V any] struct {
 	Value V
 	Cost  int64
@@ -925,7 +933,9 @@ func (s *LoadingStore[K, V]) Get(ctx context.Context, key K) (V, error) {
 			// first try get from secondary cache
 			if s.secondaryCache != nil {
 				s.stats.Add(stats.NumNvmGets, 1)
+				start := time.Now()
 				vs, cost, expire, ok, err := s.secondaryCache.Get(key)
+				s.stats.Add(stats.NvmLookupLatency, uint64(time.Since(start).Nanoseconds()))
 				var notFound *NotFound
 				if err != nil && !errors.As(err, &notFound) {
 					return Loaded[V]{}, err

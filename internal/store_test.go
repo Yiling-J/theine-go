@@ -62,6 +62,20 @@ func TestProcessDeque(t *testing.T) {
 		keys = append(keys, e.key)
 	}
 	require.Equal(t, []int{3, 4, 123}, keys)
+	require.Equal(t, 0, len(evicted))
+
+	// test evicted callback, cost less than threshold will be evicted immediately
+	store.policy.threshold.Store(100)
+	for i := 10; i < 15; i++ {
+		entry := &Entry[int, int]{key: i}
+		entry.cost.Store(1)
+		store.shards[index].deque.PushFront(entry)
+		store.shards[index].qlen += 1
+		store.shards[index].hashmap[i] = entry
+	}
+	store.shards[index].mu.Lock()
+	store.processDeque(store.shards[index])
+	require.Equal(t, 5, len(evicted))
 }
 
 func TestRemoveDeque(t *testing.T) {

@@ -12,9 +12,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Yiling-J/theine-go/internal/bf"
 	"github.com/gammazero/deque"
 	"github.com/zeebo/xxh3"
+
+	"github.com/Yiling-J/theine-go/internal/bf"
 )
 
 const (
@@ -369,7 +370,6 @@ func (s *Store[K, V]) processDeque(shard *Shard[K, V]) {
 	removedkv := make([]dequeKV[K, V], 0, 2)
 	// expired
 	expiredkv := make([]dequeKV[K, V], 0, 2)
-	// expired
 	for shard.qlen > int(shard.qsize) {
 		evicted := shard.deque.PopBack()
 		evicted.deque = false
@@ -394,9 +394,7 @@ func (s *Store[K, V]) processDeque(shard *Shard[K, V]) {
 					deleted := shard.delete(evicted)
 					// double check because entry maybe removed already by Delete API
 					if deleted {
-						removedkv = append(
-							expiredkv, s.kvBuilder(evicted),
-						)
+						removedkv = append(removedkv, s.kvBuilder(evicted))
 						s.postDelete(evicted)
 					}
 				}

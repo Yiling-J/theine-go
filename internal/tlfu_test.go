@@ -9,7 +9,7 @@ import (
 )
 
 func TestTlfu(t *testing.T) {
-	hasher := NewHasher[string]()
+	hasher := NewHasher[string](nil)
 	tlfu := NewTinyLfu[string, string](1000, hasher)
 	require.Equal(t, uint(1000), tlfu.slru.probation.capacity)
 	require.Equal(t, uint(800), tlfu.slru.protected.capacity)
@@ -81,7 +81,7 @@ func TestTlfu(t *testing.T) {
 }
 
 func TestEvictEntries(t *testing.T) {
-	hasher := NewHasher[string]()
+	hasher := NewHasher[string](nil)
 	tlfu := NewTinyLfu[string, string](500, hasher)
 	require.Equal(t, uint(500), tlfu.slru.probation.capacity)
 	require.Equal(t, uint(400), tlfu.slru.protected.capacity)

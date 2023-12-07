@@ -124,9 +124,9 @@ type Store[K comparable, V any] struct {
 // New returns a new data struct with the specified capacity
 func NewStore[K comparable, V any](
 	maxsize int64, doorkeeper bool, listener func(key K, value V, reason RemoveReason),
-	cost func(v V) int64, secondaryCache SecondaryCache[K, V], workers int, probability float32,
+	cost func(v V) int64, secondaryCache SecondaryCache[K, V], workers int, probability float32, stringKeyFunc func(k K) string,
 ) *Store[K, V] {
-	hasher := NewHasher[K]()
+	hasher := NewHasher(stringKeyFunc)
 	writeBufSize := maxsize / 100
 	if writeBufSize < MIN_WRITE_BUFF_SIZE {
 		writeBufSize = MIN_WRITE_BUFF_SIZE

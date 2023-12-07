@@ -1,7 +1,6 @@
 package internal
 
 import (
-	"reflect"
 	"unsafe"
 
 	"github.com/zeebo/xxh3"
@@ -17,24 +16,12 @@ type StringKey interface {
 	StringKey() string
 }
 
-func NewHasher[K comparable]() *Hasher[K] {
-	h := &Hasher[K]{}
+func NewHasher[K comparable](stringKeyFunc func(K) string) *Hasher[K] {
+	h := &Hasher[K]{kfunc: stringKeyFunc}
 	var k K
-	var tmp interface{} = k
-	var pointer = true
-	if reflect.ValueOf(k).Kind() == reflect.Struct {
-		tmp = &k
-		pointer = false
-	}
-	switch (tmp).(type) {
+	switch ((interface{})(k)).(type) {
 	case string:
 		h.kstr = true
-	case StringKey:
-		if pointer {
-			h.kfunc = func(key K) string { return ((interface{})(key)).(StringKey).StringKey() }
-		} else {
-			h.kfunc = func(key K) string { return ((interface{})(&key)).(StringKey).StringKey() }
-		}
 	default:
 		h.ksize = int(unsafe.Sizeof(k))
 	}
@@ -43,10 +30,10 @@ func NewHasher[K comparable]() *Hasher[K] {
 
 func (h *Hasher[K]) hash(key K) uint64 {
 	var strKey string
-	if h.kstr {
-		strKey = *(*string)(unsafe.Pointer(&key))
-	} else if h.kfunc != nil {
+	if h.kfunc != nil {
 		strKey = h.kfunc(key)
+	} else if h.kstr {
+		strKey = *(*string)(unsafe.Pointer(&key))
 	} else {
 		strKey = *(*string)(unsafe.Pointer(&struct {
 			data unsafe.Pointer

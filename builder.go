@@ -72,6 +72,7 @@ func NewBuilder[K comparable, V any](maxsize int64) *Builder[K, V] {
 	return b
 }
 
+// StringKey add a custom key -> string method, the string will be used in shard hashing.
 func (b *Builder[K, V]) StringKey(fn func(k K) string) *Builder[K, V] {
 	b.stringKeyFunc = fn
 	return b

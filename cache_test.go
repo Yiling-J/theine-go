@@ -3,6 +3,7 @@ package theine_test
 import (
 	"fmt"
 	"math/rand"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -416,6 +417,24 @@ func TestRange(t *testing.T) {
 		require.Equal(t, 50, len(data))
 		for i := 0; i < 50; i++ {
 			require.Equal(t, i, data[i])
+		}
+	}
+}
+
+type Foo struct {
+	Bar string
+}
+
+func TestStringKey(t *testing.T) {
+	builder := theine.NewBuilder[Foo, int](10000)
+	builder.StringKey(func(k Foo) string { return k.Bar })
+	client, err := builder.Build()
+	require.Nil(t, err)
+	for i := 0; i < 50; i++ {
+		foo := Foo{Bar: strconv.Itoa(i + 100)}
+		client.Set(foo, i, 1)
+		if v, ok := client.Get(Foo{Bar: strconv.Itoa(i + 100)}); !ok || v != i {
+			require.FailNow(t, "")
 		}
 	}
 }

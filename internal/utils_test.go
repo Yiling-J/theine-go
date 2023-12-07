@@ -11,16 +11,8 @@ type Foo struct {
 	Bar string
 }
 
-type FooWithKey struct {
-	Bar string
-}
-
-func (k *FooWithKey) StringKey() string {
-	return k.Bar
-}
-
 func TestStringKey(t *testing.T) {
-	hasher := NewHasher[string]()
+	hasher := NewHasher[string](nil)
 	h := hasher.hash(strconv.Itoa(123456))
 	for i := 0; i < 10; i++ {
 		require.Equal(t, h, hasher.hash(strconv.Itoa(123456)))
@@ -28,8 +20,10 @@ func TestStringKey(t *testing.T) {
 }
 
 func TestStructStringKey(t *testing.T) {
-	hasher1 := NewHasher[Foo]()
-	hasher2 := NewHasher[FooWithKey]()
+	hasher1 := NewHasher[Foo](nil)
+	hasher2 := NewHasher[Foo](func(k Foo) string {
+		return k.Bar
+	})
 	h1 := uint64(0)
 	h2 := uint64(0)
 	for i := 0; i < 10; i++ {
@@ -41,7 +35,7 @@ func TestStructStringKey(t *testing.T) {
 		}
 	}
 	for i := 0; i < 10; i++ {
-		foo := FooWithKey{Bar: strconv.Itoa(123456)}
+		foo := Foo{Bar: strconv.Itoa(123456)}
 		if h2 == 0 {
 			h2 = hasher2.hash(foo)
 		} else {

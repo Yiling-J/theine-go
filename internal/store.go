@@ -119,6 +119,9 @@ type Store[K comparable, V any] struct {
 	secondaryCacheBuf chan SecondaryCacheItem[K, V]
 	probability       float32
 	rg                *rand.Rand
+	ctx               context.Context
+	cancel            context.CancelFunc
+	maintanceTicker   *time.Ticker
 }
 
 // New returns a new data struct with the specified capacity
@@ -187,6 +190,7 @@ func NewStore[K comparable, V any](
 		s.shards = append(s.shards, NewShard[K, V](uint(shardSize), uint(dequeSize), doorkeeper))
 	}
 
+	s.ctx, s.cancel = context.WithCancel(context.Background())
 	s.timerwheel = NewTimerWheel[K, V](uint(maxsize))
 	go s.maintance()
 	if s.secondaryCache != nil {
@@ -540,16 +544,26 @@ func (s *Store[K, V]) drainRead() {
 
 func (s *Store[K, V]) maintance() {
 	go func() {
+		s.mlock.Lock()
+		s.maintanceTicker = time.NewTicker(time.Duration(500) * time.Millisecond)
+		s.mlock.Unlock()
+
 		for {
-			time.Sleep(500 * time.Millisecond)
-			s.mlock.Lock()
-			if s.closed {
-				s.mlock.Unlock()
+			select {
+			case <-s.ctx.Done():
+				s.maintanceTicker.Stop()
 				return
+			case <-s.maintanceTicker.C:
+				s.mlock.Lock()
+				if s.closed {
+					s.mlock.Unlock()
+					return
+				}
+				s.timerwheel.advance(0, s.removeEntry)
+				s.policy.UpdateThreshold()
+				s.maintanceTicker.Reset(time.Duration(500) * time.Millisecond)
+				s.mlock.Unlock()
 			}
-			s.timerwheel.advance(0, s.removeEntry)
-			s.policy.UpdateThreshold()
-			s.mlock.Unlock()
 		}
 	}()
 
@@ -633,6 +647,7 @@ func (s *Store[K, V]) Close() {
 	}
 	s.mlock.Lock()
 	s.closed = true
+	s.cancel()
 	s.mlock.Unlock()
 	close(s.writebuf)
 }

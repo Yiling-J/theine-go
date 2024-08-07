@@ -226,6 +226,7 @@ func TestCost(t *testing.T) {
 	}
 	time.Sleep(time.Second)
 	require.True(t, client.Len() == 25)
+	require.True(t, client.Size() == 500)
 
 	// test cost func
 	builder := theine.NewBuilder[string, string](500)
@@ -243,6 +244,7 @@ func TestCost(t *testing.T) {
 	}
 	time.Sleep(time.Second)
 	require.True(t, client.Len() == 25)
+	require.True(t, client.Size() == 500)
 	client.Close()
 }
 
@@ -256,12 +258,14 @@ func TestCostUpdate(t *testing.T) {
 	}
 	time.Sleep(time.Second)
 	require.True(t, client.Len() == 25)
+	require.True(t, client.Size() == 500)
 	// update cost
 	success := client.Set("key:10", "", 200)
 	require.True(t, success)
 	time.Sleep(time.Second)
 	// 15 * 20 + 200
 	require.True(t, client.Len() == 16)
+	require.True(t, client.Size() == 15*20+200)
 	client.Close()
 }
 

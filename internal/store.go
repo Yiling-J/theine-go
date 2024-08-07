@@ -465,6 +465,18 @@ func (s *Store[K, V]) Len() int {
 	return total
 }
 
+func (s *Store[K, V]) Size() int {
+	total := 0
+	for _, s := range s.shards {
+		s.mu.RLock()
+		for _, entry := range s.hashmap {
+			total += int(entry.cost.Load())
+		}
+		s.mu.RUnlock()
+	}
+	return total
+}
+
 // spread hash before get index
 func (s *Store[K, V]) index(key K) (uint64, int) {
 	base := s.hasher.hash(key)

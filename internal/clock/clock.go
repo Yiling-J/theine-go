@@ -1,6 +1,8 @@
 package clock
 
-import "time"
+import (
+	"time"
+)
 
 type Clock struct {
 	Start time.Time
@@ -15,5 +17,5 @@ func (c *Clock) ExpireNano(ttl time.Duration) int64 {
 }
 
 func (c *Clock) SetStart(ts int64) {
-	c.Start = time.Unix(0, ts).UTC()
+	c.Start = time.Unix(0, ts)
 }

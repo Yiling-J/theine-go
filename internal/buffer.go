@@ -52,15 +52,19 @@ type PolicyBuffers[K comparable, V any] struct {
 //
 // This implementation is striped to further increase concurrency.
 type Buffer[K comparable, V any] struct {
-	head                 atomic.Uint64
-	headPadding          [xruntime.CacheLineSize - unsafe.Sizeof(atomic.Uint64{})]byte
-	tail                 atomic.Uint64
-	tailPadding          [xruntime.CacheLineSize - unsafe.Sizeof(atomic.Uint64{})]byte
-	returned             unsafe.Pointer
-	returnedPadding      [xruntime.CacheLineSize - 8]byte
-	policyBuffers        unsafe.Pointer
-	returnedSlicePadding [xruntime.CacheLineSize - 8]byte
-	buffer               [capacity]unsafe.Pointer
+	head atomic.Uint64
+	// headPadding
+	_    [xruntime.CacheLineSize - unsafe.Sizeof(atomic.Uint64{})]byte
+	tail atomic.Uint64
+	// tailPadding
+	_        [xruntime.CacheLineSize - unsafe.Sizeof(atomic.Uint64{})]byte
+	returned unsafe.Pointer
+	// returnedPadding
+	_             [xruntime.CacheLineSize - 8]byte
+	policyBuffers unsafe.Pointer
+	// returnedSlicePadding
+	_      [xruntime.CacheLineSize - 8]byte
+	buffer [capacity]unsafe.Pointer
 }
 
 // New creates a new lossy Buffer.

@@ -53,7 +53,7 @@ type Shard[K comparable, V any] struct {
 	qsize     uint
 	qlen      int
 	counter   uint
-	mu        sync.RWMutex
+	mu        *RBMutex
 }
 
 func NewShard[K comparable, V any](size uint, qsize uint, doorkeeper bool) *Shard[K, V] {
@@ -64,6 +64,7 @@ func NewShard[K comparable, V any](size uint, qsize uint, doorkeeper bool) *Shar
 		deque:   deque.New[*Entry[K, V]](),
 		group:   NewGroup[K, Loaded[V]](),
 		vgroup:  NewGroup[K, V](),
+		mu:      NewRBMutex(),
 	}
 	if doorkeeper {
 		s.dookeeper = bf.New(0.01)
@@ -217,7 +218,7 @@ func NewStore[K comparable, V any](
 }
 
 func (s *Store[K, V]) getFromShard(key K, hash uint64, shard *Shard[K, V]) (V, bool) {
-	shard.mu.RLock()
+	tk := shard.mu.RLock()
 	entry, ok := shard.get(key)
 	var value V
 	if ok {
@@ -229,7 +230,7 @@ func (s *Store[K, V]) getFromShard(key K, hash uint64, shard *Shard[K, V]) (V, b
 			value = entry.value
 		}
 	}
-	shard.mu.RUnlock()
+	shard.mu.RUnlock(tk)
 
 	idx := s.getReadBufferIdx()
 	var send ReadBufItem[K, V]
@@ -464,9 +465,9 @@ func (s *Store[K, V]) DeleteWithSecondary(key K) error {
 func (s *Store[K, V]) Len() int {
 	total := 0
 	for _, s := range s.shards {
-		s.mu.RLock()
+		tk := s.mu.RLock()
 		total += s.len()
-		s.mu.RUnlock()
+		s.mu.RUnlock(tk)
 	}
 	return total
 }
@@ -527,9 +528,9 @@ func (s *Store[K, V]) removeEntry(entry *Entry[K, V], reason RemoveReason) {
 	case REMOVED:
 		_, index := s.index(entry.key)
 		shard := s.shards[index]
-		shard.mu.RLock()
+		tk := shard.mu.RLock()
 		kv := s.kvBuilder(entry)
-		shard.mu.RUnlock()
+		shard.mu.RUnlock(tk)
 		_ = s.removalCallback(kv, reason)
 	}
 }
@@ -625,26 +626,26 @@ func (s *Store[K, V]) maintance() {
 func (s *Store[K, V]) Range(f func(key K, value V) bool) {
 	now := s.timerwheel.clock.NowNano()
 	for _, shard := range s.shards {
-		shard.mu.RLock()
+		tk := shard.mu.RLock()
 		for _, entry := range shard.hashmap {
 			expire := entry.expire.Load()
 			if expire != 0 && expire <= now {
 				continue
 			}
 			if !f(entry.key, entry.value) {
-				shard.mu.RUnlock()
+				shard.mu.RUnlock(tk)
 				return
 			}
 		}
-		shard.mu.RUnlock()
+		shard.mu.RUnlock(tk)
 	}
 }
 
 func (s *Store[K, V]) Close() {
 	for _, s := range s.shards {
-		s.mu.RLock()
+		tk := s.mu.RLock()
 		s.hashmap = nil
-		s.mu.RUnlock()
+		s.mu.RUnlock(tk)
 	}
 	s.mlock.Lock()
 	s.closed = true
@@ -722,12 +723,12 @@ func (s *Store[K, V]) Persist(version uint64, writer io.Writer) error {
 	s.mlock.Unlock()
 
 	for _, sd := range s.shards {
-		sd.mu.RLock()
+		tk := sd.mu.RLock()
 		err = persistDeque(sd.deque, writer, blockEncoder)
 		if err != nil {
 			return err
 		}
-		sd.mu.RUnlock()
+		sd.mu.RUnlock(tk)
 	}
 
 	// write end block
@@ -749,7 +750,7 @@ func (s *Store[K, V]) insertSimple(entry *Entry[K, V]) {
 
 func (s *Store[K, V]) processSecondary() {
 	for item := range s.secondaryCacheBuf {
-		item.shard.mu.RLock()
+		tk := item.shard.mu.RLock()
 		// first double check key still exists in map,
 		// not exist means key already deleted by Delete API
 		_, exist := item.shard.get(item.entry.key)
@@ -758,7 +759,7 @@ func (s *Store[K, V]) processSecondary() {
 				item.entry.key, item.entry.value,
 				item.entry.cost.Load(), item.entry.expire.Load(),
 			)
-			item.shard.mu.RUnlock()
+			item.shard.mu.RUnlock(tk)
 			if err != nil {
 				s.secondaryCache.HandleAsyncError(err)
 				continue
@@ -772,7 +773,7 @@ func (s *Store[K, V]) processSecondary() {
 				item.shard.mu.Unlock()
 			}
 		} else {
-			item.shard.mu.RUnlock()
+			item.shard.mu.RUnlock(tk)
 		}
 	}
 }

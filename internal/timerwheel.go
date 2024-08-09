@@ -29,7 +29,7 @@ type TimerWheel[K comparable, V any] struct {
 }
 
 func NewTimerWheel[K comparable, V any](size uint) *TimerWheel[K, V] {
-	clock := &clock.Clock{Start: time.Now().UTC()}
+	clock := &clock.Clock{Start: time.Now()}
 	buckets := []uint{64, 64, 32, 4, 1}
 	spans := []uint{
 		next2Power(uint((1 * time.Second).Nanoseconds())),

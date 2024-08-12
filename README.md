@@ -6,7 +6,6 @@ High performance in-memory & hybrid cache inspired by [Caffeine](https://github.
 
 
 - Good performance
-- Built-in ability to leverage DRAM and SSD
 - Support for Generics
 - High hit ratio with adaptive [W-TinyLFU](https://arxiv.org/pdf/1512.00727.pdf) eviction policy
 - Expired data are removed automatically using [hierarchical timer wheel](http://www.cs.columbia.edu/~nahum/w6998/papers/ton97-timing-wheels.pdf)
@@ -22,7 +21,7 @@ cache clusters at Twitter](https://www.usenix.org/system/files/osdi20-yang.pdf)
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [API](#api)
-- [Hybrid Cache](#hybrid-cache)
+- [Hybrid Cache(experiment)](#hybrid-cache)
 - [Cache Persistence](#cache-persistence)
 - [Benchmarks](#benchmarks)
   * [throughput](#throughput)
@@ -136,7 +135,7 @@ client.Close()
 
 ```
 
-## Hybrid Cache
+## Hybrid Cache(Experiment)
 
 HybridCache feature enables Theine to extend the DRAM cache to NVM. With HybridCache, Theine can seamlessly move Items stored in cache across DRAM and NVM as they are accessed. Using HybridCache, you can shrink your DRAM footprint of the cache and replace it with NVM like Flash. This can also enable you to achieve large cache capacities for the same or relatively lower power and dollar cost.
 
@@ -281,55 +280,58 @@ Theine will save checksum when persisting cache and verify checksum first when l
 
 ## Benchmarks
 
-Source: https://github.com/Yiling-J/go-cache-benchmark-plus
-
-This repo includes reproducible throughput/hit-ratios benchmark code, you can also test your own cache package with it.
+Source: https://github.com/maypok86/benchmarks
 	
 ### throughput
 
 ```
 goos: darwin
 goarch: amd64
-pkg: github.com/Yiling-J/go-cache-benchmark-plus
+pkg: github.com/maypok86/benchmarks/throughput
 cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
-BenchmarkGetParallel/theine-12          40604346                28.72 ns/op            0 B/op          0 allocs/op
-BenchmarkGetParallel/ristretto-12       60166238                23.50 ns/op           17 B/op          1 allocs/op
-BenchmarkSetParallel/theine-12          16067138                67.55 ns/op            0 B/op          0 allocs/op
-BenchmarkSetParallel/ristretto-12       12830085                79.30 ns/op          116 B/op          3 allocs/op
-BenchmarkZipfParallel/theine-12         15908767                70.07 ns/op            0 B/op          0 allocs/op
-BenchmarkZipfParallel/ristretto-12      17200935                80.05 ns/op          100 B/op          3 allocs/op
+
+BenchmarkCache/zipf_otter_reads=100%,writes=0%-8         	97981804	        10.80 ns/op	  92581426 ops/s
+BenchmarkCache/zipf_theine_reads=100%,writes=0%-8        	35600335	        32.25 ns/op	  31010119 ops/s
+BenchmarkCache/zipf_ristretto_reads=100%,writes=0%-8     	30536737	        40.39 ns/op	  24756714 ops/s
+BenchmarkCache/zipf_ccache_reads=100%,writes=0%-8        	10951008	       107.4 ns/op	   9307602 ops/s
+BenchmarkCache/zipf_gcache_reads=100%,writes=0%-8        	 3695197	       392.3 ns/op	   2549346 ops/s
+BenchmarkCache/zipf_ttlcache_reads=100%,writes=0%-8      	 1901844	       621.0 ns/op	   1610412 ops/s
+BenchmarkCache/zipf_golang-lru_reads=100%,writes=0%-8    	 5925349	       209.1 ns/op	   4781422 ops/s
+
+BenchmarkCache/zipf_otter_reads=0%,writes=100%-8         	 2109556	       540.4 ns/op	   1850519 ops/s
+BenchmarkCache/zipf_theine_reads=0%,writes=100%-8        	 3066583	       370.8 ns/op	   2696582 ops/s
+BenchmarkCache/zipf_ristretto_reads=0%,writes=100%-8     	 2161082	       580.9 ns/op	   1721398 ops/s
+BenchmarkCache/zipf_ccache_reads=0%,writes=100%-8        	 1000000	      1033 ns/op	    967961 ops/s
+BenchmarkCache/zipf_gcache_reads=0%,writes=100%-8        	 2832288	       418.2 ns/op	   2391415 ops/s
+BenchmarkCache/zipf_ttlcache_reads=0%,writes=100%-8      	 2525420	       455.6 ns/op	   2194879 ops/s
+BenchmarkCache/zipf_golang-lru_reads=0%,writes=100%-8    	 3691684	       319.3 ns/op	   3132129 ops/s
+```
+
+benchmem:
+```
+BenchmarkCache/zipf_otter_reads=100%,writes=0%-8         	100362195	        11.54 ns/op	  86621545 ops/s	       0 B/op	       0 allocs/op
+BenchmarkCache/zipf_theine_reads=100%,writes=0%-8        	31538078	        32.68 ns/op	  30602449 ops/s	       0 B/op	       0 allocs/op
+BenchmarkCache/zipf_ristretto_reads=100%,writes=0%-8     	30308824	        40.52 ns/op	  24676203 ops/s	      16 B/op	       1 allocs/op
+
+BenchmarkCache/zipf_otter_reads=0%,writes=100%-8         	 2232979	       544.6 ns/op	   1836201 ops/s	      80 B/op	       1 allocs/op
+BenchmarkCache/zipf_theine_reads=0%,writes=100%-8        	 2854908	       485.1 ns/op	   2061454 ops/s	       0 B/op	       0 allocs/op
+BenchmarkCache/zipf_ristretto_reads=0%,writes=100%-8     	 2028530	       670.6 ns/op	   1491240 ops/s	     112 B/op	       3 allocs/op
 ```
 
 ### hit ratios
 
-ristretto v0.1.1: https://github.com/dgraph-io/ristretto
-> from Ristretto [README](https://github.com/dgraph-io/ristretto#hit-ratios), the hit ratio should be higher. But I can't reproduce their benchmark results. So I open an issue: https://github.com/dgraph-io/ristretto/issues/336
-
-golang-lru v2.0.2: https://github.com/hashicorp/golang-lru
-
 **zipf**
 
 ![hit ratios](benchmarks/results/zipf.png)
-**search**
-
-This trace is described as "disk read accesses initiated by a large commercial search engine in response to various web search requests."
+**s3**
 
 ![hit ratios](benchmarks/results/s3.png)
-**database**
-
-This trace is described as "a database server running at a commercial site running an ERP application on top of a commercial database."
+**ds1**
 
 ![hit ratios](benchmarks/results/ds1.png)
-**Scarabresearch database trace**
+**oltp**
 
-Scarabresearch 1 hour database trace from this [issue](https://github.com/ben-manes/caffeine/issues/106)
-
-![hit ratios](benchmarks/results/scarab1h.png)
-**Meta anonymized trace**
-
-Meta shared anonymized trace captured from large scale production cache services, from [cachelib](https://cachelib.org/docs/Cache_Library_User_Guides/Cachebench_FB_HW_eval/#running-cachebench-with-the-trace-workload)
-
-![hit ratios](benchmarks/results/meta.png)
+![hit ratios](benchmarks/results/oltp.png)
 
 ## Tips
 - If your key size is very large, you may consider using a struct with 2 hashes instead:
@@ -342,4 +344,4 @@ type hashKey struct {
 This is how Ristretto handle keys. But keep in mind that even though the collision rate is very low, it's still possible.
 
 ## Support
-Open an issue, ask question in discussions or join discord channel: https://discord.gg/StrgfPaQqE 
+Feel free to open an issue or ask question in discussions.

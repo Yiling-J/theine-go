@@ -308,7 +308,7 @@ func TestZeroDequeFrequency(t *testing.T) {
 	// 999 is evicted automatically, because tail entry in slru has frequency 1
 	// but 999 frequency is 0
 	// so increase 999 frequency
-	for i := 0; i < 128; i++ {
+	for i := 0; i < 1280; i++ {
 		_, ok := client.Get(999)
 		require.False(t, ok)
 	}

@@ -482,8 +482,10 @@ func (s *Store[K, V]) index(key K) (uint64, int) {
 }
 
 func (s *Store[K, V]) postDelete(entry *Entry[K, V]) {
-	var zero V
-	entry.value = zero
+	var zerok K
+	var zerov V
+	entry.key = zerok
+	entry.value = zerov
 	s.entryPool.Put(entry)
 }
 

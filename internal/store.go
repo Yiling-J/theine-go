@@ -130,6 +130,9 @@ type Store[K comparable, V any] struct {
 	ctx               context.Context
 	cancel            context.CancelFunc
 	maintanceTicker   *time.Ticker
+	// set entry key/value to zero value when put them back to entry pool
+	zerok K
+	zerov V
 }
 
 // New returns a new data struct with the specified capacity
@@ -482,10 +485,8 @@ func (s *Store[K, V]) index(key K) (uint64, int) {
 }
 
 func (s *Store[K, V]) postDelete(entry *Entry[K, V]) {
-	var zerok K
-	var zerov V
-	entry.key = zerok
-	entry.value = zerov
+	entry.key = s.zerok
+	entry.value = s.zerov
 	s.entryPool.Put(entry)
 }
 

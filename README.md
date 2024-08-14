@@ -20,7 +20,7 @@ High performance in-memory & hybrid cache inspired by [Caffeine](https://github.
 - [Benchmarks](#benchmarks)
   * [throughput](#throughput)
   * [hit ratios](#hit-ratios)
-- [Hybrid Cache(Experimental)](#hybrid-cache)
+- [Hybrid Cache(Experimental)](#hybrid-cacheexperimental)
 - [Support](#support)
 
 ## Requirements

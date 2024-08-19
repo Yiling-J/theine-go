@@ -472,13 +472,9 @@ func (s *Store[K, V]) Len() int {
 	return total
 }
 
-// spread hash before get index
 func (s *Store[K, V]) index(key K) (uint64, int) {
 	base := s.hasher.hash(key)
-	h := ((base >> 16) ^ base) * 0x45d9f3b
-	h = ((h >> 16) ^ h) * 0x45d9f3b
-	h = (h >> 16) ^ h
-	return base, int(h & uint64(s.shardCount-1))
+	return base, int(base & uint64(s.shardCount-1))
 }
 
 func (s *Store[K, V]) postDelete(entry *Entry[K, V]) {

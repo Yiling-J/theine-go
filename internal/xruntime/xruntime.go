@@ -17,11 +17,14 @@ package xruntime
 
 import (
 	"runtime"
+	"unsafe"
+
+	"golang.org/x/sys/cpu"
 )
 
 const (
 	// CacheLineSize is useful for preventing false sharing.
-	CacheLineSize = 64
+	CacheLineSize = unsafe.Sizeof(cpu.CacheLinePad{})
 )
 
 // Parallelism returns the maximum possible number of concurrently running goroutines.

@@ -55,8 +55,8 @@ func (s *Slru[K, V]) remove(entry *Entry[K, V]) {
 func (s *Slru[K, V]) updateCost(entry *Entry[K, V], delta int64) {
 	switch entry.list {
 	case LIST_PROBATION:
-		s.probation.len += int(delta)
+		s.probation.len.Add(delta)
 	case LIST_PROTECTED:
-		s.protected.len += int(delta)
+		s.protected.len.Add(delta)
 	}
 }

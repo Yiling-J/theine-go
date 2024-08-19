@@ -1,6 +1,7 @@
 package theine_test
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/Yiling-J/theine-go"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/errgroup"
 )
 
 func TestMaxsizeZero(t *testing.T) {
@@ -226,6 +228,7 @@ func TestCost(t *testing.T) {
 	}
 	time.Sleep(time.Second)
 	require.True(t, client.Len() == 25)
+	require.True(t, client.EstimatedSize() == 500)
 
 	// test cost func
 	builder := theine.NewBuilder[string, string](500)
@@ -243,6 +246,7 @@ func TestCost(t *testing.T) {
 	}
 	time.Sleep(time.Second)
 	require.True(t, client.Len() == 25)
+	require.True(t, client.EstimatedSize() == 500)
 	client.Close()
 }
 
@@ -256,13 +260,47 @@ func TestCostUpdate(t *testing.T) {
 	}
 	time.Sleep(time.Second)
 	require.True(t, client.Len() == 25)
+	require.True(t, client.EstimatedSize() == 500)
 	// update cost
 	success := client.Set("key:10", "", 200)
 	require.True(t, success)
 	time.Sleep(time.Second)
 	// 15 * 20 + 200
 	require.True(t, client.Len() == 16)
+	require.True(t, client.EstimatedSize() == 15*20+200)
 	client.Close()
+}
+
+func TestEstimatedSize(t *testing.T) {
+	client, err := theine.NewBuilder[int, int](500).Build()
+	require.Nil(t, err)
+	ctx, cfn := context.WithCancel(context.Background())
+	defer cfn()
+	wg, ctx := errgroup.WithContext(ctx)
+	wg.Go(func() error {
+		tkr := time.NewTicker(time.Nanosecond)
+		defer tkr.Stop()
+		for {
+			select {
+			case <-tkr.C:
+				client.EstimatedSize()
+			case <-ctx.Done():
+				return nil
+			}
+		}
+	})
+	wg.Go(func() error {
+		defer cfn()
+		for i := 0; i < 10000000; i++ {
+			if i%2 == 0 {
+				client.Set(i, 1, 1)
+			} else {
+				client.Get(i)
+			}
+		}
+		return nil
+	})
+	require.Nil(t, wg.Wait())
 }
 
 func TestDoorkeeper(t *testing.T) {

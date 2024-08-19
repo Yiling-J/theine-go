@@ -15,13 +15,13 @@ func TestList(t *testing.T) {
 		evicted := l.PushFront(NewEntry(fmt.Sprintf("%d", i), "", 1, 0))
 		require.Nil(t, evicted)
 	}
-	require.Equal(t, 5, l.len)
+	require.Equal(t, 5, int(l.len.Load()))
 	require.Equal(t, "4/3/2/1/0", l.display())
 	require.Equal(t, "0/1/2/3/4", l.displayReverse())
 
 	evicted := l.PushFront(NewEntry("5", "", 1, 0))
 	require.Equal(t, "0", evicted.key)
-	require.Equal(t, 5, l.len)
+	require.Equal(t, 5, int(l.len.Load()))
 	require.Equal(t, "5/4/3/2/1", l.display())
 	require.Equal(t, "1/2/3/4/5", l.displayReverse())
 
@@ -63,13 +63,13 @@ func TestListCountCost(t *testing.T) {
 		evicted := l.PushFront(NewEntry(fmt.Sprintf("%d", i), "", 20, 0))
 		require.Nil(t, evicted)
 	}
-	require.Equal(t, 100, l.len)
+	require.Equal(t, 100, int(l.len.Load()))
 	require.Equal(t, 5, l.count)
 	for i := 0; i < 3; i++ {
 		entry := l.PopTail()
 		require.NotNil(t, entry)
 	}
-	require.Equal(t, 40, l.len)
+	require.Equal(t, 40, int(l.len.Load()))
 	require.Equal(t, 2, l.count)
 }
 
@@ -81,13 +81,13 @@ func TestWheelList(t *testing.T) {
 		evicted := l.PushFront(NewEntry(fmt.Sprintf("%d", i), "", 1, 0))
 		require.Nil(t, evicted)
 	}
-	require.Equal(t, 5, l.len)
+	require.Equal(t, 5, int(l.len.Load()))
 	require.Equal(t, "4/3/2/1/0", l.display())
 	require.Equal(t, "0/1/2/3/4", l.displayReverse())
 
 	evicted := l.PushFront(NewEntry("5", "", 1, 0))
 	require.Equal(t, "0", evicted.key)
-	require.Equal(t, 5, l.len)
+	require.Equal(t, 5, int(l.len.Load()))
 	require.Equal(t, "5/4/3/2/1", l.display())
 	require.Equal(t, "1/2/3/4/5", l.displayReverse())
 

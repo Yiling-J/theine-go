@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync/atomic"
 )
 
 const (
@@ -17,9 +18,9 @@ const (
 // List represents a doubly linked list.
 // The zero value for List is an empty list ready to use.
 type List[K comparable, V any] struct {
-	root     Entry[K, V] // sentinel list element, only &root, root.prev, and root.next are used
-	len      int         // current list length(sum of costs) excluding (this) sentinel element
-	count    int         // count of entries in list
+	root     Entry[K, V]  // sentinel list element, only &root, root.prev, and root.next are used
+	len      atomic.Int64 // current list length(sum of costs) excluding (this) sentinel element
+	count    int          // count of entries in list
 	capacity uint
 	bounded  bool
 	listType uint8 // 1 tinylfu list, 2 timerwheel list
@@ -31,7 +32,7 @@ func NewList[K comparable, V any](size uint, listType uint8) *List[K, V] {
 	l.root.root = true
 	l.root.setNext(&l.root, l.listType)
 	l.root.setPrev(&l.root, l.listType)
-	l.len = 0
+	l.len = atomic.Int64{}
 	l.capacity = size
 	if size > 0 {
 		l.bounded = true
@@ -42,12 +43,12 @@ func NewList[K comparable, V any](size uint, listType uint8) *List[K, V] {
 func (l *List[K, V]) Reset() {
 	l.root.setNext(&l.root, l.listType)
 	l.root.setPrev(&l.root, l.listType)
-	l.len = 0
+	l.len.Store(0)
 }
 
 // Len returns the number of elements of list l.
 // The complexity is O(1).
-func (l *List[K, V]) Len() int { return l.len }
+func (l *List[K, V]) Len() int { return int(l.len.Load()) }
 
 func (l *List[K, V]) display() string {
 	var s []string
@@ -86,7 +87,7 @@ func (l *List[K, V]) Back() *Entry[K, V] {
 // insert inserts e after at, increments l.len, and evicted entry if capacity exceed
 func (l *List[K, V]) insert(e, at *Entry[K, V]) *Entry[K, V] {
 	var evicted *Entry[K, V]
-	if l.bounded && l.len >= int(l.capacity) {
+	if l.bounded && l.len.Load() >= int64(l.capacity) {
 		evicted = l.PopTail()
 	}
 	if l.listType != WHEEL_LIST {
@@ -97,7 +98,8 @@ func (l *List[K, V]) insert(e, at *Entry[K, V]) *Entry[K, V] {
 	e.prev(l.listType).setNext(e, l.listType)
 	e.next(l.listType).setPrev(e, l.listType)
 	if l.bounded {
-		l.len += int(e.cost.Load())
+		l.len.Add(e.cost.Load())
+		// l.len += int(e.cost.Load())
 		l.count += 1
 	}
 	return evicted
@@ -123,7 +125,7 @@ func (l *List[K, V]) remove(e *Entry[K, V]) {
 		e.list = 0
 	}
 	if l.bounded {
-		l.len -= int(e.cost.Load())
+		l.len.Add(-e.cost.Load())
 		l.count -= 1
 	}
 }

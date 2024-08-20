@@ -74,6 +74,11 @@ func (c *Cache[K, V]) Len() int {
 	return c.store.Len()
 }
 
+// EstimatedSize returns an approximate used size of the cache.
+func (c *Cache[K, V]) EstimatedSize() int {
+	return c.store.EstimatedSize()
+}
+
 // Close closes all goroutines created by cache.
 func (c *Cache[K, V]) Close() {
 	c.store.Close()
@@ -124,6 +129,11 @@ func (c *LoadingCache[K, V]) Range(f func(key K, value V) bool) {
 // Len returns number of entries in cache.
 func (c *LoadingCache[K, V]) Len() int {
 	return c.store.Len()
+}
+
+// EstimatedSize returns an approximate used size of the cache.
+func (c *LoadingCache[K, V]) EstimatedSize() int {
+	return c.store.EstimatedSize()
 }
 
 // SaveCache save cache data to writer.

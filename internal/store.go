@@ -472,6 +472,16 @@ func (s *Store[K, V]) Len() int {
 	return total
 }
 
+func (s *Store[K, V]) EstimatedSize() int {
+	total := s.policy.slru.protected.Len() + s.policy.slru.probation.Len()
+	for _, s := range s.shards {
+		tk := s.mu.RLock()
+		total += s.qlen
+		s.mu.RUnlock(tk)
+	}
+	return total
+}
+
 func (s *Store[K, V]) index(key K) (uint64, int) {
 	base := s.hasher.hash(key)
 	return base, int(base & uint64(s.shardCount-1))
@@ -829,7 +839,7 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 					continue
 				}
 				l := s.policy.slru.protected
-				if l.len < int(l.capacity) {
+				if l.len.Load() < int64(l.capacity) {
 					entry := pentry.entry()
 					l.PushBack(entry)
 					s.insertSimple(entry)
@@ -852,7 +862,7 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 				}
 				l1 := s.policy.slru.protected
 				l2 := s.policy.slru.probation
-				if l1.len+l2.len < int(s.policy.slru.maxsize) {
+				if l1.len.Load()+l2.len.Load() < int64(s.policy.slru.maxsize) {
 					entry := pentry.entry()
 					l2.PushBack(entry)
 					s.insertSimple(entry)

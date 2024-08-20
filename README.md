@@ -124,6 +124,9 @@ client.Range(func(key, value int) bool {
 	return true
 })
 
+// returns an estimation of the cache size usage
+client.EstimatedSize()
+
 // close client, set hashmaps in shard to nil and close all goroutines
 client.Close()
 

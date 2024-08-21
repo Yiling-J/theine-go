@@ -10,7 +10,7 @@ type TinyLfu[K comparable, V any] struct {
 	hasher    *Hasher[K]
 	size      uint
 	counter   uint
-	total     *Counter
+	miss      *Counter
 	hit       *Counter
 	hr        float32
 	threshold atomic.Int32
@@ -25,7 +25,7 @@ func NewTinyLfu[K comparable, V any](size uint, hasher *Hasher[K]) *TinyLfu[K, V
 		sketch: NewCountMinSketch(),
 		step:   1,
 		hasher: hasher,
-		total:  NewCounter(),
+		miss:   NewCounter(),
 		hit:    NewCounter(),
 	}
 	// default threshold to -1 so all entries are admitted until cache is full
@@ -34,9 +34,9 @@ func NewTinyLfu[K comparable, V any](size uint, hasher *Hasher[K]) *TinyLfu[K, V
 }
 
 func (t *TinyLfu[K, V]) climb() {
-	total := t.total.Value()
+	miss := t.miss.Value()
 	hit := t.hit.Value()
-	current := float32(hit) / float32(total)
+	current := float32(hit) / float32(hit+miss)
 	delta := current - t.hr
 	var diff int8
 	if delta > 0.0 {
@@ -77,7 +77,7 @@ func (t *TinyLfu[K, V]) climb() {
 	t.threshold.Add(-int32(diff))
 	t.hr = current
 	t.hit.Reset()
-	t.total.Reset()
+	t.miss.Reset()
 }
 
 func (t *TinyLfu[K, V]) Set(entry *Entry[K, V]) *Entry[K, V] {

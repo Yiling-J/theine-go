@@ -114,3 +114,21 @@ func TestDoorKeeperDynamicSize(t *testing.T) {
 	}
 	require.True(t, shard.dookeeper.Capacity > 100000)
 }
+
+func TestPolicyCounter(t *testing.T) {
+	store := NewStore[int, int](1000, false, nil, nil, nil, 0, 0, nil)
+	for i := 0; i < 1000; i++ {
+		store.Set(i, i, 1, 0)
+	}
+	// hit
+	for i := 0; i < 1600; i++ {
+		store.Get(100)
+	}
+	// miss
+	for i := 0; i < 1600; i++ {
+		store.Get(10000)
+	}
+
+	require.Equal(t, int64(1600), store.policy.hit.Value())
+	require.Equal(t, int64(1600), store.policy.miss.Value())
+}

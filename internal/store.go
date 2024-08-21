@@ -224,13 +224,13 @@ func (s *Store[K, V]) getFromShard(key K, hash uint64, shard *Shard[K, V]) (V, b
 		expire := entry.expire.Load()
 		if expire != 0 && expire <= s.timerwheel.clock.NowNano() {
 			ok = false
-			s.policy.miss.Add(1)
+			s.policy.misses.Add(1)
 		} else {
-			s.policy.hit.Add(1)
+			s.policy.hits.Add(1)
 			value = entry.value
 		}
 	} else {
-		s.policy.miss.Add(1)
+		s.policy.misses.Add(1)
 	}
 	shard.mu.RUnlock(tk)
 
@@ -646,6 +646,10 @@ func (s *Store[K, V]) Range(f func(key K, value V) bool) {
 		}
 		shard.mu.RUnlock(tk)
 	}
+}
+
+func (s *Store[K, V]) Stats() Stats {
+	return newStats(s.policy.hits.Value(), s.policy.misses.Value())
 }
 
 func (s *Store[K, V]) Close() {

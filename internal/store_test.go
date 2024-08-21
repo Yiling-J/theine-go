@@ -129,6 +129,6 @@ func TestPolicyCounter(t *testing.T) {
 		store.Get(10000)
 	}
 
-	require.Equal(t, int64(1600), store.policy.hit.Value())
-	require.Equal(t, int64(1600), store.policy.miss.Value())
+	require.Equal(t, uint64(1600), store.policy.hits.Value())
+	require.Equal(t, uint64(1600), store.policy.misses.Value())
 }

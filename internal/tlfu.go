@@ -5,17 +5,19 @@ import (
 )
 
 type TinyLfu[K comparable, V any] struct {
-	slru      *Slru[K, V]
-	sketch    *CountMinSketch
-	hasher    *Hasher[K]
-	size      uint
-	counter   uint
-	miss      *Counter
-	hit       *Counter
-	hr        float32
-	threshold atomic.Int32
-	lruFactor uint8
-	step      int8
+	slru       *Slru[K, V]
+	sketch     *CountMinSketch
+	hasher     *Hasher[K]
+	size       uint
+	counter    uint
+	misses     *UnsignedCounter
+	hits       *UnsignedCounter
+	hitsPrev   uint64
+	missesPrev uint64
+	hr         float32
+	threshold  atomic.Int32
+	lruFactor  uint8
+	step       int8
 }
 
 func NewTinyLfu[K comparable, V any](size uint, hasher *Hasher[K]) *TinyLfu[K, V] {
@@ -25,8 +27,8 @@ func NewTinyLfu[K comparable, V any](size uint, hasher *Hasher[K]) *TinyLfu[K, V
 		sketch: NewCountMinSketch(),
 		step:   1,
 		hasher: hasher,
-		miss:   NewCounter(),
-		hit:    NewCounter(),
+		misses: NewUnsignedCounter(),
+		hits:   NewUnsignedCounter(),
 	}
 	// default threshold to -1 so all entries are admitted until cache is full
 	tlfu.threshold.Store(-1)
@@ -34,9 +36,16 @@ func NewTinyLfu[K comparable, V any](size uint, hasher *Hasher[K]) *TinyLfu[K, V
 }
 
 func (t *TinyLfu[K, V]) climb() {
-	miss := t.miss.Value()
-	hit := t.hit.Value()
-	current := float32(hit) / float32(hit+miss)
+	hits := t.hits.Value()
+	misses := t.misses.Value()
+
+	hitsInc := hits - t.hitsPrev
+	missesInc := misses - t.missesPrev
+
+	t.hitsPrev = hits
+	t.missesPrev = misses
+
+	current := float32(hitsInc) / float32(hitsInc+missesInc)
 	delta := current - t.hr
 	var diff int8
 	if delta > 0.0 {
@@ -76,8 +85,6 @@ func (t *TinyLfu[K, V]) climb() {
 	}
 	t.threshold.Add(-int32(diff))
 	t.hr = current
-	t.hit.Reset()
-	t.miss.Reset()
 }
 
 func (t *TinyLfu[K, V]) Set(entry *Entry[K, V]) *Entry[K, V] {

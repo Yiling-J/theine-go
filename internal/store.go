@@ -19,7 +19,6 @@ import (
 )
 
 const (
-	MAX_READ_BUFF_SIZE  = 64
 	MIN_WRITE_BUFF_SIZE = 4
 	MAX_WRITE_BUFF_SIZE = 1024
 )
@@ -225,10 +224,13 @@ func (s *Store[K, V]) getFromShard(key K, hash uint64, shard *Shard[K, V]) (V, b
 		expire := entry.expire.Load()
 		if expire != 0 && expire <= s.timerwheel.clock.NowNano() {
 			ok = false
+			s.policy.miss.Add(1)
 		} else {
 			s.policy.hit.Add(1)
 			value = entry.value
 		}
+	} else {
+		s.policy.miss.Add(1)
 	}
 	shard.mu.RUnlock(tk)
 
@@ -542,7 +544,6 @@ func (s *Store[K, V]) removeEntry(entry *Entry[K, V], reason RemoveReason) {
 }
 
 func (s *Store[K, V]) drainRead(buffer []ReadBufItem[K, V]) {
-	s.policy.total.Add(MAX_READ_BUFF_SIZE)
 	s.mlock.Lock()
 	for _, e := range buffer {
 		s.policy.Access(e)

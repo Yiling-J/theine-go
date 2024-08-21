@@ -224,6 +224,7 @@ func (s *Store[K, V]) getFromShard(key K, hash uint64, shard *Shard[K, V]) (V, b
 		expire := entry.expire.Load()
 		if expire != 0 && expire <= s.timerwheel.clock.NowNano() {
 			ok = false
+			s.policy.miss.Add(1)
 		} else {
 			s.policy.hit.Add(1)
 			value = entry.value

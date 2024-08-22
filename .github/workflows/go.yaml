@@ -28,16 +28,16 @@ jobs:
     name: test
     strategy:
       matrix:
-        go: ["1.19.x", "1.20.x", "1.21.x"]
+        go: ["1.19.x", "1.22.x", "1.23.x"]
     runs-on: ubuntu-latest
     steps:
       - name: Setup Go
         with:
           go-version: ${{ matrix.go }}
         uses: actions/setup-go@v2
-        
+
       - uses: actions/checkout@v2
-      
+
       - name: Test
         run: make cover
 
@@ -48,7 +48,7 @@ jobs:
     name: test-os
     strategy:
       matrix:
-        go: ["1.19.x", "1.20.x", "1.21.x"]
+        go: ["1.19.x", "1.22.x", "1.23.x"]
         os: [macos-latest, windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
@@ -56,9 +56,9 @@ jobs:
         with:
           go-version: ${{ matrix.go }}
         uses: actions/setup-go@v2
-        
+
       - uses: actions/checkout@v2
-      
+
       - name: Test
         run: |
           go test ./... -run=TestPersistOS
@@ -77,8 +77,8 @@ jobs:
         with:
           go-version: ${{ matrix.go }}
         uses: actions/setup-go@v2
-        
+
       - uses: actions/checkout@v2
-      
+
       - name: Build
         run: GOOS=${{ matrix.os }} CGO_ENABLED=0 go build

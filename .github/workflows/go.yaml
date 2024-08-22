@@ -69,7 +69,7 @@ jobs:
     name: build-os
     strategy:
       matrix:
-        go: ["1.19.x", "1.20.x", "1.21.x"]
+        go: ["1.19.x", "1.22.x", "1.23.x"]
         os: [darwin, windows, freebsd, solaris, illumos, openbsd, plan9]
     runs-on: ubuntu-latest
     steps:

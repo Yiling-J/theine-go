@@ -127,6 +127,9 @@ client.Range(func(key, value int) bool {
 // returns an estimation of the cache size usage
 client.EstimatedSize()
 
+// get cache stats(in-memory cache only), include hits, misses and hit ratio
+client.Stats()
+
 // close client, set hashmaps in shard to nil and close all goroutines
 client.Close()
 
@@ -190,7 +193,7 @@ Theine will save checksum when persisting cache and verify checksum first when l
 ## Benchmarks
 
 Source: https://github.com/maypok86/benchmarks
-	
+
 ### throughput
 
 ```
@@ -256,7 +259,7 @@ Items start their lifetime on DRAM. As an item becomes cold it gets evicted from
 
 Same as CacheLib, Theine hybrid cache also has **BigHash** and **Block Cache**, it's highly recommended to read the CacheLib architecture design before using hybrid cache, here is a simple introduction of these 2 engines(just copy from CacheLib):
 
--   **BigHash**  is effectively a giant fixed-bucket hash map on the device. To read or write, the entire bucket is read (in case of write, updated and written back). Bloom filter used to reduce number of IO. When bucket is full, items evicted in FIFO manner. You don't pay any RAM price here (except Bloom filter, which is 2GB for 1TB BigHash, tunable). 
+-   **BigHash**  is effectively a giant fixed-bucket hash map on the device. To read or write, the entire bucket is read (in case of write, updated and written back). Bloom filter used to reduce number of IO. When bucket is full, items evicted in FIFO manner. You don't pay any RAM price here (except Bloom filter, which is 2GB for 1TB BigHash, tunable).
 -   **Block Cache**, on the other hand, divides device into equally sized regions (16MB, tunable) and fills a region with items of same size class, or, in case of log-mode fills regions sequentially with items of different size. Sometimes we call log-mode “stack alloc”. BC stores compact index in memory: key hash to offset. We do not store full key in memory and if collision happens (super rare), old item will look like evicted. In your calculations, use 12 bytes overhead per item to estimate RAM usage. For example, if your average item size is 4KB and cache size is 500GB you'll need around 1.4GB of memory.
 
 #### Using Hybrid Cache
@@ -320,7 +323,7 @@ After you call `Hybrid(...)` in a cache builder. Theine will convert current bui
 * `Workers` defalut 2
 
     Theine evicts entries in a separate policy goroutinue, but insert to NVM can be done parallel. To make this work, Theine send evicted entries to workers, and worker will sync data to NVM cache. This setting controls how many workers are used to sync data.
-	
+
 * `AdmProbability` defalut 1
 
     This is an admission policy for endurance and performance reason. When entries are evicted from DRAM cache, this policy will be used to control the insertion percentage. A value of 1 means that all entries evicted from DRAM will be inserted into NVM. Values should be in the range of [0, 1].

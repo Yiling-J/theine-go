@@ -16,6 +16,7 @@ var VersionMismatch = internal.VersionMismatch
 
 type RemoveReason = internal.RemoveReason
 type DataBlock = internal.DataBlock[any]
+type Stats = internal.Stats
 
 type Loaded[V any] struct {
 	Value V
@@ -94,6 +95,11 @@ func (c *Cache[K, V]) LoadCache(version uint64, reader io.Reader) error {
 	return c.store.Recover(version, reader)
 }
 
+// Get cache stats.
+func (c *Cache[K, V]) Stats() Stats {
+	return c.store.Stats()
+}
+
 type LoadingCache[K comparable, V any] struct {
 	store *internal.LoadingStore[K, V]
 }
@@ -144,6 +150,11 @@ func (c *LoadingCache[K, V]) SaveCache(version uint64, writer io.Writer) error {
 // LoadCache load cache data from reader.
 func (c *LoadingCache[K, V]) LoadCache(version uint64, reader io.Reader) error {
 	return c.store.Recover(version, reader)
+}
+
+// Get cache stats.
+func (c *LoadingCache[K, V]) Stats() Stats {
+	return c.store.Stats()
 }
 
 // Close closes all goroutines created by cache.

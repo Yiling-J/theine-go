@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"math/rand"
 	"testing"
 	"time"
 
@@ -43,9 +44,9 @@ func TestFindBucket(t *testing.T) {
 func TestSchedule(t *testing.T) {
 	tw := NewTimerWheel[string, string](1000)
 	entries := []*Entry[string, string]{
-		NewEntry[string, string]("k1", "", 1, expire(tw.clock.NowNano(), 1)),
-		NewEntry[string, string]("k2", "", 1, expire(tw.clock.NowNano(), 69)),
-		NewEntry[string, string]("k3", "", 1, expire(tw.clock.NowNano(), 4399)),
+		NewEntry("k1", "", 1, expire(tw.clock.NowNano(), 1)),
+		NewEntry("k2", "", 1, expire(tw.clock.NowNano(), 69)),
+		NewEntry("k3", "", 1, expire(tw.clock.NowNano(), 4399)),
 	}
 
 	for _, entry := range entries {
@@ -79,13 +80,13 @@ func TestSchedule(t *testing.T) {
 func TestAdvance(t *testing.T) {
 	tw := NewTimerWheel[string, string](1000)
 	entries := []*Entry[string, string]{
-		NewEntry[string, string]("k1", "", 1, expire(tw.clock.NowNano(), 1)),
-		NewEntry[string, string]("k2", "", 1, expire(tw.clock.NowNano(), 10)),
-		NewEntry[string, string]("k3", "", 1, expire(tw.clock.NowNano(), 30)),
-		NewEntry[string, string]("k4", "", 1, expire(tw.clock.NowNano(), 120)),
-		NewEntry[string, string]("k5", "", 1, expire(tw.clock.NowNano(), 6500)),
-		NewEntry[string, string]("k6", "", 1, expire(tw.clock.NowNano(), 142000)),
-		NewEntry[string, string]("k7", "", 1, expire(tw.clock.NowNano(), 1420000)),
+		NewEntry("k1", "", 1, expire(tw.clock.NowNano(), 1)),
+		NewEntry("k2", "", 1, expire(tw.clock.NowNano(), 10)),
+		NewEntry("k3", "", 1, expire(tw.clock.NowNano(), 30)),
+		NewEntry("k4", "", 1, expire(tw.clock.NowNano(), 120)),
+		NewEntry("k5", "", 1, expire(tw.clock.NowNano(), 6500)),
+		NewEntry("k6", "", 1, expire(tw.clock.NowNano(), 142000)),
+		NewEntry("k7", "", 1, expire(tw.clock.NowNano(), 1420000)),
 	}
 
 	for _, entry := range entries {
@@ -120,4 +121,36 @@ func TestAdvance(t *testing.T) {
 	})
 
 	require.ElementsMatch(t, []string{"k1", "k2", "k3", "k4", "k5", "k6", "k7"}, evicted)
+}
+
+func TestAdvanceClear(t *testing.T) {
+	tw := NewTimerWheel[string, string](100000)
+	em := []*Entry[string, string]{}
+	for i := 0; i < 50000; i++ {
+		ttl := 1 + rand.Intn(12)
+		entry := NewEntry("k1", "", 1, expire(tw.clock.NowNano(), int64(ttl)))
+		tw.schedule(entry)
+		em = append(em, entry)
+	}
+	for _, entry := range em {
+		require.NotNil(t, entry.meta.wheelPrev)
+		require.NotNil(t, entry.meta.wheelNext)
+	}
+
+	for i := 0; i < 15; i++ {
+		tw.advance(tw.clock.NowNano()+time.Duration(float64(i)*1.0*float64(time.Second)).Nanoseconds(), func(entry *Entry[string, string], reason RemoveReason) {
+		})
+	}
+
+	for _, entry := range em {
+		require.Nil(t, entry.meta.wheelPrev)
+		require.Nil(t, entry.meta.wheelNext)
+	}
+
+	for _, w := range tw.wheel {
+		for _, l := range w {
+			require.Equal(t, &l.root, l.root.meta.wheelPrev)
+			require.Equal(t, &l.root, l.root.meta.wheelNext)
+		}
+	}
 }

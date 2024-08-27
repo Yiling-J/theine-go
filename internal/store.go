@@ -554,7 +554,7 @@ func (s *Store[K, V]) drainRead(buffer []ReadBufItem[K, V]) {
 func (s *Store[K, V]) maintance() {
 	go func() {
 		s.mlock.Lock()
-		s.maintanceTicker = time.NewTicker(time.Duration(500) * time.Millisecond)
+		s.maintanceTicker = time.NewTicker(time.Second)
 		s.mlock.Unlock()
 
 		for {
@@ -570,7 +570,7 @@ func (s *Store[K, V]) maintance() {
 				}
 				s.timerwheel.advance(0, s.removeEntry)
 				s.policy.UpdateThreshold()
-				s.maintanceTicker.Reset(time.Duration(500) * time.Millisecond)
+				s.maintanceTicker.Reset(time.Second)
 				s.mlock.Unlock()
 			}
 		}

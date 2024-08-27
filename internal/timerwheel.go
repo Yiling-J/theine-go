@@ -134,6 +134,5 @@ func (tw *TimerWheel[K, V]) expire(index int, prevTicks int64, delta int64, remo
 			entry = next
 
 		}
-		list.Reset()
 	}
 }

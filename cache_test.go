@@ -138,7 +138,7 @@ func TestSetWithTTL(t *testing.T) {
 	time.Sleep(1 * time.Second)
 	client.SetWithTTL("foo", "foo", 1, 1*time.Second)
 	require.Equal(t, 1, client.Len())
-	time.Sleep(2 * time.Second)
+	time.Sleep(3 * time.Second)
 	_, ok := client.Get("foo")
 	require.False(t, ok)
 	require.Equal(t, 0, client.Len())

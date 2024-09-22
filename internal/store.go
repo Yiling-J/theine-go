@@ -623,6 +623,7 @@ func (s *Store[K, V]) maintenance() {
 	// process the batch with drainWrite(), and then release the lock.
 	for first := range s.writeChan {
 		s.writeBuffer = append(s.writeBuffer, first)
+	loop:
 		for i := 0; i < 64; i++ {
 			select {
 			case item, ok := <-s.writeChan:
@@ -631,7 +632,7 @@ func (s *Store[K, V]) maintenance() {
 				}
 				s.writeBuffer = append(s.writeBuffer, item)
 			default:
-
+				break loop
 			}
 		}
 

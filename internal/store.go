@@ -615,16 +615,16 @@ func (s *Store[K, V]) maintenance() {
 	}()
 
 	// Continuously receive the first item from the buffered channel.
-	// Then, attempt to retrieve up to 64 more items from the channel in a non-blocking manner
+	// Then, attempt to retrieve up to 129 more items from the channel in a non-blocking manner
 	// to batch process them together. This reduces contention by minimizing the number of
 	// times the mutex lock is acquired for processing the buffer.
 	// If the channel is closed during the select, exit the loop.
-	// After collecting up to 64 items (or fewer if no more are available), lock the mutex,
+	// After collecting up to 129 items (or fewer if no more are available), lock the mutex,
 	// process the batch with drainWrite(), and then release the lock.
 	for first := range s.writeChan {
 		s.writeBuffer = append(s.writeBuffer, first)
 	loop:
-		for i := 0; i < 64; i++ {
+		for i := 0; i < 128; i++ {
 			select {
 			case item, ok := <-s.writeChan:
 				if !ok {

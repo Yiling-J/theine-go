@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Yiling-J/theine-go"
+	"github.com/Yiling-J/theine-go/internal"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
 )
@@ -28,7 +29,7 @@ func TestSet(t *testing.T) {
 		client.Set(key, key, 1)
 	}
 	time.Sleep(300 * time.Millisecond)
-	require.True(t, client.Len() < 1200)
+	require.True(t, client.Len() < 1000+internal.MaxWriterBufferSize)
 	client.Close()
 }
 
@@ -61,7 +62,7 @@ func TestSetParallel(t *testing.T) {
 	}
 	wg.Wait()
 	time.Sleep(300 * time.Millisecond)
-	require.True(t, client.Len() < 1200)
+	require.True(t, client.Len() < 1000+internal.MaxWriterBufferSize)
 	client.Close()
 }
 
@@ -126,7 +127,7 @@ func TestGetSetParallel(t *testing.T) {
 	}
 	wg.Wait()
 	time.Sleep(300 * time.Millisecond)
-	require.True(t, client.Len() < 1200)
+	require.True(t, client.Len() < 1000+internal.MaxWriterBufferSize)
 	client.Close()
 }
 
@@ -148,25 +149,16 @@ func TestSetWithTTL(t *testing.T) {
 func TestSetWithTTLAutoExpire(t *testing.T) {
 	client, err := theine.NewBuilder[string, string](500).Build()
 	require.Nil(t, err)
-	for i := 0; i < 30; i++ {
+	for i := 0; i < 500; i++ {
 		key1 := fmt.Sprintf("key:%d", i)
-		client.SetWithTTL(key1, key1, 1, time.Duration(i+1)*time.Second)
+		client.SetWithTTL(key1, key1, 1, time.Second)
 		key2 := fmt.Sprintf("key:%d:2", i)
-		client.SetWithTTL(key2, key2, 1, time.Duration(i+100)*time.Second)
+		client.SetWithTTL(key2, key2, 1, 100*time.Second)
 	}
-	current := 60
-	counter := 0
-	for {
-		time.Sleep(5 * time.Second)
-		counter += 1
-		require.True(t, client.Len() < current)
-		current = client.Len()
-		if current <= 30 {
-			break
-		}
-	}
-	require.True(t, counter < 10)
-	for i := 0; i < 30; i++ {
+	fmt.Println("xxx", client.Len())
+	time.Sleep(3 * time.Second)
+	require.True(t, client.Len() < 500)
+	for i := 0; i < 500; i++ {
 		key := fmt.Sprintf("key:%d", i)
 		_, ok := client.Get(key)
 		require.False(t, ok)
@@ -211,7 +203,10 @@ func TestGetSetDeleteNoRace(t *testing.T) {
 		}
 		wg.Wait()
 		time.Sleep(300 * time.Millisecond)
-		require.True(t, client.Len() < size+50)
+
+		require.True(
+			t, client.Len() < size+internal.MaxWriterBufferSize,
+		)
 		client.Close()
 	}
 }

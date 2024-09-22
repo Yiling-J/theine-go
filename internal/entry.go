@@ -6,6 +6,7 @@ const (
 	NEW int8 = iota
 	REMOVE
 	UPDATE
+	EVICTE
 )
 
 type ReadBufItem[K comparable, V any] struct {
@@ -17,6 +18,12 @@ type WriteBufItem[K comparable, V any] struct {
 	costChange int64
 	code       int8
 	rechedule  bool
+	fromNVM    bool
+}
+
+type QueueItem[K comparable, V any] struct {
+	entry   *Entry[K, V]
+	fromNVM bool
 }
 
 type MetaData[K comparable, V any] struct {
@@ -33,11 +40,8 @@ type Entry[K comparable, V any] struct {
 	cost      atomic.Int64
 	expire    atomic.Int64
 	frequency atomic.Int32
-	removed   bool
 	deque     bool
-	root      bool
-	nvmClean  bool
-	list      uint8 // used in slru, probation or protected
+	flag      Flag
 }
 
 func NewEntry[K comparable, V any](key K, value V, cost int64, expire int64) *Entry[K, V] {
@@ -55,13 +59,13 @@ func NewEntry[K comparable, V any](key K, value V, cost int64, expire int64) *En
 func (e *Entry[K, V]) Next(listType uint8) *Entry[K, V] {
 	switch listType {
 	case LIST_PROBATION, LIST_PROTECTED:
-		if p := e.meta.next; !p.root {
+		if p := e.meta.next; !p.flag.IsRoot() {
 			return e.meta.next
 		}
 		return nil
 
 	case WHEEL_LIST:
-		if p := e.meta.wheelNext; !p.root {
+		if p := e.meta.wheelNext; !p.flag.IsRoot() {
 			return e.meta.wheelNext
 		}
 		return nil
@@ -72,13 +76,13 @@ func (e *Entry[K, V]) Next(listType uint8) *Entry[K, V] {
 func (e *Entry[K, V]) Prev(listType uint8) *Entry[K, V] {
 	switch listType {
 	case LIST_PROBATION, LIST_PROTECTED:
-		if p := e.meta.prev; !p.root {
+		if p := e.meta.prev; !p.flag.IsRoot() {
 			return e.meta.prev
 		}
 		return nil
 
 	case WHEEL_LIST:
-		if p := e.meta.wheelPrev; !p.root {
+		if p := e.meta.wheelPrev; !p.flag.IsRoot() {
 			return e.meta.wheelPrev
 		}
 		return nil
@@ -131,7 +135,7 @@ func (e *Entry[K, V]) pentry() *Pentry[K, V] {
 		Cost:      e.cost.Load(),
 		Expire:    e.expire.Load(),
 		Frequency: e.frequency.Load(),
-		Removed:   e.removed,
+		Removed:   e.flag.IsRemoved(),
 	}
 }
 
@@ -147,12 +151,12 @@ type Pentry[K comparable, V any] struct {
 
 func (e *Pentry[K, V]) entry() *Entry[K, V] {
 	en := &Entry[K, V]{
-		key:     e.Key,
-		value:   e.Value,
-		removed: e.Removed,
+		key:   e.Key,
+		value: e.Value,
 	}
 	en.cost.Store(e.Cost)
 	en.frequency.Store(e.Frequency)
 	en.expire.Store(e.Expire)
+	en.flag.SetRemoved(e.Removed)
 	return en
 }

@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gammazero/deque"
@@ -16,11 +17,6 @@ import (
 
 	"github.com/Yiling-J/theine-go/internal/bf"
 	"github.com/Yiling-J/theine-go/internal/xruntime"
-)
-
-const (
-	MIN_WRITE_BUFF_SIZE = 4
-	MAX_WRITE_BUFF_SIZE = 1024
 )
 
 type RemoveReason uint8
@@ -33,19 +29,21 @@ const (
 
 var (
 	VersionMismatch      = errors.New("version mismatch")
-	maxStripedBufferSize int
+	MaxStripedBufferSize int
+	MaxWriterBufferSize  int
 )
 
 func init() {
 	parallelism := xruntime.Parallelism()
 	roundedParallelism := int(RoundUpPowerOf2(parallelism))
-	maxStripedBufferSize = 4 * roundedParallelism
+	MaxStripedBufferSize = 4 * roundedParallelism
+	MaxWriterBufferSize = 64 * roundedParallelism
 }
 
 type Shard[K comparable, V any] struct {
 	hashmap   map[K]*Entry[K, V]
 	dookeeper *bf.Bloomfilter
-	deque     *deque.Deque[*Entry[K, V]]
+	deque     *deque.Deque[QueueItem[K, V]]
 	group     *Group[K, Loaded[V]]
 	vgroup    *Group[K, V] // used in secondary cache
 	size      uint
@@ -60,7 +58,7 @@ func NewShard[K comparable, V any](size uint, qsize uint, doorkeeper bool) *Shar
 		hashmap: make(map[K]*Entry[K, V]),
 		size:    size,
 		qsize:   qsize,
-		deque:   deque.New[*Entry[K, V]](),
+		deque:   deque.New[QueueItem[K, V]](),
 		group:   NewGroup[K, Loaded[V]](),
 		vgroup:  NewGroup[K, V](),
 		mu:      NewRBMutex(),
@@ -105,7 +103,9 @@ type Metrics struct {
 
 type Store[K comparable, V any] struct {
 	entryPool         sync.Pool
-	writebuf          chan WriteBufItem[K, V]
+	writeChan         chan WriteBufItem[K, V]
+	writeBuffer       []WriteBufItem[K, V]
+	mtb               atomic.Bool
 	hasher            *Hasher[K]
 	removalListener   func(key K, value V, reason RemoveReason)
 	removalCallback   func(kv dequeKV[K, V], reason RemoveReason) error
@@ -128,7 +128,7 @@ type Store[K comparable, V any] struct {
 	rg                *rand.Rand
 	ctx               context.Context
 	cancel            context.CancelFunc
-	maintanceTicker   *time.Ticker
+	maintenanceTicker *time.Ticker
 }
 
 // New returns a new data struct with the specified capacity
@@ -137,13 +137,6 @@ func NewStore[K comparable, V any](
 	cost func(v V) int64, secondaryCache SecondaryCache[K, V], workers int, probability float32, stringKeyFunc func(k K) string,
 ) *Store[K, V] {
 	hasher := NewHasher(stringKeyFunc)
-	writeBufSize := maxsize / 100
-	if writeBufSize < MIN_WRITE_BUFF_SIZE {
-		writeBufSize = MIN_WRITE_BUFF_SIZE
-	}
-	if writeBufSize > MAX_WRITE_BUFF_SIZE {
-		writeBufSize = MAX_WRITE_BUFF_SIZE
-	}
 	shardCount := 1
 	for shardCount < runtime.GOMAXPROCS(0)*2 {
 		shardCount *= 2
@@ -154,6 +147,7 @@ func NewStore[K comparable, V any](
 	if shardCount > 128 {
 		shardCount = 128
 	}
+
 	dequeSize := int(maxsize) / 100 / shardCount
 	shardSize := int(maxsize) / shardCount
 	if shardSize < 50 {
@@ -165,8 +159,8 @@ func NewStore[K comparable, V any](
 		costfn = cost
 	}
 
-	stripedBuffer := make([]*Buffer[K, V], 0, maxStripedBufferSize)
-	for i := 0; i < maxStripedBufferSize; i++ {
+	stripedBuffer := make([]*Buffer[K, V], 0, MaxStripedBufferSize)
+	for i := 0; i < MaxStripedBufferSize; i++ {
 		stripedBuffer = append(stripedBuffer, NewBuffer[K, V]())
 	}
 
@@ -175,8 +169,9 @@ func NewStore[K comparable, V any](
 		hasher:        hasher,
 		policy:        NewTinyLfu[K, V](uint(policySize), hasher),
 		stripedBuffer: stripedBuffer,
-		mask:          uint32(maxStripedBufferSize - 1),
-		writebuf:      make(chan WriteBufItem[K, V], writeBufSize),
+		mask:          uint32(MaxStripedBufferSize - 1),
+		writeChan:     make(chan WriteBufItem[K, V], MaxWriterBufferSize),
+		writeBuffer:   make([]WriteBufItem[K, V], 0, 65),
 		entryPool:     sync.Pool{New: func() any { return &Entry[K, V]{} }},
 		shardCount:    uint(shardCount),
 		doorkeeper:    doorkeeper,
@@ -204,7 +199,7 @@ func NewStore[K comparable, V any](
 
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 	s.timerwheel = NewTimerWheel[K, V](uint(maxsize))
-	go s.maintance()
+	go s.maintenance()
 	if s.secondaryCache != nil {
 		s.secondaryCacheBuf = make(chan SecondaryCacheItem[K, V], 256)
 		s.secondaryCache.SetClock(s.timerwheel.clock)
@@ -284,16 +279,16 @@ func (s *Store[K, V]) GetWithSecodary(key K) (value V, ok bool, err error) {
 	return value, true, nil
 }
 
-func (s *Store[K, V]) setEntry(shard *Shard[K, V], cost int64, entry *Entry[K, V]) {
+func (s *Store[K, V]) setEntry(shard *Shard[K, V], cost int64, entry *Entry[K, V], fromNVM bool) {
 	shard.set(entry.key, entry)
 	// cost larger than deque size, send to policy directly
 	if cost > int64(shard.qsize) {
 		shard.mu.Unlock()
-		s.writebuf <- WriteBufItem[K, V]{entry: entry, code: NEW}
+		s.writeChan <- WriteBufItem[K, V]{entry: entry, code: NEW}
 		return
 	}
 	entry.deque = true
-	shard.deque.PushFront(entry)
+	shard.deque.PushFront(QueueItem[K, V]{entry: entry, fromNVM: fromNVM})
 	shard.qlen += int(cost)
 	s.processDeque(shard)
 }
@@ -322,7 +317,7 @@ func (s *Store[K, V]) setInternal(key K, value V, cost int64, expire int64, nvmC
 			}
 		}
 		if reschedule || costChange != 0 {
-			s.writebuf <- WriteBufItem[K, V]{
+			s.writeChan <- WriteBufItem[K, V]{
 				entry: exist, code: UPDATE, costChange: costChange, rechedule: reschedule,
 			}
 		}
@@ -346,8 +341,7 @@ func (s *Store[K, V]) setInternal(key K, value V, cost int64, expire int64, nvmC
 	entry.value = value
 	entry.expire.Store(expire)
 	entry.cost.Store(cost)
-	entry.nvmClean = nvmClean
-	s.setEntry(shard, cost, entry)
+	s.setEntry(shard, cost, entry, nvmClean)
 	return shard, entry, true
 
 }
@@ -378,54 +372,34 @@ func (s *Store[K, V]) processDeque(shard *Shard[K, V]) {
 		return
 	}
 	// send to slru
-	send := make([]*Entry[K, V], 0, 2)
+	send := make([]QueueItem[K, V], 0, 2)
 	// removed because frequency < slru tail frequency
-	removedkv := make([]dequeKV[K, V], 0, 2)
-	// expired
-	expiredkv := make([]dequeKV[K, V], 0, 2)
+	removed := make([]QueueItem[K, V], 0, 2)
 	for shard.qlen > int(shard.qsize) {
 		evicted := shard.deque.PopBack()
-		evicted.deque = false
-		expire := evicted.expire.Load()
-		shard.qlen -= int(evicted.cost.Load())
-		if expire != 0 && expire <= s.timerwheel.clock.NowNano() {
-			deleted := shard.delete(evicted)
-			// double check because entry maybe removed already by Delete API
-			if deleted {
-				expiredkv = append(expiredkv, s.kvBuilder(evicted))
-				s.postDelete(evicted)
-			}
+		evicted.entry.deque = false
+		shard.qlen -= int(evicted.entry.cost.Load())
+
+		count := evicted.entry.frequency.Load()
+		threshold := s.policy.threshold.Load()
+		if count == -1 {
+			send = append(send, evicted)
 		} else {
-			count := evicted.frequency.Load()
-			threshold := s.policy.threshold.Load()
-			if count == -1 {
+			if int32(count) >= threshold {
 				send = append(send, evicted)
 			} else {
-				if int32(count) >= threshold {
-					send = append(send, evicted)
-				} else {
-					deleted := shard.delete(evicted)
-					// double check because entry maybe removed already by Delete API
-					if deleted {
-						removedkv = append(removedkv, s.kvBuilder(evicted))
-						s.postDelete(evicted)
-					}
-				}
+				removed = append(removed, evicted)
 			}
 		}
 	}
 	shard.mu.Unlock()
-	for _, entry := range send {
-		s.writebuf <- WriteBufItem[K, V]{entry: entry, code: NEW}
+	for _, item := range send {
+		s.writeChan <- WriteBufItem[K, V]{entry: item.entry, code: NEW, fromNVM: item.fromNVM}
 	}
-	if s.removalListener != nil {
-		for _, e := range removedkv {
-			_ = s.removalCallback(e, EVICTED)
-		}
-		for _, e := range expiredkv {
-			_ = s.removalCallback(e, EXPIRED)
-		}
+	for _, item := range removed {
+		s.writeChan <- WriteBufItem[K, V]{entry: item.entry, code: EVICTE}
 	}
+	s.mtb.CompareAndSwap(false, true)
 }
 
 func (s *Store[K, V]) Delete(key K) {
@@ -438,7 +412,7 @@ func (s *Store[K, V]) Delete(key K) {
 	}
 	shard.mu.Unlock()
 	if ok {
-		s.writebuf <- WriteBufItem[K, V]{entry: entry, code: REMOVE}
+		s.writeChan <- WriteBufItem[K, V]{entry: entry, code: REMOVE}
 	}
 }
 
@@ -459,7 +433,7 @@ func (s *Store[K, V]) DeleteWithSecondary(key K) error {
 	}
 	shard.mu.Unlock()
 	if ok {
-		s.writebuf <- WriteBufItem[K, V]{entry: entry, code: REMOVE}
+		s.writeChan <- WriteBufItem[K, V]{entry: entry, code: REMOVE}
 	}
 	return nil
 }
@@ -507,7 +481,7 @@ func (s *Store[K, V]) removeEntry(entry *Entry[K, V], reason RemoveReason) {
 	case EVICTED, EXPIRED:
 		_, index := s.index(entry.key)
 		shard := s.shards[index]
-		if reason == EVICTED && !entry.nvmClean && s.secondaryCache != nil {
+		if reason == EVICTED && !entry.flag.IsFromNVM() && s.secondaryCache != nil {
 			var rn float32 = 1
 			if s.probability < 1 {
 				rn = s.rg.Float32()
@@ -532,6 +506,7 @@ func (s *Store[K, V]) removeEntry(entry *Entry[K, V], reason RemoveReason) {
 			}
 			s.postDelete(entry)
 		}
+
 	// already removed from shard map
 	case REMOVED:
 		_, index := s.index(entry.key)
@@ -551,48 +526,27 @@ func (s *Store[K, V]) drainRead(buffer []ReadBufItem[K, V]) {
 	s.mlock.Unlock()
 }
 
-func (s *Store[K, V]) maintance() {
-	go func() {
-		s.mlock.Lock()
-		s.maintanceTicker = time.NewTicker(time.Second)
-		s.mlock.Unlock()
+func (s *Store[K, V]) drainWrite() {
+	for _, item := range s.writeBuffer {
 
-		for {
-			select {
-			case <-s.ctx.Done():
-				s.maintanceTicker.Stop()
-				return
-			case <-s.maintanceTicker.C:
-				s.mlock.Lock()
-				if s.closed {
-					s.mlock.Unlock()
-					return
-				}
-				s.timerwheel.advance(0, s.removeEntry)
-				s.policy.UpdateThreshold()
-				s.maintanceTicker.Reset(time.Second)
-				s.mlock.Unlock()
-			}
-		}
-	}()
-
-	for item := range s.writebuf {
-		s.mlock.Lock()
 		entry := item.entry
 		if entry == nil {
-			s.mlock.Unlock()
 			continue
 		}
 
 		// lock free because store API never read/modify entry metadata
 		switch item.code {
 		case NEW:
-			if entry.removed {
-				s.mlock.Unlock()
+			if entry.flag.IsRemoved() {
 				continue
 			}
-			if entry.expire.Load() != 0 {
-				s.timerwheel.schedule(entry)
+			if expire := entry.expire.Load(); expire != 0 {
+
+				if expire <= s.timerwheel.clock.NowNano() {
+					s.removeEntry(entry, EXPIRED)
+				} else {
+					s.timerwheel.schedule(entry)
+				}
 			}
 			evicted := s.policy.Set(entry)
 			if evicted != nil {
@@ -605,8 +559,12 @@ func (s *Store[K, V]) maintance() {
 				s.removeEntry(e, EVICTED)
 			}
 		case REMOVE:
-			entry.removed = true
+			entry.flag.SetRemoved(true)
 			s.removeEntry(entry, REMOVED)
+			s.policy.threshold.Store(-1)
+		case EVICTE:
+			entry.flag.SetRemoved(true)
+			s.removeEntry(entry, EVICTED)
 			s.policy.threshold.Store(-1)
 		case UPDATE:
 			if item.rechedule {
@@ -626,7 +584,61 @@ func (s *Store[K, V]) maintance() {
 			s.policy.UpdateThreshold()
 			s.tailUpdate = false
 		}
+	}
+	s.writeBuffer = s.writeBuffer[:0]
+
+}
+
+func (s *Store[K, V]) maintenance() {
+	go func() {
+		s.mlock.Lock()
+		s.maintenanceTicker = time.NewTicker(time.Second)
 		s.mlock.Unlock()
+
+		for {
+			select {
+			case <-s.ctx.Done():
+				s.maintenanceTicker.Stop()
+				return
+			case <-s.maintenanceTicker.C:
+				s.mlock.Lock()
+				if s.closed {
+					s.mlock.Unlock()
+					return
+				}
+				s.timerwheel.advance(0, s.removeEntry)
+				s.policy.UpdateThreshold()
+				s.maintenanceTicker.Reset(time.Second)
+				s.mlock.Unlock()
+			}
+		}
+	}()
+
+	// Continuously receive the first item from the buffered channel.
+	// Then, attempt to retrieve up to 64 more items from the channel in a non-blocking manner
+	// to batch process them together. This reduces contention by minimizing the number of
+	// times the mutex lock is acquired for processing the buffer.
+	// If the channel is closed during the select, exit the loop.
+	// After collecting up to 64 items (or fewer if no more are available), lock the mutex,
+	// process the batch with drainWrite(), and then release the lock.
+	for first := range s.writeChan {
+		s.writeBuffer = append(s.writeBuffer, first)
+		for i := 0; i < 64; i++ {
+			select {
+			case item, ok := <-s.writeChan:
+				if !ok {
+					return
+				}
+				s.writeBuffer = append(s.writeBuffer, item)
+			default:
+
+			}
+		}
+
+		s.mlock.Lock()
+		s.drainWrite()
+		s.mlock.Unlock()
+
 	}
 }
 
@@ -662,7 +674,7 @@ func (s *Store[K, V]) Close() {
 	s.closed = true
 	s.cancel()
 	s.mlock.Unlock()
-	close(s.writebuf)
+	close(s.writeChan)
 }
 
 func (s *Store[K, V]) getReadBufferIdx() int {
@@ -689,11 +701,11 @@ func (m *StoreMeta) Persist(writer io.Writer, blockEncoder *gob.Encoder) error {
 	return nil
 }
 
-func persistDeque[K comparable, V any](dq *deque.Deque[*Entry[K, V]], writer io.Writer, blockEncoder *gob.Encoder) error {
+func persistDeque[K comparable, V any](dq *deque.Deque[QueueItem[K, V]], writer io.Writer, blockEncoder *gob.Encoder) error {
 	buffer := bytes.NewBuffer(make([]byte, 0, BlockBufferSize))
 	block := NewBlock[*Pentry[K, V]](4, buffer, blockEncoder)
 	for dq.Len() > 0 {
-		e := dq.PopBack().pentry()
+		e := dq.PopBack().entry.pentry()
 		full, err := block.Write(e)
 		if err != nil {
 			return err
@@ -892,7 +904,7 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 				_, index := s.index(entry.key)
 				shard := s.shards[index]
 				shard.mu.Lock()
-				s.setEntry(shard, pentry.Cost, entry)
+				s.setEntry(shard, pentry.Cost, entry, entry.flag.IsFromNVM())
 			}
 		}
 	}

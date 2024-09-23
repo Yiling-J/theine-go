@@ -298,6 +298,7 @@ func (s *Store[K, V]) setInternal(key K, value V, cost int64, expire int64, nvmC
 	shard := s.shards[index]
 	shard.mu.Lock()
 	exist, ok := shard.get(key)
+
 	if ok {
 		var reschedule bool
 		var costChange int64
@@ -309,13 +310,13 @@ func (s *Store[K, V]) setInternal(key K, value V, cost int64, expire int64, nvmC
 				shard.qlen += int(costChange)
 			}
 		}
-		shard.mu.Unlock()
 		if expire > 0 {
 			old := exist.expire.Swap(expire)
 			if old != expire {
 				reschedule = true
 			}
 		}
+		shard.mu.Unlock()
 		if reschedule || costChange != 0 {
 			s.writeChan <- WriteBufItem[K, V]{
 				entry: exist, code: UPDATE, costChange: costChange, rechedule: reschedule,
@@ -323,6 +324,7 @@ func (s *Store[K, V]) setInternal(key K, value V, cost int64, expire int64, nvmC
 		}
 		return shard, exist, true
 	}
+
 	if s.doorkeeper {
 		if shard.counter > uint(shard.dookeeper.Capacity) {
 			shard.dookeeper.Reset()
@@ -471,6 +473,19 @@ func (s *Store[K, V]) postDelete(entry *Entry[K, V]) {
 
 // remove entry from cache/policy/timingwheel and add back to pool
 func (s *Store[K, V]) removeEntry(entry *Entry[K, V], reason RemoveReason) {
+	_, index := s.index(entry.key)
+	shard := s.shards[index]
+	shard.mu.Lock()
+
+	if reason == EXPIRED {
+		// entry might updated already
+		// update expire filed are protected by shard mutex
+		if entry.expire.Load() > s.timerwheel.clock.NowNano() {
+			shard.mu.Unlock()
+			return
+		}
+	}
+
 	if prev := entry.meta.prev; prev != nil {
 		s.policy.Remove(entry)
 	}
@@ -479,8 +494,6 @@ func (s *Store[K, V]) removeEntry(entry *Entry[K, V], reason RemoveReason) {
 	}
 	switch reason {
 	case EVICTED, EXPIRED:
-		_, index := s.index(entry.key)
-		shard := s.shards[index]
 		if reason == EVICTED && !entry.flag.IsFromNVM() && s.secondaryCache != nil {
 			var rn float32 = 1
 			if s.probability < 1 {
@@ -493,10 +506,10 @@ func (s *Store[K, V]) removeEntry(entry *Entry[K, V], reason RemoveReason) {
 					reason: reason,
 					shard:  shard,
 				}
+				shard.mu.Unlock()
 				return
 			}
 		}
-		shard.mu.Lock()
 		deleted := shard.delete(entry)
 		shard.mu.Unlock()
 		if deleted {
@@ -509,11 +522,12 @@ func (s *Store[K, V]) removeEntry(entry *Entry[K, V], reason RemoveReason) {
 
 	// already removed from shard map
 	case REMOVED:
-		_, index := s.index(entry.key)
-		shard := s.shards[index]
-		tk := shard.mu.RLock()
+		shard.mu.Unlock()
+		// _, index := s.index(entry.key)
+		// shard := s.shards[index]
+		// tk := shard.mu.RLock()
 		kv := s.kvBuilder(entry)
-		shard.mu.RUnlock(tk)
+		// shard.mu.RUnlock(tk)
 		_ = s.removalCallback(kv, reason)
 	}
 }

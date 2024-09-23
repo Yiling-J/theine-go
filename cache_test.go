@@ -155,7 +155,6 @@ func TestSetWithTTLAutoExpire(t *testing.T) {
 		key2 := fmt.Sprintf("key:%d:2", i)
 		client.SetWithTTL(key2, key2, 1, 100*time.Second)
 	}
-	fmt.Println("xxx", client.Len())
 	time.Sleep(3 * time.Second)
 	require.True(t, client.Len() < 500)
 	for i := 0; i < 500; i++ {

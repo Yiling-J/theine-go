@@ -171,7 +171,7 @@ func NewStore[K comparable, V any](
 		stripedBuffer: stripedBuffer,
 		mask:          uint32(MaxStripedBufferSize - 1),
 		writeChan:     make(chan WriteBufItem[K, V], MaxWriterBufferSize),
-		writeBuffer:   make([]WriteBufItem[K, V], 0, 65),
+		writeBuffer:   make([]WriteBufItem[K, V], 0, 129),
 		entryPool:     sync.Pool{New: func() any { return &Entry[K, V]{} }},
 		shardCount:    uint(shardCount),
 		doorkeeper:    doorkeeper,

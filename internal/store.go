@@ -30,14 +30,16 @@ const (
 var (
 	VersionMismatch      = errors.New("version mismatch")
 	MaxStripedBufferSize int
-	MaxWriterBufferSize  int
+	MaxWriteChanSize     int
+	WriteBufferSize      int
 )
 
 func init() {
 	parallelism := xruntime.Parallelism()
 	roundedParallelism := int(RoundUpPowerOf2(parallelism))
 	MaxStripedBufferSize = 4 * roundedParallelism
-	MaxWriterBufferSize = 64 * roundedParallelism
+	MaxWriteChanSize = 64 * roundedParallelism
+	WriteBufferSize = 128
 }
 
 type Shard[K comparable, V any] struct {
@@ -170,8 +172,8 @@ func NewStore[K comparable, V any](
 		policy:        NewTinyLfu[K, V](uint(policySize), hasher),
 		stripedBuffer: stripedBuffer,
 		mask:          uint32(MaxStripedBufferSize - 1),
-		writeChan:     make(chan WriteBufItem[K, V], MaxWriterBufferSize),
-		writeBuffer:   make([]WriteBufItem[K, V], 0, 129),
+		writeChan:     make(chan WriteBufItem[K, V], MaxWriteChanSize),
+		writeBuffer:   make([]WriteBufItem[K, V], 0, WriteBufferSize),
 		entryPool:     sync.Pool{New: func() any { return &Entry[K, V]{} }},
 		shardCount:    uint(shardCount),
 		doorkeeper:    doorkeeper,
@@ -629,16 +631,16 @@ func (s *Store[K, V]) maintenance() {
 	}()
 
 	// Continuously receive the first item from the buffered channel.
-	// Then, attempt to retrieve up to 129 more items from the channel in a non-blocking manner
+	// Then, attempt to retrieve up to 127 more items from the channel in a non-blocking manner
 	// to batch process them together. This reduces contention by minimizing the number of
 	// times the mutex lock is acquired for processing the buffer.
 	// If the channel is closed during the select, exit the loop.
-	// After collecting up to 129 items (or fewer if no more are available), lock the mutex,
+	// After collecting up to 127 items (or fewer if no more are available), lock the mutex,
 	// process the batch with drainWrite(), and then release the lock.
 	for first := range s.writeChan {
 		s.writeBuffer = append(s.writeBuffer, first)
 	loop:
-		for i := 0; i < 128; i++ {
+		for i := 0; i < WriteBufferSize-1; i++ {
 			select {
 			case item, ok := <-s.writeChan:
 				if !ok {

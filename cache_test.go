@@ -29,7 +29,7 @@ func TestSet(t *testing.T) {
 		client.Set(key, key, 1)
 	}
 	time.Sleep(300 * time.Millisecond)
-	require.True(t, client.Len() < 1000+internal.MaxWriterBufferSize)
+	require.True(t, client.Len() < 1000+internal.WriteBufferSize)
 	client.Close()
 }
 
@@ -62,7 +62,7 @@ func TestSetParallel(t *testing.T) {
 	}
 	wg.Wait()
 	time.Sleep(300 * time.Millisecond)
-	require.True(t, client.Len() < 1000+internal.MaxWriterBufferSize)
+	require.True(t, client.Len() < 1000+internal.WriteBufferSize)
 	client.Close()
 }
 
@@ -127,7 +127,7 @@ func TestGetSetParallel(t *testing.T) {
 	}
 	wg.Wait()
 	time.Sleep(300 * time.Millisecond)
-	require.True(t, client.Len() < 1000+internal.MaxWriterBufferSize)
+	require.True(t, client.Len() < 1000+internal.WriteBufferSize)
 	client.Close()
 }
 
@@ -204,7 +204,7 @@ func TestGetSetDeleteNoRace(t *testing.T) {
 		time.Sleep(300 * time.Millisecond)
 
 		require.True(
-			t, client.Len() < size+internal.MaxWriterBufferSize,
+			t, client.Len() < size+internal.WriteBufferSize,
 		)
 		client.Close()
 	}

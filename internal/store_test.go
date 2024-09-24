@@ -1,19 +1,23 @@
 package internal
 
 import (
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 )
 
-func TestDequeExpire(t *testing.T) {
+func TestStore_DequeExpire(t *testing.T) {
 	store := NewStore[int, int](20000, false, nil, nil, nil, 0, 0, nil)
 
 	expired := map[int]int{}
+	var mu sync.Mutex
 	store.removalListener = func(key, value int, reason RemoveReason) {
 		if reason == EXPIRED {
+			mu.Lock()
 			expired[key] = value
+			mu.Unlock()
 		}
 	}
 	_, index := store.index(123)
@@ -22,23 +26,30 @@ func TestDequeExpire(t *testing.T) {
 		entry := &Entry[int, int]{key: i}
 		entry.expire.Store(expire)
 		entry.cost.Store(1)
-		store.shards[index].deque.PushFront(entry)
+		store.shards[index].deque.PushFront(QueueItem[int, int]{entry, false})
 		store.shards[index].qlen += 1
+		_, index := store.index(i)
 		store.shards[index].hashmap[i] = entry
 	}
 	require.True(t, len(expired) == 0)
-	time.Sleep(1 * time.Second)
-	store.Set(123, 123, 1, 1*time.Second)
+	store.shards[index].mu.Lock()
+	store.processDeque(store.shards[index])
+	time.Sleep(3 * time.Second)
+	mu.Lock()
 	require.True(t, len(expired) > 0)
+	mu.Unlock()
 }
 
-func TestProcessDeque(t *testing.T) {
+func TestStore_ProcessDeque(t *testing.T) {
 	store := NewStore[int, int](20000, false, nil, nil, nil, 0, 0, nil)
 
 	evicted := map[int]int{}
+	var mu sync.Mutex
 	store.removalListener = func(key, value int, reason RemoveReason) {
 		if reason == EVICTED {
+			mu.Lock()
 			evicted[key] = value
+			mu.Unlock()
 		}
 	}
 	_, index := store.index(123)
@@ -48,7 +59,7 @@ func TestProcessDeque(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		entry := &Entry[int, int]{key: i}
 		entry.cost.Store(1)
-		store.shards[index].deque.PushFront(entry)
+		store.shards[index].deque.PushFront(QueueItem[int, int]{entry, false})
 		store.shards[index].qlen += 1
 		store.shards[index].hashmap[i] = entry
 	}
@@ -59,7 +70,7 @@ func TestProcessDeque(t *testing.T) {
 	keys := []int{}
 	for store.shards[index].deque.Len() != 0 {
 		e := store.shards[index].deque.PopBack()
-		keys = append(keys, e.key)
+		keys = append(keys, e.entry.key)
 	}
 	require.Equal(t, []int{3, 4, 123}, keys)
 	require.Equal(t, 0, len(evicted))
@@ -69,16 +80,25 @@ func TestProcessDeque(t *testing.T) {
 	for i := 10; i < 15; i++ {
 		entry := &Entry[int, int]{key: i}
 		entry.cost.Store(1)
-		store.shards[index].deque.PushFront(entry)
+		store.shards[index].deque.PushFront(QueueItem[int, int]{entry, false})
 		store.shards[index].qlen += 1
+		_, index := store.index(i)
 		store.shards[index].hashmap[i] = entry
 	}
 	store.shards[index].mu.Lock()
 	store.processDeque(store.shards[index])
+
+	time.Sleep(1 * time.Second)
+	store.mtb.Store(true)
+	store.writeChan <- WriteBufItem[int, int]{}
+	time.Sleep(1 * time.Second)
+
+	mu.Lock()
 	require.Equal(t, 5, len(evicted))
+	mu.Unlock()
 }
 
-func TestRemoveDeque(t *testing.T) {
+func TestStore_RemoveDeque(t *testing.T) {
 	store := NewStore[int, int](20000, false, nil, nil, nil, 0, 0, nil)
 	_, index := store.index(123)
 	shard := store.shards[index]
@@ -90,14 +110,18 @@ func TestRemoveDeque(t *testing.T) {
 	shard.qlen = 10
 	entryNew := &Entry[int, int]{key: 1}
 	entryNew.cost.Store(1)
-	shard.deque.PushFront(entryNew)
+	shard.deque.PushFront(QueueItem[int, int]{entryNew, false})
 	shard.qlen += 1
 	shard.hashmap[1] = entryNew
-	// wait policy process
-	time.Sleep(time.Second)
+
+	time.Sleep(1 * time.Second)
+	store.mtb.Store(true)
+	store.writeChan <- WriteBufItem[int, int]{}
+	time.Sleep(1 * time.Second)
+
 	// because 123 is removed already, it should not be on any LRU list
 	shard.mu.Lock()
-	require.True(t, entry.removed)
+	require.True(t, entry.flag.IsRemoved())
 	require.Nil(t, entry.meta.prev)
 	require.Nil(t, entry.meta.next)
 	shard.mu.Unlock()
@@ -105,7 +129,7 @@ func TestRemoveDeque(t *testing.T) {
 	require.False(t, ok)
 }
 
-func TestDoorKeeperDynamicSize(t *testing.T) {
+func TestStore_DoorKeeperDynamicSize(t *testing.T) {
 	store := NewStore[int, int](200000, true, nil, nil, nil, 0, 0, nil)
 	shard := store.shards[0]
 	require.True(t, shard.dookeeper.Capacity == 512)
@@ -115,7 +139,7 @@ func TestDoorKeeperDynamicSize(t *testing.T) {
 	require.True(t, shard.dookeeper.Capacity > 100000)
 }
 
-func TestPolicyCounter(t *testing.T) {
+func TestStore_PolicyCounter(t *testing.T) {
 	store := NewStore[int, int](1000, false, nil, nil, nil, 0, 0, nil)
 	for i := 0; i < 1000; i++ {
 		store.Set(i, i, 1, 0)

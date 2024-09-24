@@ -42,7 +42,7 @@ func TestStorePersistence(t *testing.T) {
 		}
 		entry.cost.Store(int64(1))
 		entry.frequency.Store(int32(i))
-		store.shards[0].deque.PushFront(entry)
+		store.shards[0].deque.PushFront(QueueItem[int, int]{entry, false})
 	}
 	// update sketch
 	for i := 0; i < 10; i++ {

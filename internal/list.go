@@ -29,7 +29,7 @@ type List[K comparable, V any] struct {
 // New returns an initialized list.
 func NewList[K comparable, V any](size uint, listType uint8) *List[K, V] {
 	l := &List[K, V]{listType: listType, capacity: size, root: Entry[K, V]{}}
-	l.root.root = true
+	l.root.flag.SetRoot(true)
 	l.root.setNext(&l.root, l.listType)
 	l.root.setPrev(&l.root, l.listType)
 	l.len = atomic.Int64{}
@@ -91,7 +91,11 @@ func (l *List[K, V]) insert(e, at *Entry[K, V]) *Entry[K, V] {
 		evicted = l.PopTail()
 	}
 	if l.listType != WHEEL_LIST {
-		e.list = l.listType
+		if l.listType == LIST_PROTECTED {
+			e.flag.SetProtected(true)
+		} else if l.listType == LIST_PROBATION {
+			e.flag.SetProbation(true)
+		}
 	}
 	e.setPrev(at, l.listType)
 	e.setNext(at.next(l.listType), l.listType)
@@ -122,7 +126,8 @@ func (l *List[K, V]) remove(e *Entry[K, V]) {
 	e.setNext(nil, l.listType)
 	e.setPrev(nil, l.listType)
 	if l.listType != WHEEL_LIST {
-		e.list = 0
+		e.flag.SetProbation(false)
+		e.flag.SetProtected(false)
 	}
 	if l.bounded {
 		l.len.Add(-e.cost.Load())

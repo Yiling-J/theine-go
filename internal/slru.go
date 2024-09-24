@@ -31,32 +31,33 @@ func (s *Slru[K, V]) victim() *Entry[K, V] {
 }
 
 func (s *Slru[K, V]) access(entry *Entry[K, V]) {
-	switch entry.list {
-	case LIST_PROBATION:
+
+	if entry.flag.IsProbation() {
 		s.probation.remove(entry)
 		evicted := s.protected.PushFront(entry)
 		if evicted != nil {
 			s.probation.PushFront(evicted)
 		}
-	case LIST_PROTECTED:
+	} else if entry.flag.IsProtected() {
 		s.protected.MoveToFront(entry)
 	}
+
 }
 
 func (s *Slru[K, V]) remove(entry *Entry[K, V]) {
-	switch entry.list {
-	case LIST_PROBATION:
+	if entry.flag.IsProbation() {
 		s.probation.remove(entry)
-	case LIST_PROTECTED:
+	} else if entry.flag.IsProtected() {
 		s.protected.remove(entry)
 	}
+
 }
 
 func (s *Slru[K, V]) updateCost(entry *Entry[K, V], delta int64) {
-	switch entry.list {
-	case LIST_PROBATION:
+	if entry.flag.IsProbation() {
 		s.probation.len.Add(delta)
-	case LIST_PROTECTED:
+	} else if entry.flag.IsProtected() {
 		s.protected.len.Add(delta)
 	}
+
 }

@@ -89,7 +89,6 @@ func TestStore_ProcessDeque(t *testing.T) {
 	store.processDeque(store.shards[index])
 
 	time.Sleep(1 * time.Second)
-	store.mtb.Store(true)
 	store.writeChan <- WriteBufItem[int, int]{}
 	time.Sleep(1 * time.Second)
 
@@ -115,7 +114,6 @@ func TestStore_RemoveDeque(t *testing.T) {
 	shard.hashmap[1] = entryNew
 
 	time.Sleep(1 * time.Second)
-	store.mtb.Store(true)
 	store.writeChan <- WriteBufItem[int, int]{}
 	time.Sleep(1 * time.Second)
 

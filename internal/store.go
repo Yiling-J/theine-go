@@ -9,7 +9,6 @@ import (
 	"math/rand"
 	"runtime"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/gammazero/deque"
@@ -107,7 +106,6 @@ type Store[K comparable, V any] struct {
 	entryPool         sync.Pool
 	writeChan         chan WriteBufItem[K, V]
 	writeBuffer       []WriteBufItem[K, V]
-	mtb               atomic.Bool
 	hasher            *Hasher[K]
 	removalListener   func(key K, value V, reason RemoveReason)
 	removalCallback   func(kv dequeKV[K, V], reason RemoveReason) error
@@ -403,7 +401,6 @@ func (s *Store[K, V]) processDeque(shard *Shard[K, V]) {
 	for _, item := range removed {
 		s.writeChan <- WriteBufItem[K, V]{entry: item.entry, code: EVICTE}
 	}
-	s.mtb.CompareAndSwap(false, true)
 }
 
 func (s *Store[K, V]) Delete(key K) {
@@ -548,6 +545,9 @@ func (s *Store[K, V]) drainWrite() {
 		entry := item.entry
 		if entry == nil {
 			continue
+		}
+		if item.fromNVM {
+			entry.flag.SetFromNVM(item.fromNVM)
 		}
 
 		// lock free because store API never read/modify entry metadata

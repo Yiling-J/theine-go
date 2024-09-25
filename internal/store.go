@@ -27,39 +27,35 @@ const (
 )
 
 var (
-	VersionMismatch      = errors.New("version mismatch")
-	MaxStripedBufferSize int
-	MaxWriteChanSize     int
-	WriteBufferSize      int
+	VersionMismatch    = errors.New("version mismatch")
+	RoundedParallelism int
+	ShardCount         int
+	StripedBufferSize  int
+	WriteChanSize      int
+	WriteBufferSize    int
 )
 
 func init() {
 	parallelism := xruntime.Parallelism()
-	roundedParallelism := int(RoundUpPowerOf2(parallelism))
-	MaxStripedBufferSize = 4 * roundedParallelism
-	MaxWriteChanSize = 64 * roundedParallelism
+	RoundedParallelism = int(RoundUpPowerOf2(parallelism))
+	ShardCount = 4 * RoundedParallelism
+	StripedBufferSize = 4 * RoundedParallelism
+	WriteChanSize = 64 * RoundedParallelism
 	WriteBufferSize = 128
 }
 
 type Shard[K comparable, V any] struct {
 	hashmap   map[K]*Entry[K, V]
 	dookeeper *bf.Bloomfilter
-	deque     *deque.Deque[QueueItem[K, V]]
 	group     *Group[K, Loaded[V]]
 	vgroup    *Group[K, V] // used in secondary cache
-	size      uint
-	qsize     uint
-	qlen      int
 	counter   uint
 	mu        *RBMutex
 }
 
-func NewShard[K comparable, V any](size uint, qsize uint, doorkeeper bool) *Shard[K, V] {
+func NewShard[K comparable, V any](doorkeeper bool) *Shard[K, V] {
 	s := &Shard[K, V]{
 		hashmap: make(map[K]*Entry[K, V]),
-		size:    size,
-		qsize:   qsize,
-		deque:   deque.New[QueueItem[K, V]](),
 		group:   NewGroup[K, Loaded[V]](),
 		vgroup:  NewGroup[K, V](),
 		mu:      NewRBMutex(),
@@ -116,6 +112,7 @@ type Store[K comparable, V any] struct {
 	mask              uint32
 	cost              func(V) int64
 	shards            []*Shard[K, V]
+	queue             *StripedQueue[K, V]
 	cap               uint
 	shardCount        uint
 	mlock             sync.Mutex
@@ -148,19 +145,16 @@ func NewStore[K comparable, V any](
 		shardCount = 128
 	}
 
-	dequeSize := int(maxsize) / 100 / shardCount
-	shardSize := int(maxsize) / shardCount
-	if shardSize < 50 {
-		shardSize = 50
-	}
-	policySize := int(maxsize) - (dequeSize * shardCount)
+	queueCount := RoundedParallelism
+	queueSize := int(maxsize) / 100 / queueCount
+	policySize := int(maxsize) - (queueSize * queueCount)
 	costfn := func(v V) int64 { return 1 }
 	if cost != nil {
 		costfn = cost
 	}
 
-	stripedBuffer := make([]*Buffer[K, V], 0, MaxStripedBufferSize)
-	for i := 0; i < MaxStripedBufferSize; i++ {
+	stripedBuffer := make([]*Buffer[K, V], 0, StripedBufferSize)
+	for i := 0; i < StripedBufferSize; i++ {
 		stripedBuffer = append(stripedBuffer, NewBuffer[K, V]())
 	}
 
@@ -169,8 +163,8 @@ func NewStore[K comparable, V any](
 		hasher:        hasher,
 		policy:        NewTinyLfu[K, V](uint(policySize), hasher),
 		stripedBuffer: stripedBuffer,
-		mask:          uint32(MaxStripedBufferSize - 1),
-		writeChan:     make(chan WriteBufItem[K, V], MaxWriteChanSize),
+		mask:          uint32(StripedBufferSize - 1),
+		writeChan:     make(chan WriteBufItem[K, V], WriteChanSize),
 		writeBuffer:   make([]WriteBufItem[K, V], 0, WriteBufferSize),
 		entryPool:     sync.Pool{New: func() any { return &Entry[K, V]{} }},
 		shardCount:    uint(shardCount),
@@ -194,8 +188,11 @@ func NewStore[K comparable, V any](
 	}
 	s.shards = make([]*Shard[K, V], 0, s.shardCount)
 	for i := 0; i < int(s.shardCount); i++ {
-		s.shards = append(s.shards, NewShard[K, V](uint(shardSize), uint(dequeSize), doorkeeper))
+		s.shards = append(s.shards, NewShard[K, V](doorkeeper))
 	}
+	s.queue = NewStripedQueue[K, V](
+		queueCount, queueSize, func() int32 { return s.policy.threshold.Load() },
+	)
 
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 	s.timerwheel = NewTimerWheel[K, V](uint(maxsize))
@@ -279,18 +276,16 @@ func (s *Store[K, V]) GetWithSecodary(key K) (value V, ok bool, err error) {
 	return value, true, nil
 }
 
-func (s *Store[K, V]) setEntry(shard *Shard[K, V], cost int64, entry *Entry[K, V], fromNVM bool) {
+func (s *Store[K, V]) setEntry(hash uint64, shard *Shard[K, V], cost int64, entry *Entry[K, V], fromNVM bool) {
 	shard.set(entry.key, entry)
-	// cost larger than deque size, send to policy directly
-	if cost > int64(shard.qsize) {
-		shard.mu.Unlock()
-		s.writeChan <- WriteBufItem[K, V]{entry: entry, code: NEW}
-		return
+	shard.mu.Unlock()
+	send, removed := s.queue.Push(hash, entry, cost, fromNVM)
+	for _, item := range send {
+		s.writeChan <- WriteBufItem[K, V]{entry: item.entry, code: NEW, fromNVM: item.fromNVM}
 	}
-	entry.deque = true
-	shard.deque.PushFront(QueueItem[K, V]{entry: entry, fromNVM: fromNVM})
-	shard.qlen += int(cost)
-	s.processDeque(shard)
+	for _, item := range removed {
+		s.writeChan <- WriteBufItem[K, V]{entry: item.entry, code: EVICTE}
+	}
 }
 
 func (s *Store[K, V]) setInternal(key K, value V, cost int64, expire int64, nvmClean bool) (*Shard[K, V], *Entry[K, V], bool) {
@@ -306,9 +301,7 @@ func (s *Store[K, V]) setInternal(key K, value V, cost int64, expire int64, nvmC
 		oldCost := exist.cost.Swap(cost)
 		if oldCost != cost {
 			costChange = cost - oldCost
-			if exist.deque {
-				shard.qlen += int(costChange)
-			}
+			s.queue.UpdateCost(h, exist, costChange)
 		}
 		if expire > 0 {
 			old := exist.expire.Swap(expire)
@@ -343,7 +336,7 @@ func (s *Store[K, V]) setInternal(key K, value V, cost int64, expire int64, nvmC
 	entry.value = value
 	entry.expire.Store(expire)
 	entry.cost.Store(cost)
-	s.setEntry(shard, cost, entry, nvmClean)
+	s.setEntry(h, shard, cost, entry, nvmClean)
 	return shard, entry, true
 
 }
@@ -366,41 +359,6 @@ func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
 type dequeKV[K comparable, V any] struct {
 	k K
 	v V
-}
-
-func (s *Store[K, V]) processDeque(shard *Shard[K, V]) {
-	if shard.qlen <= int(shard.qsize) {
-		shard.mu.Unlock()
-		return
-	}
-	// send to slru
-	send := make([]QueueItem[K, V], 0, 2)
-	// removed because frequency < slru tail frequency
-	removed := make([]QueueItem[K, V], 0, 2)
-	for shard.qlen > int(shard.qsize) {
-		evicted := shard.deque.PopBack()
-		evicted.entry.deque = false
-		shard.qlen -= int(evicted.entry.cost.Load())
-
-		count := evicted.entry.frequency.Load()
-		threshold := s.policy.threshold.Load()
-		if count == -1 {
-			send = append(send, evicted)
-		} else {
-			if int32(count) >= threshold {
-				send = append(send, evicted)
-			} else {
-				removed = append(removed, evicted)
-			}
-		}
-	}
-	shard.mu.Unlock()
-	for _, item := range send {
-		s.writeChan <- WriteBufItem[K, V]{entry: item.entry, code: NEW, fromNVM: item.fromNVM}
-	}
-	for _, item := range removed {
-		s.writeChan <- WriteBufItem[K, V]{entry: item.entry, code: EVICTE}
-	}
 }
 
 func (s *Store[K, V]) Delete(key K) {
@@ -451,10 +409,10 @@ func (s *Store[K, V]) Len() int {
 
 func (s *Store[K, V]) EstimatedSize() int {
 	total := s.policy.slru.protected.Len() + s.policy.slru.probation.Len()
-	for _, s := range s.shards {
-		tk := s.mu.RLock()
-		total += s.qlen
-		s.mu.RUnlock(tk)
+	for _, q := range s.queue.qs {
+		q.mu.Lock()
+		total += q.len
+		q.mu.Unlock()
 	}
 	return total
 }
@@ -762,13 +720,13 @@ func (s *Store[K, V]) Persist(version uint64, writer io.Writer) error {
 	}
 	s.mlock.Unlock()
 
-	for _, sd := range s.shards {
-		tk := sd.mu.RLock()
-		err = persistDeque(sd.deque, writer, blockEncoder)
+	for _, q := range s.queue.qs {
+		q.mu.Lock()
+		err = persistDeque(q.deque, writer, blockEncoder)
 		if err != nil {
 			return err
 		}
-		sd.mu.RUnlock(tk)
+		q.mu.Unlock()
 	}
 
 	// write end block
@@ -918,10 +876,10 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 					continue
 				}
 				entry := pentry.entry()
-				_, index := s.index(entry.key)
+				h, index := s.index(entry.key)
 				shard := s.shards[index]
 				shard.mu.Lock()
-				s.setEntry(shard, pentry.Cost, entry, entry.flag.IsFromNVM())
+				s.setEntry(h, shard, pentry.Cost, entry, entry.flag.IsFromNVM())
 			}
 		}
 	}

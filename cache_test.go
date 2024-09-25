@@ -16,12 +16,12 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-func TestMaxsizeZero(t *testing.T) {
+func TestCache_MaxsizeZero(t *testing.T) {
 	_, err := theine.NewBuilder[string, string](0).Build()
 	require.NotNil(t, err)
 }
 
-func TestSet(t *testing.T) {
+func TestCache_Set(t *testing.T) {
 	client, err := theine.NewBuilder[string, string](1000).Build()
 	require.Nil(t, err)
 	for i := 0; i < 20000; i++ {
@@ -33,7 +33,7 @@ func TestSet(t *testing.T) {
 	client.Close()
 }
 
-func TestUpdate(t *testing.T) {
+func TestCache_Update(t *testing.T) {
 	client, err := theine.NewBuilder[string, string](1000).Build()
 	require.Nil(t, err)
 	key := "foo"
@@ -45,7 +45,7 @@ func TestUpdate(t *testing.T) {
 	}
 }
 
-func TestSetParallel(t *testing.T) {
+func TestCache_SetParallel(t *testing.T) {
 	client, err := theine.NewBuilder[string, string](1000).Build()
 	require.Nil(t, err)
 	var wg sync.WaitGroup
@@ -66,7 +66,7 @@ func TestSetParallel(t *testing.T) {
 	client.Close()
 }
 
-func TestGetSetGetDeleteGet(t *testing.T) {
+func TestCache_GetSetGetDeleteGet(t *testing.T) {
 	client, err := theine.NewBuilder[string, string](1000).Build()
 	require.Nil(t, err)
 	for i := 0; i < 20000; i++ {
@@ -85,7 +85,7 @@ func TestGetSetGetDeleteGet(t *testing.T) {
 	client.Close()
 }
 
-func TestDelete(t *testing.T) {
+func TestCache_Delete(t *testing.T) {
 	client, err := theine.NewBuilder[string, string](100).Build()
 	require.Nil(t, err)
 	client.Set("foo", "foo", 1)
@@ -106,7 +106,7 @@ func TestDelete(t *testing.T) {
 	client.Close()
 }
 
-func TestGetSetParallel(t *testing.T) {
+func TestCache_GetSetParallel(t *testing.T) {
 	client, err := theine.NewBuilder[string, string](1000).Build()
 	require.Nil(t, err)
 	var wg sync.WaitGroup
@@ -131,7 +131,7 @@ func TestGetSetParallel(t *testing.T) {
 	client.Close()
 }
 
-func TestSetWithTTL(t *testing.T) {
+func TestCache_SetWithTTL(t *testing.T) {
 	client, err := theine.NewBuilder[string, string](500).Build()
 	require.Nil(t, err)
 	client.SetWithTTL("foo", "foo", 1, 3600*time.Second)
@@ -146,7 +146,7 @@ func TestSetWithTTL(t *testing.T) {
 	client.Close()
 }
 
-func TestSetWithTTLAutoExpire(t *testing.T) {
+func TestCache_SetWithTTLAutoExpire(t *testing.T) {
 	client, err := theine.NewBuilder[string, string](500).Build()
 	require.Nil(t, err)
 	for i := 0; i < 500; i++ {
@@ -165,7 +165,7 @@ func TestSetWithTTLAutoExpire(t *testing.T) {
 	client.Close()
 }
 
-func TestGetSetDeleteNoRace(t *testing.T) {
+func TestCache_GetSetDeleteNoRace(t *testing.T) {
 	for _, size := range []int{500, 2000, 10000, 50000} {
 		builder := theine.NewBuilder[string, string](int64(size))
 		builder.RemovalListener(func(key, value string, reason theine.RemoveReason) {})
@@ -210,7 +210,7 @@ func TestGetSetDeleteNoRace(t *testing.T) {
 	}
 }
 
-func TestCost(t *testing.T) {
+func TestCache_Cost(t *testing.T) {
 	client, err := theine.NewBuilder[string, string](500).Build()
 	require.Nil(t, err)
 	success := client.Set("z", "z", 501)
@@ -244,7 +244,7 @@ func TestCost(t *testing.T) {
 	client.Close()
 }
 
-func TestCostUpdate(t *testing.T) {
+func TestCache_CostUpdate(t *testing.T) {
 	client, err := theine.NewBuilder[string, string](500).Build()
 	require.Nil(t, err)
 	for i := 0; i < 30; i++ {
@@ -265,7 +265,7 @@ func TestCostUpdate(t *testing.T) {
 	client.Close()
 }
 
-func TestEstimatedSize(t *testing.T) {
+func TestCache_EstimatedSize(t *testing.T) {
 	client, err := theine.NewBuilder[int, int](500).Build()
 	require.Nil(t, err)
 	ctx, cfn := context.WithCancel(context.Background())
@@ -297,7 +297,7 @@ func TestEstimatedSize(t *testing.T) {
 	require.Nil(t, wg.Wait())
 }
 
-func TestDoorkeeper(t *testing.T) {
+func TestCache_Doorkeeper(t *testing.T) {
 	builder := theine.NewBuilder[string, string](500)
 	builder.Doorkeeper(true)
 	client, err := builder.Build()
@@ -321,7 +321,7 @@ func TestDoorkeeper(t *testing.T) {
 	}
 }
 
-func TestZeroDequeFrequency(t *testing.T) {
+func TestCache_ZeroDequeFrequency(t *testing.T) {
 	client, err := theine.NewBuilder[int, int](100).Build()
 	require.Nil(t, err)
 	// set and access 200 entries
@@ -355,7 +355,7 @@ func TestZeroDequeFrequency(t *testing.T) {
 
 }
 
-func TestRemovalListener(t *testing.T) {
+func TestCache_RemovalListener(t *testing.T) {
 	builder := theine.NewBuilder[int, int](100)
 	var lock sync.Mutex
 	removed := map[int]int{}
@@ -405,7 +405,7 @@ func TestRemovalListener(t *testing.T) {
 	lock.Unlock()
 }
 
-func TestRange(t *testing.T) {
+func TestCache_Range(t *testing.T) {
 	for _, cap := range []int{100, 200000} {
 		client, err := theine.NewBuilder[int, int](int64(cap)).Build()
 		require.Nil(t, err)
@@ -457,7 +457,7 @@ type Foo struct {
 	Bar string
 }
 
-func TestStringKey(t *testing.T) {
+func TestCache_StringKey(t *testing.T) {
 	builder := theine.NewBuilder[Foo, int](10000)
 	builder.StringKey(func(k Foo) string { return k.Bar })
 	client, err := builder.Build()

@@ -9,7 +9,8 @@ import (
 )
 
 func TestStore_DequeExpire(t *testing.T) {
-	store := NewStore[int, int](20000, false, nil, nil, nil, 0, 0, nil)
+	store := NewStore[int, int](5000, false, nil, nil, nil, 0, 0, nil)
+	defer store.Close()
 
 	expired := map[int]int{}
 	var mu sync.Mutex
@@ -20,20 +21,19 @@ func TestStore_DequeExpire(t *testing.T) {
 			mu.Unlock()
 		}
 	}
-	_, index := store.index(123)
 	expire := store.timerwheel.clock.ExpireNano(200 * time.Millisecond)
 	for i := 0; i < 50; i++ {
 		entry := &Entry[int, int]{key: i}
 		entry.expire.Store(expire)
-		entry.cost.Store(1)
-		store.shards[index].deque.PushFront(QueueItem[int, int]{entry, false})
-		store.shards[index].qlen += 1
+		entry.cost = 1
+		store.shards[0].mu.Lock()
+		store.setEntry(123, store.shards[0], 1, entry, false)
 		_, index := store.index(i)
 		store.shards[index].hashmap[i] = entry
 	}
+	mu.Lock()
 	require.True(t, len(expired) == 0)
-	store.shards[index].mu.Lock()
-	store.processDeque(store.shards[index])
+	mu.Unlock()
 	time.Sleep(3 * time.Second)
 	mu.Lock()
 	require.True(t, len(expired) > 0)
@@ -42,6 +42,7 @@ func TestStore_DequeExpire(t *testing.T) {
 
 func TestStore_ProcessDeque(t *testing.T) {
 	store := NewStore[int, int](20000, false, nil, nil, nil, 0, 0, nil)
+	defer store.Close()
 
 	evicted := map[int]int{}
 	var mu sync.Mutex
@@ -52,24 +53,27 @@ func TestStore_ProcessDeque(t *testing.T) {
 			mu.Unlock()
 		}
 	}
-	_, index := store.index(123)
-	shard := store.shards[index]
-	shard.qsize = 10
+	h, _ := store.index(123)
+	qindex := h & uint64(RoundedParallelism-1)
+	for _, q := range store.queue.qs {
+		q.size = 10
+	}
 
 	for i := 0; i < 5; i++ {
 		entry := &Entry[int, int]{key: i}
-		entry.cost.Store(1)
-		store.shards[index].deque.PushFront(QueueItem[int, int]{entry, false})
-		store.shards[index].qlen += 1
+		entry.cost = 1
+		store.shards[0].mu.Lock()
+		store.setEntry(h, store.shards[0], 1, entry, false)
+		_, index := store.index(i)
 		store.shards[index].hashmap[i] = entry
 	}
 
 	// move 0,1,2 entries to slru
 	store.Set(123, 123, 8, 0)
-	require.Equal(t, store.shards[index].deque.Len(), 3)
+	require.Equal(t, store.queue.qs[qindex].deque.Len(), 3)
 	keys := []int{}
-	for store.shards[index].deque.Len() != 0 {
-		e := store.shards[index].deque.PopBack()
+	for store.queue.qs[qindex].deque.Len() != 0 {
+		e := store.queue.qs[qindex].deque.PopBack()
 		keys = append(keys, e.entry.key)
 	}
 	require.Equal(t, []int{3, 4, 123}, keys)
@@ -79,19 +83,16 @@ func TestStore_ProcessDeque(t *testing.T) {
 	store.policy.threshold.Store(100)
 	for i := 10; i < 15; i++ {
 		entry := &Entry[int, int]{key: i}
-		entry.cost.Store(1)
-		store.shards[index].deque.PushFront(QueueItem[int, int]{entry, false})
-		store.shards[index].qlen += 1
+		entry.cost = 1
+
+		store.shards[0].mu.Lock()
+		store.setEntry(h, store.shards[0], 1, entry, false)
 		_, index := store.index(i)
+		store.shards[index].mu.Lock()
 		store.shards[index].hashmap[i] = entry
+		store.shards[index].mu.Unlock()
 	}
-	store.shards[index].mu.Lock()
-	store.processDeque(store.shards[index])
-
 	time.Sleep(1 * time.Second)
-	store.writeChan <- WriteBufItem[int, int]{}
-	time.Sleep(1 * time.Second)
-
 	mu.Lock()
 	require.Equal(t, 5, len(evicted))
 	mu.Unlock()
@@ -99,18 +100,21 @@ func TestStore_ProcessDeque(t *testing.T) {
 
 func TestStore_RemoveDeque(t *testing.T) {
 	store := NewStore[int, int](20000, false, nil, nil, nil, 0, 0, nil)
-	_, index := store.index(123)
+	defer store.Close()
+	h, index := store.index(123)
+	qindex := h & uint64(RoundedParallelism-1)
+	q := store.queue.qs[qindex]
+
 	shard := store.shards[index]
 	store.Set(123, 123, 8, 0)
 	entry := shard.hashmap[123]
 	store.Delete(123)
 	// this will send key 123 to policy because deque is full
-	shard.qsize = 10
-	shard.qlen = 10
+	q.size = 10
+	q.len = 10
 	entryNew := &Entry[int, int]{key: 1}
-	entryNew.cost.Store(1)
-	shard.deque.PushFront(QueueItem[int, int]{entryNew, false})
-	shard.qlen += 1
+	entryNew.cost = 1
+	store.queue.Push(h, entryNew, 1, false)
 	shard.hashmap[1] = entryNew
 
 	time.Sleep(1 * time.Second)
@@ -129,6 +133,7 @@ func TestStore_RemoveDeque(t *testing.T) {
 
 func TestStore_DoorKeeperDynamicSize(t *testing.T) {
 	store := NewStore[int, int](200000, true, nil, nil, nil, 0, 0, nil)
+	defer store.Close()
 	shard := store.shards[0]
 	require.True(t, shard.dookeeper.Capacity == 512)
 	for i := 0; i < 5000; i++ {
@@ -139,6 +144,7 @@ func TestStore_DoorKeeperDynamicSize(t *testing.T) {
 
 func TestStore_PolicyCounter(t *testing.T) {
 	store := NewStore[int, int](1000, false, nil, nil, nil, 0, 0, nil)
+	defer store.Close()
 	for i := 0; i < 1000; i++ {
 		store.Set(i, i, 1, 0)
 	}

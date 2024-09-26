@@ -85,4 +85,23 @@ func TestFlag_CombinedFlags(t *testing.T) {
 	if !f.IsFromNVM() {
 		t.Error("Expected from NVM flag to be true, got false")
 	}
+
+	// reset
+	f.flags = 0
+
+	if f.IsRoot() {
+		t.Error("Expected root flag to be false, got true")
+	}
+	if f.IsProbation() {
+		t.Error("Expected probation flag to be false, got true")
+	}
+	if f.IsProtected() {
+		t.Error("Expected protected flag to be false, got true")
+	}
+	if f.IsRemoved() {
+		t.Error("Expected removed flag to be false, got true")
+	}
+	if f.IsFromNVM() {
+		t.Error("Expected from NVM flag to be false, got true")
+	}
 }

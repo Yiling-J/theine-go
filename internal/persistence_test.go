@@ -12,6 +12,9 @@ import (
 
 func TestStorePersistence(t *testing.T) {
 	store := NewStore[int, int](1000, false, nil, nil, nil, 0, 0, nil)
+	for _, q := range store.queue.qs {
+		q.size = 0
+	}
 	for i := 0; i < 20; i++ {
 		_ = store.Set(i, i, 1, 0)
 	}
@@ -34,15 +37,26 @@ func TestStorePersistence(t *testing.T) {
 		strings.Split("19/18/17/16/15/14/13/12/11/10", "/"),
 		strings.Split(store.policy.slru.probation.display(), "/"),
 	)
-	// add 5 entries to shard deque
+
+	for _, q := range store.queue.qs {
+		q.size = 10
+	}
+
+	// add 5 entries to one queue
 	for i := 20; i < 25; i++ {
 		entry := &Entry[int, int]{
 			key:   i,
 			value: i,
 		}
-		entry.cost.Store(int64(1))
 		entry.frequency.Store(int32(i))
-		store.shards[0].deque.PushFront(QueueItem[int, int]{entry, false})
+		entry.cost = 1
+		store.shards[0].mu.Lock()
+		store.setEntry(123, store.shards[0], 1, entry, false)
+		_, index := store.index(i)
+		store.shards[index].mu.Lock()
+		store.shards[index].hashmap[i] = entry
+		store.shards[index].mu.Unlock()
+
 	}
 	// update sketch
 	for i := 0; i < 10; i++ {
@@ -63,8 +77,8 @@ func TestStorePersistence(t *testing.T) {
 
 	new := NewStore[int, int](1000, false, nil, nil, nil, 0, 0, nil)
 	// manually set deque size of shard
-	for _, shard := range new.shards {
-		shard.qsize = 10
+	for _, q := range new.queue.qs {
+		q.size = 10
 	}
 	f, err = os.Open("stest")
 	require.Nil(t, err)
@@ -155,9 +169,10 @@ func TestStorePersistenceResize(t *testing.T) {
 	for _, buf := range store.stripedBuffer {
 		store.drainRead(buf.items())
 	}
+	qsize := store.queue.count * store.queue.qs[0].size
 	// now 0-499 in protected and 500-999 in probation
 	require.Equal(t, 500, store.policy.slru.protected.Len())
-	require.Equal(t, 500, store.policy.slru.probation.Len())
+	require.Equal(t, 500-qsize, store.policy.slru.probation.Len())
 
 	f, err := os.Create("stest")
 	defer os.Remove("stest")

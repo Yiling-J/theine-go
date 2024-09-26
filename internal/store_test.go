@@ -24,7 +24,7 @@ func TestStore_DequeExpire(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		entry := &Entry[int, int]{key: i}
 		entry.expire.Store(expire)
-		entry.cost.Store(1)
+		entry.cost = 1
 		store.shards[0].mu.Lock()
 		store.setEntry(123, store.shards[0], 1, entry, false)
 		_, index := store.index(i)
@@ -59,7 +59,7 @@ func TestStore_ProcessDeque(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		entry := &Entry[int, int]{key: i}
-		entry.cost.Store(1)
+		entry.cost = 1
 		store.shards[0].mu.Lock()
 		store.setEntry(h, store.shards[0], 1, entry, false)
 		_, index := store.index(i)
@@ -81,7 +81,7 @@ func TestStore_ProcessDeque(t *testing.T) {
 	store.policy.threshold.Store(100)
 	for i := 10; i < 15; i++ {
 		entry := &Entry[int, int]{key: i}
-		entry.cost.Store(1)
+		entry.cost = 1
 
 		store.shards[0].mu.Lock()
 		store.setEntry(h, store.shards[0], 1, entry, false)
@@ -110,7 +110,7 @@ func TestStore_RemoveDeque(t *testing.T) {
 	q.size = 10
 	q.len = 10
 	entryNew := &Entry[int, int]{key: 1}
-	entryNew.cost.Store(1)
+	entryNew.cost = 1
 	store.queue.Push(h, entryNew, 1, false)
 	shard.hashmap[1] = entryNew
 

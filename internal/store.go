@@ -278,8 +278,8 @@ func (s *Store[K, V]) GetWithSecodary(key K) (value V, ok bool, err error) {
 
 func (s *Store[K, V]) setEntry(hash uint64, shard *Shard[K, V], cost int64, entry *Entry[K, V], fromNVM bool) {
 	shard.set(entry.key, entry)
-	shard.mu.Unlock()
 	send, removed := s.queue.Push(hash, entry, cost, fromNVM)
+	shard.mu.Unlock()
 	for _, item := range send {
 		s.writeChan <- WriteBufItem[K, V]{entry: item.entry, code: NEW, fromNVM: item.fromNVM}
 	}
@@ -296,13 +296,8 @@ func (s *Store[K, V]) setInternal(key K, value V, cost int64, expire int64, nvmC
 
 	if ok {
 		var reschedule bool
-		var costChange int64
 		exist.value = value
-		oldCost := exist.cost.Swap(cost)
-		if oldCost != cost {
-			costChange = cost - oldCost
-			s.queue.UpdateCost(h, exist, costChange)
-		}
+		queued := s.queue.UpdateCost(h, exist, cost)
 		if expire > 0 {
 			old := exist.expire.Swap(expire)
 			if old != expire {
@@ -310,9 +305,10 @@ func (s *Store[K, V]) setInternal(key K, value V, cost int64, expire int64, nvmC
 			}
 		}
 		shard.mu.Unlock()
-		if reschedule || costChange != 0 {
+
+		if !queued {
 			s.writeChan <- WriteBufItem[K, V]{
-				entry: exist, code: UPDATE, costChange: costChange, rechedule: reschedule,
+				entry: exist, code: UPDATE, cost: cost, rechedule: reschedule,
 			}
 		}
 		return shard, exist, true
@@ -335,7 +331,6 @@ func (s *Store[K, V]) setInternal(key K, value V, cost int64, expire int64, nvmC
 	entry.key = key
 	entry.value = value
 	entry.expire.Store(expire)
-	entry.cost.Store(cost)
 	s.setEntry(h, shard, cost, entry, nvmClean)
 	return shard, entry, true
 
@@ -429,7 +424,9 @@ func (s *Store[K, V]) postDelete(entry *Entry[K, V]) {
 }
 
 // remove entry from cache/policy/timingwheel and add back to pool
+// this method must be used with policy mutex together
 func (s *Store[K, V]) removeEntry(entry *Entry[K, V], reason RemoveReason) {
+	entry.flag.SetRemoved(true)
 	_, index := s.index(entry.key)
 	shard := s.shards[index]
 	shard.mu.Lock()
@@ -508,16 +505,21 @@ func (s *Store[K, V]) drainWrite() {
 			entry.flag.SetFromNVM(item.fromNVM)
 		}
 
+		// ignore removed entries, except code NEW
+		// which will reset removed flag
+		if entry.flag.IsRemoved() && item.code != NEW {
+			continue
+		}
+
 		// lock free because store API never read/modify entry metadata
 		switch item.code {
 		case NEW:
-			if entry.flag.IsRemoved() {
-				continue
-			}
+			entry.flag.SetRemoved(false)
 			if expire := entry.expire.Load(); expire != 0 {
 
 				if expire <= s.timerwheel.clock.NowNano() {
 					s.removeEntry(entry, EXPIRED)
+					continue
 				} else {
 					s.timerwheel.schedule(entry)
 				}
@@ -533,19 +535,20 @@ func (s *Store[K, V]) drainWrite() {
 				s.removeEntry(e, EVICTED)
 			}
 		case REMOVE:
-			entry.flag.SetRemoved(true)
 			s.removeEntry(entry, REMOVED)
 			s.policy.threshold.Store(-1)
 		case EVICTE:
-			entry.flag.SetRemoved(true)
 			s.removeEntry(entry, EVICTED)
 			s.policy.threshold.Store(-1)
 		case UPDATE:
 			if item.rechedule {
 				s.timerwheel.schedule(entry)
 			}
-			if item.costChange != 0 {
-				s.policy.UpdateCost(entry, item.costChange)
+
+			if item.cost != entry.cost {
+				costChange := item.cost - entry.cost
+				entry.cost = item.cost
+				s.policy.UpdateCost(entry, costChange)
 				removed := s.policy.EvictEntries()
 				for _, e := range removed {
 					s.tailUpdate = true
@@ -755,7 +758,7 @@ func (s *Store[K, V]) processSecondary() {
 		if exist {
 			err := s.secondaryCache.Set(
 				item.entry.key, item.entry.value,
-				item.entry.cost.Load(), item.entry.expire.Load(),
+				item.entry.cost, item.entry.expire.Load(),
 			)
 			item.shard.mu.RUnlock(tk)
 			if err != nil {

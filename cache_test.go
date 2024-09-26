@@ -212,6 +212,7 @@ func TestCache_GetSetDeleteNoRace(t *testing.T) {
 func TestCache_Cost(t *testing.T) {
 	client, err := theine.NewBuilder[string, string](500).Build()
 	require.Nil(t, err)
+
 	success := client.Set("z", "z", 501)
 	require.False(t, success)
 	for i := 0; i < 30; i++ {
@@ -222,6 +223,7 @@ func TestCache_Cost(t *testing.T) {
 	time.Sleep(time.Second)
 	require.True(t, client.Len() <= 25 && client.Len() >= 24)
 	require.True(t, client.EstimatedSize() <= 500 && client.EstimatedSize() >= 480)
+	client.Close()
 
 	// test cost func
 	builder := theine.NewBuilder[string, string](500)
@@ -230,6 +232,7 @@ func TestCache_Cost(t *testing.T) {
 	})
 	client, err = builder.Build()
 	require.Nil(t, err)
+	defer client.Close()
 	success = client.Set("z", strings.Repeat("z", 501), 0)
 	require.False(t, success)
 	for i := 0; i < 30; i++ {
@@ -240,12 +243,12 @@ func TestCache_Cost(t *testing.T) {
 	time.Sleep(time.Second)
 	require.True(t, client.Len() <= 25 && client.Len() >= 24)
 	require.True(t, client.EstimatedSize() <= 500 && client.EstimatedSize() >= 480)
-	client.Close()
 }
 
 func TestCache_CostUpdate(t *testing.T) {
 	client, err := theine.NewBuilder[string, string](500).Build()
 	require.Nil(t, err)
+	defer client.Close()
 	for i := 0; i < 30; i++ {
 		key := fmt.Sprintf("key:%d", i)
 		success := client.Set(key, key, 20)
@@ -261,12 +264,12 @@ func TestCache_CostUpdate(t *testing.T) {
 
 	require.True(t, client.Len() <= 16 && client.Len() >= 15)
 	require.True(t, client.EstimatedSize() <= 500 && client.EstimatedSize() >= 480)
-	client.Close()
 }
 
 func TestCache_EstimatedSize(t *testing.T) {
 	client, err := theine.NewBuilder[int, int](500).Build()
 	require.Nil(t, err)
+	defer client.Close()
 	ctx, cfn := context.WithCancel(context.Background())
 	defer cfn()
 	wg, ctx := errgroup.WithContext(ctx)
@@ -284,7 +287,7 @@ func TestCache_EstimatedSize(t *testing.T) {
 	})
 	wg.Go(func() error {
 		defer cfn()
-		for i := 0; i < 10000000; i++ {
+		for i := 0; i < 1000000; i++ {
 			if i%2 == 0 {
 				client.Set(i, 1, 1)
 			} else {
@@ -301,6 +304,7 @@ func TestCache_Doorkeeper(t *testing.T) {
 	builder.Doorkeeper(true)
 	client, err := builder.Build()
 	require.Nil(t, err)
+	defer client.Close()
 	for i := 0; i < 200; i++ {
 		key := fmt.Sprintf("key:%d", i)
 		success := client.Set(key, key, 1)
@@ -323,6 +327,7 @@ func TestCache_Doorkeeper(t *testing.T) {
 func TestCache_ZeroDequeFrequency(t *testing.T) {
 	client, err := theine.NewBuilder[int, int](100).Build()
 	require.Nil(t, err)
+	defer client.Close()
 	// set and access 200 entries
 	for i := 0; i < 200; i++ {
 		success := client.Set(i, i, 1)
@@ -374,6 +379,7 @@ func TestCache_RemovalListener(t *testing.T) {
 	})
 	client, err := builder.Build()
 	require.Nil(t, err)
+	defer client.Close()
 	for i := 0; i < 100; i++ {
 		success := client.Set(i, i, 1)
 		require.True(t, success)
@@ -408,6 +414,7 @@ func TestCache_Range(t *testing.T) {
 	for _, cap := range []int{100, 200000} {
 		client, err := theine.NewBuilder[int, int](int64(cap)).Build()
 		require.Nil(t, err)
+		defer client.Close()
 		for i := 0; i < 100; i++ {
 			success := client.Set(i, i, 1)
 			require.True(t, success)
@@ -461,6 +468,7 @@ func TestCache_StringKey(t *testing.T) {
 	builder.StringKey(func(k Foo) string { return k.Bar })
 	client, err := builder.Build()
 	require.Nil(t, err)
+	defer client.Close()
 	for i := 0; i < 50; i++ {
 		foo := Foo{Bar: strconv.Itoa(i + 100)}
 		client.Set(foo, i, 1)

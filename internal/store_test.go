@@ -10,6 +10,7 @@ import (
 
 func TestStore_DequeExpire(t *testing.T) {
 	store := NewStore[int, int](5000, false, nil, nil, nil, 0, 0, nil)
+	defer store.Close()
 
 	expired := map[int]int{}
 	var mu sync.Mutex
@@ -41,6 +42,7 @@ func TestStore_DequeExpire(t *testing.T) {
 
 func TestStore_ProcessDeque(t *testing.T) {
 	store := NewStore[int, int](20000, false, nil, nil, nil, 0, 0, nil)
+	defer store.Close()
 
 	evicted := map[int]int{}
 	var mu sync.Mutex
@@ -98,6 +100,7 @@ func TestStore_ProcessDeque(t *testing.T) {
 
 func TestStore_RemoveDeque(t *testing.T) {
 	store := NewStore[int, int](20000, false, nil, nil, nil, 0, 0, nil)
+	defer store.Close()
 	h, index := store.index(123)
 	qindex := h & uint64(RoundedParallelism-1)
 	q := store.queue.qs[qindex]
@@ -130,6 +133,7 @@ func TestStore_RemoveDeque(t *testing.T) {
 
 func TestStore_DoorKeeperDynamicSize(t *testing.T) {
 	store := NewStore[int, int](200000, true, nil, nil, nil, 0, 0, nil)
+	defer store.Close()
 	shard := store.shards[0]
 	require.True(t, shard.dookeeper.Capacity == 512)
 	for i := 0; i < 5000; i++ {
@@ -140,6 +144,7 @@ func TestStore_DoorKeeperDynamicSize(t *testing.T) {
 
 func TestStore_PolicyCounter(t *testing.T) {
 	store := NewStore[int, int](1000, false, nil, nil, nil, 0, 0, nil)
+	defer store.Close()
 	for i := 0; i < 1000; i++ {
 		store.Set(i, i, 1, 0)
 	}

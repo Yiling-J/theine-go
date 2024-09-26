@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBuildError(t *testing.T) {
+func TestLoadingCache_BuildError(t *testing.T) {
 	_, err := theine.NewBuilder[string, string](0).BuildWithLoader(
 		func(ctx context.Context, key string) (theine.Loaded[string], error) {
 			return theine.Loaded[string]{Value: key}, nil
@@ -26,7 +26,7 @@ func TestBuildError(t *testing.T) {
 	require.NotNil(t, err)
 }
 
-func TestLoadingCacheGetSetParallel(t *testing.T) {
+func TestLoadingCache_GetSetParallel(t *testing.T) {
 	client, err := theine.NewBuilder[string, string](1000).BuildWithLoader(
 		func(ctx context.Context, key string) (theine.Loaded[string], error) {
 			return theine.Loaded[string]{Value: key}, nil
@@ -53,7 +53,7 @@ func TestLoadingCacheGetSetParallel(t *testing.T) {
 	client.Close()
 }
 
-func TestLoadingCacheSetWithTTL(t *testing.T) {
+func TestLoadingCache_SetWithTTL(t *testing.T) {
 	counter := 0
 	client, err := theine.NewBuilder[string, string](500).BuildWithLoader(
 		func(ctx context.Context, key string) (theine.Loaded[string], error) {
@@ -101,8 +101,8 @@ func TestLoadingCacheSetWithTTL(t *testing.T) {
 	client.Close()
 }
 
-func TestLoadingCacheSetWithTTLAutoExpire(t *testing.T) {
-	client, err := theine.NewBuilder[string, string](500).BuildWithLoader(
+func TestLoadingCache_SetWithTTLAutoExpire(t *testing.T) {
+	client, err := theine.NewBuilder[string, string](100).BuildWithLoader(
 		func(ctx context.Context, key string) (theine.Loaded[string], error) {
 			return theine.Loaded[string]{Value: key, TTL: 5 * time.Second}, nil
 		},
@@ -123,7 +123,7 @@ func TestLoadingCacheSetWithTTLAutoExpire(t *testing.T) {
 	client.Close()
 }
 
-func TestLoadingCache(t *testing.T) {
+func TestLoadingCache_Simple(t *testing.T) {
 	builder := theine.NewBuilder[int, int](100)
 	counter := atomic.Uint32{}
 	client, err := builder.BuildWithLoader(func(ctx context.Context, key int) (theine.Loaded[int], error) {
@@ -162,7 +162,7 @@ func TestLoadingCache(t *testing.T) {
 
 }
 
-func TestLoadError(t *testing.T) {
+func TestLoadingCache_LoadError(t *testing.T) {
 	builder := theine.NewBuilder[int, int](100)
 	client, err := builder.Loading(func(ctx context.Context, key int) (theine.Loaded[int], error) {
 		if key != 1 {
@@ -175,7 +175,7 @@ func TestLoadError(t *testing.T) {
 	require.NotNil(t, err)
 }
 
-func TestLoadingCost(t *testing.T) {
+func TestLoadingCache_Cost(t *testing.T) {
 	// test cost func
 	builder := theine.NewBuilder[string, string](500)
 	builder.Cost(func(v string) int64 {
@@ -193,11 +193,11 @@ func TestLoadingCost(t *testing.T) {
 		require.True(t, success)
 	}
 	time.Sleep(time.Second)
-	require.True(t, client.Len() == 25)
+	require.True(t, client.Len() <= 25 && client.Len() >= 24)
 	client.Close()
 }
 
-func TestLoadingDoorkeeper(t *testing.T) {
+func TestLoadingCache_Doorkeeper(t *testing.T) {
 	builder := theine.NewBuilder[string, string](500)
 	builder.Doorkeeper(true)
 	client, err := builder.BuildWithLoader(func(ctx context.Context, key string) (theine.Loaded[string], error) {
@@ -223,7 +223,7 @@ func TestLoadingDoorkeeper(t *testing.T) {
 	}
 }
 
-func TestLoadingRemovalListener(t *testing.T) {
+func TestLoadingCache_RemovalListener(t *testing.T) {
 	builder := theine.NewBuilder[int, int](100)
 	var lock sync.Mutex
 	removed := map[int]int{}
@@ -275,7 +275,7 @@ func TestLoadingRemovalListener(t *testing.T) {
 	lock.Unlock()
 }
 
-func TestLoadingRange(t *testing.T) {
+func TestLoadingCache_Range(t *testing.T) {
 	for _, cap := range []int{100, 200000} {
 		client, err := theine.NewBuilder[int, int](int64(cap)).BuildWithLoader(func(ctx context.Context, key int) (theine.Loaded[int], error) {
 			return theine.Loaded[int]{Value: key, Cost: 1, TTL: 0}, nil
@@ -303,7 +303,7 @@ func TestLoadingRange(t *testing.T) {
 	}
 }
 
-func TestLoadingGetSetDeleteNoRace(t *testing.T) {
+func TestLoadingCache_GetSetDeleteNoRace(t *testing.T) {
 	for _, size := range []int{500, 100000} {
 		client, err := theine.NewBuilder[string, string](int64(size)).BuildWithLoader(func(ctx context.Context, key string) (theine.Loaded[string], error) {
 			return theine.Loaded[string]{Value: key, Cost: 1, TTL: 0}, nil

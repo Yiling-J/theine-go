@@ -278,8 +278,8 @@ func (s *Store[K, V]) GetWithSecodary(key K) (value V, ok bool, err error) {
 
 func (s *Store[K, V]) setEntry(hash uint64, shard *Shard[K, V], cost int64, entry *Entry[K, V], fromNVM bool) {
 	shard.set(entry.key, entry)
-	send, removed := s.queue.Push(hash, entry, cost, fromNVM)
 	shard.mu.Unlock()
+	send, removed := s.queue.Push(hash, entry, cost, fromNVM)
 	for _, item := range send {
 		s.writeChan <- WriteBufItem[K, V]{entry: item.entry, code: NEW, fromNVM: item.fromNVM}
 	}
@@ -295,8 +295,8 @@ func (s *Store[K, V]) setInternal(key K, value V, cost int64, expire int64, nvmC
 	exist, ok := shard.get(key)
 
 	if ok {
-		var reschedule bool
 		exist.value = value
+		var reschedule bool
 		queued := s.queue.UpdateCost(h, exist, cost)
 		if expire > 0 {
 			old := exist.expire.Swap(expire)
@@ -304,6 +304,9 @@ func (s *Store[K, V]) setInternal(key K, value V, cost int64, expire int64, nvmC
 				reschedule = true
 			}
 		}
+		// on update, unlock shard lock until queue update,
+		// this is because when update/delete race, the deleted
+		// entry might already been reused if mutex not exist.
 		shard.mu.Unlock()
 
 		if !queued {
@@ -331,6 +334,8 @@ func (s *Store[K, V]) setInternal(key K, value V, cost int64, expire int64, nvmC
 	entry.key = key
 	entry.value = value
 	entry.expire.Store(expire)
+	entry.queued = 0 // 0: map, 1: queue, 2: queue->slru
+	entry.cost = -1
 	s.setEntry(h, shard, cost, entry, nvmClean)
 	return shard, entry, true
 
@@ -534,6 +539,7 @@ func (s *Store[K, V]) drainWrite() {
 				s.tailUpdate = true
 				s.removeEntry(e, EVICTED)
 			}
+
 		case REMOVE:
 			s.removeEntry(entry, REMOVED)
 			s.policy.threshold.Store(-1)
@@ -543,6 +549,12 @@ func (s *Store[K, V]) drainWrite() {
 		case UPDATE:
 			if item.rechedule {
 				s.timerwheel.schedule(entry)
+			}
+
+			// create/update race
+			if entry.meta.prev == nil {
+				entry.cost = item.cost
+				continue
 			}
 
 			if item.cost != entry.cost {

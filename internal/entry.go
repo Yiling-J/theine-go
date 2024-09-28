@@ -40,7 +40,7 @@ type Entry[K comparable, V any] struct {
 	cost      int64
 	expire    atomic.Int64
 	frequency atomic.Int32
-	deque     bool
+	queued    uint8
 	flag      Flag
 }
 

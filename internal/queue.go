@@ -35,14 +35,20 @@ func (s *StripedQueue[K, V]) Push(hash uint64, entry *Entry[K, V], cost int64, f
 func (s *StripedQueue[K, V]) UpdateCost(hash uint64, entry *Entry[K, V], cost int64) bool {
 	q := s.qs[hash&uint64(s.count-1)]
 	q.mu.Lock()
-	queued := entry.deque
-	if entry.deque && entry.cost != cost {
+	defer q.mu.Unlock()
+	if entry.queued == 0 {
+		entry.cost = cost
+		return true
+	}
+	if entry.queued == 1 {
+		cost := entry.cost
 		costChange := cost - entry.cost
 		entry.cost = cost
 		q.len += int(costChange)
+		return true
+
 	}
-	q.mu.Unlock()
-	return queued
+	return false
 }
 
 type Queue[K comparable, V any] struct {
@@ -54,9 +60,14 @@ type Queue[K comparable, V any] struct {
 
 func (q *Queue[K, V]) push(hash uint64, entry *Entry[K, V], cost int64, fromNVM bool, threshold int32) ([]QueueItem[K, V], []QueueItem[K, V]) {
 	q.mu.Lock()
-	entry.deque = true
-	entry.cost = cost
-	q.len += int(cost)
+	// new entry cost should be -1,
+	// not -1 means already updated and cost param is stale
+	if entry.cost == -1 {
+		entry.cost = cost
+	}
+	entry.queued = 1
+
+	q.len += int(entry.cost)
 	q.deque.PushFront(QueueItem[K, V]{entry: entry, fromNVM: fromNVM})
 	if q.len <= q.size {
 		q.mu.Unlock()
@@ -70,7 +81,7 @@ func (q *Queue[K, V]) push(hash uint64, entry *Entry[K, V], cost int64, fromNVM 
 
 	for q.len > q.size {
 		evicted := q.deque.PopBack()
-		evicted.entry.deque = false
+		evicted.entry.queued = 2
 		q.len -= int(evicted.entry.cost)
 
 		count := evicted.entry.frequency.Load()

@@ -41,7 +41,6 @@ func (s *StripedQueue[K, V]) UpdateCost(hash uint64, entry *Entry[K, V], cost in
 		return true
 	}
 	if entry.queued == 1 {
-		cost := entry.cost
 		costChange := cost - entry.cost
 		entry.cost = cost
 		q.len += int(costChange)

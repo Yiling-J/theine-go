@@ -7,9 +7,11 @@ import (
 )
 
 type StripedQueue[K comparable, V any] struct {
-	qs            []*Queue[K, V]
-	count         int
-	thresholdLoad func() int32
+	qs             []*Queue[K, V]
+	count          int
+	thresholdLoad  func() int32
+	sendCallback   func(item QueueItem[K, V])
+	removeCallback func(item QueueItem[K, V])
 }
 
 func NewStripedQueue[K comparable, V any](queueCount int, queueSize int, thresholdLoad func() int32) *StripedQueue[K, V] {
@@ -27,9 +29,9 @@ func NewStripedQueue[K comparable, V any](queueCount int, queueSize int, thresho
 	return sq
 }
 
-func (s *StripedQueue[K, V]) Push(hash uint64, entry *Entry[K, V], cost int64, fromNVM bool) ([]QueueItem[K, V], []QueueItem[K, V]) {
+func (s *StripedQueue[K, V]) Push(hash uint64, entry *Entry[K, V], cost int64, fromNVM bool) {
 	q := s.qs[hash&uint64(s.count-1)]
-	return q.push(hash, entry, cost, fromNVM, s.thresholdLoad())
+	q.push(hash, entry, cost, fromNVM, s.thresholdLoad(), s.sendCallback, s.removeCallback)
 }
 
 func (s *StripedQueue[K, V]) UpdateCost(hash uint64, entry *Entry[K, V], cost int64) bool {
@@ -57,7 +59,7 @@ type Queue[K comparable, V any] struct {
 	mu    sync.Mutex
 }
 
-func (q *Queue[K, V]) push(hash uint64, entry *Entry[K, V], cost int64, fromNVM bool, threshold int32) ([]QueueItem[K, V], []QueueItem[K, V]) {
+func (q *Queue[K, V]) push(hash uint64, entry *Entry[K, V], cost int64, fromNVM bool, threshold int32, sendCallback func(item QueueItem[K, V]), removeCallback func(item QueueItem[K, V])) {
 	q.mu.Lock()
 	// new entry cost should be -1,
 	// not -1 means already updated and cost param is stale
@@ -70,7 +72,7 @@ func (q *Queue[K, V]) push(hash uint64, entry *Entry[K, V], cost int64, fromNVM 
 	q.deque.PushFront(QueueItem[K, V]{entry: entry, fromNVM: fromNVM})
 	if q.len <= q.size {
 		q.mu.Unlock()
-		return nil, nil
+		return
 	}
 
 	// send to slru
@@ -95,5 +97,10 @@ func (q *Queue[K, V]) push(hash uint64, entry *Entry[K, V], cost int64, fromNVM 
 		}
 	}
 	q.mu.Unlock()
-	return send, removed
+	for _, item := range send {
+		sendCallback(item)
+	}
+	for _, item := range removed {
+		removeCallback(item)
+	}
 }

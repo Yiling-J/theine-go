@@ -193,6 +193,12 @@ func NewStore[K comparable, V any](
 	s.queue = NewStripedQueue[K, V](
 		queueCount, queueSize, func() int32 { return s.policy.threshold.Load() },
 	)
+	s.queue.sendCallback = func(item QueueItem[K, V]) {
+		s.writeChan <- WriteBufItem[K, V]{entry: item.entry, code: NEW, fromNVM: item.fromNVM}
+	}
+	s.queue.removeCallback = func(item QueueItem[K, V]) {
+		s.writeChan <- WriteBufItem[K, V]{entry: item.entry, code: EVICTE}
+	}
 
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 	s.timerwheel = NewTimerWheel[K, V](uint(maxsize))
@@ -279,13 +285,7 @@ func (s *Store[K, V]) GetWithSecodary(key K) (value V, ok bool, err error) {
 func (s *Store[K, V]) setEntry(hash uint64, shard *Shard[K, V], cost int64, entry *Entry[K, V], fromNVM bool) {
 	shard.set(entry.key, entry)
 	shard.mu.Unlock()
-	send, removed := s.queue.Push(hash, entry, cost, fromNVM)
-	for _, item := range send {
-		s.writeChan <- WriteBufItem[K, V]{entry: item.entry, code: NEW, fromNVM: item.fromNVM}
-	}
-	for _, item := range removed {
-		s.writeChan <- WriteBufItem[K, V]{entry: item.entry, code: EVICTE}
-	}
+	s.queue.Push(hash, entry, cost, fromNVM)
 }
 
 func (s *Store[K, V]) setInternal(key K, value V, cost int64, expire int64, nvmClean bool) (*Shard[K, V], *Entry[K, V], bool) {

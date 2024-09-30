@@ -108,7 +108,6 @@ func TestStore_RemoveDeque(t *testing.T) {
 	shard := store.shards[index]
 	store.Set(123, 123, 8, 0)
 	entry := shard.hashmap[123]
-	store.Delete(123)
 	// this will send key 123 to policy because deque is full
 	q.size = 10
 	q.len = 10
@@ -116,6 +115,8 @@ func TestStore_RemoveDeque(t *testing.T) {
 	entryNew.cost = 1
 	store.queue.Push(h, entryNew, 1, false)
 	shard.hashmap[1] = entryNew
+	// delete key
+	store.Delete(123)
 
 	time.Sleep(1 * time.Second)
 	store.writeChan <- WriteBufItem[int, int]{}

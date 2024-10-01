@@ -8,11 +8,6 @@ import (
 	"sync/atomic"
 )
 
-var upool = sync.Pool{
-	New: func() any {
-		return &atomic.Uint32{}
-	},
-}
 
 type Entry[K comparable, V any] struct {
 	key       K
@@ -27,7 +22,6 @@ type Entry[K comparable, V any] struct {
 }
 
 func (e *Entry[K, V]) Read(key K) (V, bool) {
-	u := upool.Get().(*atomic.Uint32)
 	for {
 
 		seq := e.seqlock.Load()
@@ -37,21 +31,17 @@ func (e *Entry[K, V]) Read(key K) (V, bool) {
 		}
 
 		value := e.value
-		u.CompareAndSwap(0, 0)
 		if e.key != key {
-			upool.Put(u)
 			return value, false
 		}
 
 		if seq == e.seqlock.Load() {
-			upool.Put(u)
 			return value, true
 		}
 	}
 
 }
 func (e *Entry[K, V]) ReadKV() (K, V) {
-	u := upool.Get().(*atomic.Uint32)
 	for {
 		seq := e.seqlock.Load()
 		if seq&1 != 0 {
@@ -60,10 +50,8 @@ func (e *Entry[K, V]) ReadKV() (K, V) {
 		}
 		k := e.key
 		v := e.value
-		u.CompareAndSwap(0, 0)
 
 		if seq == e.seqlock.Load() {
-			upool.Put(u)
 			return k, v
 		}
 	}

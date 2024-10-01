@@ -4,7 +4,6 @@ package internal
 
 import (
 	"runtime"
-	"sync"
 	"sync/atomic"
 )
 

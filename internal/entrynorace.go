@@ -30,8 +30,8 @@ func (e *Entry[K, V]) Read(key K) (V, bool) {
 			runtime.Gosched()
 			continue
 		}
-		foo.CompareAndSwap(1,1)
 		value := e.value
+		foo.CompareAndSwap(1,1)
 		if seq == e.seqlock.Load() {
 			return value, true
 		}

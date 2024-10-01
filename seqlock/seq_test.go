@@ -15,6 +15,7 @@ package node
 
 import (
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -26,19 +27,26 @@ type Node[K comparable, V any] struct {
 	lock  atomic.Uint32
 }
 
-var p uint32
+var upool = sync.Pool{
+	New: func() any {
+		return &atomic.Uint32{}
+	},
+}
 
 func (n *Node[K, V]) Value() V {
+	u := upool.Get().(*atomic.Uint32)
 	for {
+
 		seq := n.lock.Load()
 		if seq&1 != 0 {
 			runtime.Gosched()
 			continue
 		}
 		value := n.value
-		atomic.LoadUint32(&p)
+		u.CompareAndSwap(0, 0)
 
 		if seq == n.lock.Load() {
+			upool.Put(u)
 			return value
 		}
 	}

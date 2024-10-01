@@ -2,6 +2,7 @@ package node_test
 
 import (
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"testing"
 )
@@ -28,9 +29,14 @@ func o1(n *t) any {
 	}
 }
 
-var p uint32
+var upool = sync.Pool{
+	New: func() any {
+		return &atomic.Uint32{}
+	},
+}
 
 func o2(n *t) any {
+	u := upool.Get().(*atomic.Uint32)
 	for {
 		seq := n.lock.Load()
 		if seq&1 != 0 {
@@ -38,9 +44,10 @@ func o2(n *t) any {
 			continue
 		}
 		value := n.value
-		atomic.LoadUint32(&p)
+		u.CompareAndSwap(0, 0)
 
 		if n.lock.Load() == seq {
+			upool.Put(u)
 			return value
 		}
 	}
@@ -55,6 +62,17 @@ func BenchmarkNode_O1(b *testing.B) {
 	}
 }
 
+func BenchmarkNode_O1P(b *testing.B) {
+	t := &t{
+		value: 666,
+	}
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			o1(t)
+		}
+	})
+}
+
 func BenchmarkNode_O2(b *testing.B) {
 	t := &t{
 		value: 666,
@@ -62,4 +80,15 @@ func BenchmarkNode_O2(b *testing.B) {
 	for n := 0; n < b.N; n++ {
 		o2(t)
 	}
+}
+
+func BenchmarkNode_O2P(b *testing.B) {
+	t := &t{
+		value: 666,
+	}
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			o2(t)
+		}
+	})
 }

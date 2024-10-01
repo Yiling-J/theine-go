@@ -76,7 +76,9 @@ func TestSeqlock_Parallel(t *testing.T) {
 
 type triple struct {
 	a int
+	q [20]int
 	b int
+	e [20]int
 	c int
 }
 

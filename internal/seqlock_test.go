@@ -2,6 +2,7 @@ package internal
 
 import (
 	"fmt"
+	"runtime"
 	"sync/atomic"
 	"testing"
 
@@ -71,4 +72,54 @@ func TestSeqlock_Parallel(t *testing.T) {
 
 	require.Equal(t, 1000, int(keyChange.Load()))
 
+}
+
+type triple struct {
+	a int
+	b int
+	c int
+}
+
+func TestSeqlock_Full(t *testing.T) {
+	const (
+		goroutines         = 100
+		numberOfIterations = 1000000
+	)
+
+	entry := &Entry[int, triple]{key: 1, value: triple{}}
+	var ready atomic.Int64
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			for ready.Load() == 0 {
+				runtime.Gosched()
+			}
+
+			for j := 0; j < numberOfIterations; j++ {
+				v, _ := entry.Read(1)
+				if v.a+100 != v.b || v.c != v.a+v.b {
+					t.Errorf("not valid value state. got: %+v", v)
+				}
+			}
+
+			ready.Add(int64(-1))
+		}()
+	}
+
+	counter := 0
+	for {
+		entry.UpdateValue(triple{
+			a: counter,
+			b: counter + 100,
+			c: 2*counter + 100,
+		})
+		counter++
+		if counter == 1 {
+			ready.Add(int64(goroutines))
+		}
+		if ready.Load() == 0 {
+			break
+		}
+	}
+
+	t.Logf("counter: %d", counter)
 }

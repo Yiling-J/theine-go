@@ -20,6 +20,8 @@ type Entry[K comparable, V any] struct {
 	flag      Flag
 }
 
+var foo atomic.Uint32
+
 func (e *Entry[K, V]) Read(key K) (V, bool) {
 	for {
 
@@ -28,12 +30,8 @@ func (e *Entry[K, V]) Read(key K) (V, bool) {
 			runtime.Gosched()
 			continue
 		}
-
+		foo.CompareAndSwap(1,1)
 		value := e.value
-		if e.key != key {
-			return value, false
-		}
-
 		if seq == e.seqlock.Load() {
 			return value, true
 		}

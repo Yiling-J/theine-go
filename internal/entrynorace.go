@@ -30,9 +30,9 @@ func (e *Entry[K, V]) Read(key K) (V, bool) {
 		}
 
 		value := e.value
-		// if e.key != key {
-		// 	return value, false
-		// }
+		if e.key != key {
+			return value, false
+		}
 
 		if seq == e.seqlock.Load() {
 			return value, true

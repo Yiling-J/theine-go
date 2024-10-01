@@ -19,6 +19,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/Yiling-J/theine-go/internal/utils"
 	"github.com/Yiling-J/theine-go/internal/xruntime"
 )
 
@@ -56,7 +57,7 @@ type cstripe struct {
 
 // UnsignedCounter creates a new UnsignedCounter instance.
 func NewUnsignedCounter() *UnsignedCounter {
-	nstripes := RoundUpPowerOf2(xruntime.Parallelism())
+	nstripes := utils.RoundUpPowerOf2(xruntime.Parallelism())
 	c := UnsignedCounter{
 		stripes: make([]cstripe, nstripes),
 		mask:    nstripes - 1,

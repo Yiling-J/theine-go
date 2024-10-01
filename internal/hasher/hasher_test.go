@@ -1,9 +1,10 @@
-package internal
+package hasher_test
 
 import (
 	"strconv"
 	"testing"
 
+	"github.com/Yiling-J/theine-go/internal/hasher"
 	"github.com/stretchr/testify/require"
 )
 
@@ -12,16 +13,16 @@ type Foo struct {
 }
 
 func TestStringKey(t *testing.T) {
-	hasher := NewHasher[string](nil)
-	h := hasher.hash(strconv.Itoa(123456))
+	hasher := hasher.NewHasher[string](nil)
+	h := hasher.Hash(strconv.Itoa(123456))
 	for i := 0; i < 10; i++ {
-		require.Equal(t, h, hasher.hash(strconv.Itoa(123456)))
+		require.Equal(t, h, hasher.Hash(strconv.Itoa(123456)))
 	}
 }
 
 func TestStructStringKey(t *testing.T) {
-	hasher1 := NewHasher[Foo](nil)
-	hasher2 := NewHasher[Foo](func(k Foo) string {
+	hasher1 := hasher.NewHasher[Foo](nil)
+	hasher2 := hasher.NewHasher(func(k Foo) string {
 		return k.Bar
 	})
 	h1 := uint64(0)
@@ -29,17 +30,17 @@ func TestStructStringKey(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		foo := Foo{Bar: strconv.Itoa(123456)}
 		if h1 == 0 {
-			h1 = hasher1.hash(foo)
+			h1 = hasher1.Hash(foo)
 		} else {
-			require.NotEqual(t, h1, hasher1.hash(foo))
+			require.NotEqual(t, h1, hasher1.Hash(foo))
 		}
 	}
 	for i := 0; i < 10; i++ {
 		foo := Foo{Bar: strconv.Itoa(123456)}
 		if h2 == 0 {
-			h2 = hasher2.hash(foo)
+			h2 = hasher2.Hash(foo)
 		} else {
-			require.Equal(t, h2, hasher2.hash(foo))
+			require.Equal(t, h2, hasher2.Hash(foo))
 		}
 	}
 }

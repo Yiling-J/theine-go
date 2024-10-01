@@ -2,12 +2,14 @@ package internal
 
 import (
 	"sync/atomic"
+
+	"github.com/Yiling-J/theine-go/internal/hasher"
 )
 
 type TinyLfu[K comparable, V any] struct {
 	slru       *Slru[K, V]
 	sketch     *CountMinSketch
-	hasher     *Hasher[K]
+	hasher     *hasher.Hasher[K]
 	size       uint
 	counter    uint
 	misses     *UnsignedCounter
@@ -20,7 +22,7 @@ type TinyLfu[K comparable, V any] struct {
 	step       int8
 }
 
-func NewTinyLfu[K comparable, V any](size uint, hasher *Hasher[K]) *TinyLfu[K, V] {
+func NewTinyLfu[K comparable, V any](size uint, hasher *hasher.Hasher[K]) *TinyLfu[K, V] {
 	tlfu := &TinyLfu[K, V]{
 		size:   size,
 		slru:   NewSlru[K, V](size),
@@ -97,10 +99,10 @@ func (t *TinyLfu[K, V]) Set(entry *Entry[K, V]) *Entry[K, V] {
 		if victim := t.slru.victim(); victim != nil {
 			freq := int(entry.frequency.Load())
 			if freq == -1 {
-				freq = int(t.sketch.Estimate(t.hasher.hash(entry.key)))
+				freq = int(t.sketch.Estimate(t.hasher.Hash(entry.key)))
 			}
 			evictedCount := uint(freq) + uint(t.lruFactor)
-			victimCount := t.sketch.Estimate(t.hasher.hash(victim.key))
+			victimCount := t.sketch.Estimate(t.hasher.Hash(victim.key))
 			if evictedCount <= uint(victimCount) {
 				return entry
 			}
@@ -181,7 +183,7 @@ func (t *TinyLfu[K, V]) UpdateThreshold() {
 		tail := t.slru.victim()
 		if tail != nil {
 			t.threshold.Store(
-				int32(t.sketch.Estimate(t.hasher.hash(tail.key)) - uint(t.lruFactor)),
+				int32(t.sketch.Estimate(t.hasher.Hash(tail.key)) - uint(t.lruFactor)),
 			)
 		} else {
 			// cache is not full

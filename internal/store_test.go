@@ -28,8 +28,7 @@ func TestStore_DequeExpire(t *testing.T) {
 		entry.cost = 1
 		store.shards[0].mu.Lock()
 		store.setEntry(123, store.shards[0], 1, entry, false)
-		_, index := store.index(i)
-		store.shards[index].hashmap[i] = entry
+		store.hashmap.Set(i, entry)
 	}
 	mu.Lock()
 	require.True(t, len(expired) == 0)
@@ -64,8 +63,7 @@ func TestStore_ProcessDeque(t *testing.T) {
 		entry.cost = 1
 		store.shards[0].mu.Lock()
 		store.setEntry(h, store.shards[0], 1, entry, false)
-		_, index := store.index(i)
-		store.shards[index].hashmap[i] = entry
+		store.hashmap.Set(i, entry)
 	}
 
 	// move 0,1,2 entries to slru
@@ -89,7 +87,7 @@ func TestStore_ProcessDeque(t *testing.T) {
 		store.setEntry(h, store.shards[0], 1, entry, false)
 		_, index := store.index(i)
 		store.shards[index].mu.Lock()
-		store.shards[index].hashmap[i] = entry
+		store.hashmap.Set(i, entry)
 		store.shards[index].mu.Unlock()
 	}
 	time.Sleep(1 * time.Second)
@@ -107,14 +105,15 @@ func TestStore_RemoveDeque(t *testing.T) {
 
 	shard := store.shards[index]
 	store.Set(123, 123, 8, 0)
-	entry := shard.hashmap[123]
+	entry, ok := store.hashmap.Get(123)
+	require.True(t, ok)
 	// this will send key 123 to policy because deque is full
 	q.size = 10
 	q.len = 10
 	entryNew := &Entry[int, int]{key: 1}
 	entryNew.cost = 1
 	store.queue.Push(h, entryNew, 1, false)
-	shard.hashmap[1] = entryNew
+	store.hashmap.Set(1, entryNew)
 	// delete key
 	store.Delete(123)
 
@@ -128,7 +127,7 @@ func TestStore_RemoveDeque(t *testing.T) {
 	require.Nil(t, entry.meta.prev)
 	require.Nil(t, entry.meta.next)
 	shard.mu.Unlock()
-	_, ok := store.Get(123)
+	_, ok = store.Get(123)
 	require.False(t, ok)
 }
 
@@ -138,7 +137,7 @@ func TestStore_DoorKeeperDynamicSize(t *testing.T) {
 	shard := store.shards[0]
 	require.True(t, shard.dookeeper.Capacity == 512)
 	for i := 0; i < 5000; i++ {
-		shard.set(i, &Entry[int, int]{})
+		store.hashmap.Set(i, &Entry[int, int]{})
 	}
 	require.True(t, shard.dookeeper.Capacity > 100000)
 }

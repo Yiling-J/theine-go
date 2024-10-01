@@ -1,4 +1,4 @@
-package internal
+package hasher
 
 import (
 	"unsafe"
@@ -28,7 +28,7 @@ func NewHasher[K comparable](stringKeyFunc func(K) string) *Hasher[K] {
 	return h
 }
 
-func (h *Hasher[K]) hash(key K) uint64 {
+func (h *Hasher[K]) Hash(key K) uint64 {
 	var strKey string
 	if h.kfunc != nil {
 		strKey = h.kfunc(key)
@@ -41,19 +41,4 @@ func (h *Hasher[K]) hash(key K) uint64 {
 		}{unsafe.Pointer(&key), h.ksize}))
 	}
 	return xxh3.HashString(strKey)
-}
-
-// RoundUpPowerOf2 is based on https://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2.
-func RoundUpPowerOf2(v uint32) uint32 {
-	if v == 0 {
-		return 1
-	}
-	v--
-	v |= v >> 1
-	v |= v >> 2
-	v |= v >> 4
-	v |= v >> 8
-	v |= v >> 16
-	v++
-	return v
 }

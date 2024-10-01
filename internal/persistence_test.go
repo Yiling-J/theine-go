@@ -54,7 +54,7 @@ func TestStorePersistence(t *testing.T) {
 		store.setEntry(123, store.shards[0], 1, entry, false)
 		_, index := store.index(i)
 		store.shards[index].mu.Lock()
-		store.shards[index].hashmap[i] = entry
+		store.hashmap.Set(i, entry)
 		store.shards[index].mu.Unlock()
 
 	}
@@ -65,7 +65,7 @@ func TestStorePersistence(t *testing.T) {
 	for _, buf := range store.stripedBuffer {
 		store.drainRead(buf.items())
 	}
-	count := store.policy.sketch.Estimate(store.hasher.hash(5))
+	count := store.policy.sketch.Estimate(store.hasher.Hash(5))
 	require.True(t, count > 5)
 
 	f, err := os.Create("stest")
@@ -103,7 +103,7 @@ func TestStorePersistence(t *testing.T) {
 	)
 	require.Equal(t, "19/18/17/16/15/14/13/12/11/10", new.policy.slru.probation.display())
 
-	count = new.policy.sketch.Estimate(store.hasher.hash(5))
+	count = new.policy.sketch.Estimate(store.hasher.Hash(5))
 	require.True(t, count > 5)
 
 }

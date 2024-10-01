@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package internal
+package hashmap
 
 import (
 	"runtime"
@@ -21,6 +21,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Yiling-J/theine-go/internal/utils"
 	"github.com/Yiling-J/theine-go/internal/xruntime"
 )
 
@@ -72,7 +73,7 @@ type rslot struct {
 
 // NewRBMutex creates a new RBMutex instance.
 func NewRBMutex() *RBMutex {
-	nslots := RoundUpPowerOf2(xruntime.Parallelism())
+	nslots := utils.RoundUpPowerOf2(xruntime.Parallelism())
 	mu := RBMutex{
 		rslots: make([]rslot, nslots),
 		rmask:  nslots - 1,

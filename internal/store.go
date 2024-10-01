@@ -7,7 +7,6 @@ import (
 	"errors"
 	"io"
 	"math/rand"
-	"runtime"
 	"sync"
 	"time"
 
@@ -15,6 +14,9 @@ import (
 	"github.com/zeebo/xxh3"
 
 	"github.com/Yiling-J/theine-go/internal/bf"
+	"github.com/Yiling-J/theine-go/internal/hasher"
+	"github.com/Yiling-J/theine-go/internal/hashmap"
+	"github.com/Yiling-J/theine-go/internal/utils"
 	"github.com/Yiling-J/theine-go/internal/xruntime"
 )
 
@@ -29,7 +31,6 @@ const (
 var (
 	VersionMismatch    = errors.New("version mismatch")
 	RoundedParallelism int
-	ShardCount         int
 	StripedBufferSize  int
 	WriteChanSize      int
 	WriteBufferSize    int
@@ -37,62 +38,29 @@ var (
 
 func init() {
 	parallelism := xruntime.Parallelism()
-	RoundedParallelism = int(RoundUpPowerOf2(parallelism))
-	ShardCount = 4 * RoundedParallelism
+	RoundedParallelism = int(utils.RoundUpPowerOf2(parallelism))
 	StripedBufferSize = 4 * RoundedParallelism
 	WriteChanSize = 64 * RoundedParallelism
 	WriteBufferSize = 128
 }
 
 type Shard[K comparable, V any] struct {
-	hashmap   map[K]*Entry[K, V]
 	dookeeper *bf.Bloomfilter
 	group     *Group[K, Loaded[V]]
 	vgroup    *Group[K, V] // used in secondary cache
 	counter   uint
-	mu        *RBMutex
+	mu        sync.Mutex
 }
 
 func NewShard[K comparable, V any](doorkeeper bool) *Shard[K, V] {
 	s := &Shard[K, V]{
-		hashmap: make(map[K]*Entry[K, V]),
-		group:   NewGroup[K, Loaded[V]](),
-		vgroup:  NewGroup[K, V](),
-		mu:      NewRBMutex(),
+		group:  NewGroup[K, Loaded[V]](),
+		vgroup: NewGroup[K, V](),
 	}
 	if doorkeeper {
 		s.dookeeper = bf.New(0.01)
 	}
 	return s
-}
-
-func (s *Shard[K, V]) set(key K, entry *Entry[K, V]) {
-	s.hashmap[key] = entry
-	if s.dookeeper != nil {
-		ds := 20 * len(s.hashmap)
-		if ds > s.dookeeper.Capacity {
-			s.dookeeper.EnsureCapacity(ds)
-		}
-	}
-}
-
-func (s *Shard[K, V]) get(key K) (entry *Entry[K, V], ok bool) {
-	entry, ok = s.hashmap[key]
-	return
-}
-
-func (s *Shard[K, V]) delete(entry *Entry[K, V]) bool {
-	var deleted bool
-	exist, ok := s.hashmap[entry.key]
-	if ok && exist == entry {
-		delete(s.hashmap, exist.key)
-		deleted = true
-	}
-	return deleted
-}
-
-func (s *Shard[K, V]) len() int {
-	return len(s.hashmap)
 }
 
 type Metrics struct {
@@ -102,7 +70,7 @@ type Store[K comparable, V any] struct {
 	entryPool         sync.Pool
 	writeChan         chan WriteBufItem[K, V]
 	writeBuffer       []WriteBufItem[K, V]
-	hasher            *Hasher[K]
+	hasher            *hasher.Hasher[K]
 	removalListener   func(key K, value V, reason RemoveReason)
 	removalCallback   func(kv dequeKV[K, V], reason RemoveReason) error
 	kvBuilder         func(entry *Entry[K, V]) dequeKV[K, V]
@@ -112,6 +80,7 @@ type Store[K comparable, V any] struct {
 	mask              uint32
 	cost              func(V) int64
 	shards            []*Shard[K, V]
+	hashmap           hashmap.ConcurrentHashMap[K, *Entry[K, V]]
 	queue             *StripedQueue[K, V]
 	cap               uint
 	shardCount        uint
@@ -133,18 +102,7 @@ func NewStore[K comparable, V any](
 	maxsize int64, doorkeeper bool, listener func(key K, value V, reason RemoveReason),
 	cost func(v V) int64, secondaryCache SecondaryCache[K, V], workers int, probability float32, stringKeyFunc func(k K) string,
 ) *Store[K, V] {
-	hasher := NewHasher(stringKeyFunc)
-	shardCount := 1
-	for shardCount < runtime.GOMAXPROCS(0)*2 {
-		shardCount *= 2
-	}
-	if shardCount < 16 {
-		shardCount = 16
-	}
-	if shardCount > 128 {
-		shardCount = 128
-	}
-
+	hasher := hasher.NewHasher(stringKeyFunc)
 	queueCount := RoundedParallelism
 	queueSize := int(maxsize) / 100 / queueCount
 	policySize := int(maxsize) - (queueSize * queueCount)
@@ -167,7 +125,7 @@ func NewStore[K comparable, V any](
 		writeChan:     make(chan WriteBufItem[K, V], WriteChanSize),
 		writeBuffer:   make([]WriteBufItem[K, V], 0, WriteBufferSize),
 		entryPool:     sync.Pool{New: func() any { return &Entry[K, V]{} }},
-		shardCount:    uint(shardCount),
+		shardCount:    uint(RoundedParallelism * 4),
 		doorkeeper:    doorkeeper,
 		kvBuilder: func(entry *Entry[K, V]) dequeKV[K, V] {
 			return dequeKV[K, V]{
@@ -179,7 +137,9 @@ func NewStore[K comparable, V any](
 		cost:            costfn,
 		secondaryCache:  secondaryCache,
 		probability:     probability,
+		hashmap:         hashmap.NewShardMap[K, *Entry[K, V]](hasher, stringKeyFunc),
 	}
+
 	s.removalCallback = func(kv dequeKV[K, V], reason RemoveReason) error {
 		if s.removalListener != nil {
 			s.removalListener(kv.k, kv.v, reason)
@@ -215,8 +175,7 @@ func NewStore[K comparable, V any](
 }
 
 func (s *Store[K, V]) getFromShard(key K, hash uint64, shard *Shard[K, V]) (V, bool) {
-	tk := shard.mu.RLock()
-	entry, ok := shard.get(key)
+	entry, ok := s.hashmap.Get(key)
 	var value V
 	if ok {
 		expire := entry.expire.Load()
@@ -224,13 +183,20 @@ func (s *Store[K, V]) getFromShard(key K, hash uint64, shard *Shard[K, V]) (V, b
 			ok = false
 			s.policy.misses.Add(1)
 		} else {
-			s.policy.hits.Add(1)
-			value = entry.value
+
+			v, ok := entry.Read(key)
+			if ok {
+				s.policy.hits.Add(1)
+				value = entry.value
+			} else {
+				s.policy.misses.Add(1)
+				return v, false
+			}
+
 		}
 	} else {
 		s.policy.misses.Add(1)
 	}
-	shard.mu.RUnlock(tk)
 
 	idx := s.getReadBufferIdx()
 	var send ReadBufItem[K, V]
@@ -283,7 +249,7 @@ func (s *Store[K, V]) GetWithSecodary(key K) (value V, ok bool, err error) {
 }
 
 func (s *Store[K, V]) setEntry(hash uint64, shard *Shard[K, V], cost int64, entry *Entry[K, V], fromNVM bool) {
-	shard.set(entry.key, entry)
+	s.hashmap.Set(entry.key, entry)
 	shard.mu.Unlock()
 	s.queue.Push(hash, entry, cost, fromNVM)
 }
@@ -292,10 +258,10 @@ func (s *Store[K, V]) setInternal(key K, value V, cost int64, expire int64, nvmC
 	h, index := s.index(key)
 	shard := s.shards[index]
 	shard.mu.Lock()
-	exist, ok := shard.get(key)
+	exist, ok := s.hashmap.Get(key)
 
 	if ok {
-		exist.value = value
+		exist.UpdateValue(value)
 		var reschedule bool
 		queued := s.queue.UpdateCost(h, exist, cost)
 		if expire > 0 {
@@ -331,8 +297,7 @@ func (s *Store[K, V]) setInternal(key K, value V, cost int64, expire int64, nvmC
 	}
 	entry := s.entryPool.Get().(*Entry[K, V])
 	entry.frequency.Store(-1)
-	entry.key = key
-	entry.value = value
+	entry.UpdateKV(key, value)
 	entry.expire.Store(expire)
 	entry.queued = 0 // 0: map, 1: queue, 2: queue->slru
 	entry.cost = -1
@@ -365,12 +330,9 @@ func (s *Store[K, V]) Delete(key K) {
 	_, index := s.index(key)
 	shard := s.shards[index]
 	shard.mu.Lock()
-	entry, ok := shard.get(key)
-	if ok {
-		shard.delete(entry)
-	}
+	entry, deleted := s.hashmap.Delete(key)
 	shard.mu.Unlock()
-	if ok {
+	if deleted {
 		s.writeChan <- WriteBufItem[K, V]{entry: entry, code: REMOVE}
 	}
 }
@@ -379,9 +341,8 @@ func (s *Store[K, V]) DeleteWithSecondary(key K) error {
 	_, index := s.index(key)
 	shard := s.shards[index]
 	shard.mu.Lock()
-	entry, ok := shard.get(key)
-	if ok {
-		shard.delete(entry)
+	entry, deleted := s.hashmap.Delete(key)
+	if deleted {
 		if s.secondaryCache != nil {
 			err := s.secondaryCache.Delete(key)
 			if err != nil {
@@ -391,20 +352,14 @@ func (s *Store[K, V]) DeleteWithSecondary(key K) error {
 		}
 	}
 	shard.mu.Unlock()
-	if ok {
+	if deleted {
 		s.writeChan <- WriteBufItem[K, V]{entry: entry, code: REMOVE}
 	}
 	return nil
 }
 
 func (s *Store[K, V]) Len() int {
-	total := 0
-	for _, s := range s.shards {
-		tk := s.mu.RLock()
-		total += s.len()
-		s.mu.RUnlock(tk)
-	}
-	return total
+	return s.hashmap.Len()
 }
 
 func (s *Store[K, V]) EstimatedSize() int {
@@ -418,13 +373,14 @@ func (s *Store[K, V]) EstimatedSize() int {
 }
 
 func (s *Store[K, V]) index(key K) (uint64, int) {
-	base := s.hasher.hash(key)
+	base := s.hasher.Hash(key)
 	return base, int(base & uint64(s.shardCount-1))
 }
 
 func (s *Store[K, V]) postDelete(entry *Entry[K, V]) {
-	var zero V
-	entry.value = zero
+	var zeroK K
+	var zeroV V
+	entry.UpdateKV(zeroK, zeroV)
 	s.entryPool.Put(entry)
 }
 
@@ -469,7 +425,7 @@ func (s *Store[K, V]) removeEntry(entry *Entry[K, V], reason RemoveReason) {
 				return
 			}
 		}
-		deleted := shard.delete(entry)
+		_, deleted := s.hashmap.Delete(entry.key)
 		shard.mu.Unlock()
 		if deleted {
 			k, v := entry.key, entry.value
@@ -634,20 +590,14 @@ func (s *Store[K, V]) maintenance() {
 
 func (s *Store[K, V]) Range(f func(key K, value V) bool) {
 	now := s.timerwheel.clock.NowNano()
-	for _, shard := range s.shards {
-		tk := shard.mu.RLock()
-		for _, entry := range shard.hashmap {
-			expire := entry.expire.Load()
-			if expire != 0 && expire <= now {
-				continue
-			}
-			if !f(entry.key, entry.value) {
-				shard.mu.RUnlock(tk)
-				return
-			}
+	s.hashmap.Range(func(key K, entry *Entry[K, V]) bool {
+		expire := entry.expire.Load()
+		if expire != 0 && expire <= now {
+			return true
 		}
-		shard.mu.RUnlock(tk)
-	}
+		k, v := entry.ReadKV()
+		return f(k, v)
+	})
 }
 
 func (s *Store[K, V]) Stats() Stats {
@@ -655,11 +605,7 @@ func (s *Store[K, V]) Stats() Stats {
 }
 
 func (s *Store[K, V]) Close() {
-	for _, s := range s.shards {
-		tk := s.mu.RLock()
-		s.hashmap = nil
-		s.mu.RUnlock(tk)
-	}
+	s.hashmap.Clear()
 	s.mlock.Lock()
 	s.closed = true
 	s.cancel()
@@ -754,8 +700,7 @@ func (s *Store[K, V]) Persist(version uint64, writer io.Writer) error {
 }
 
 func (s *Store[K, V]) insertSimple(entry *Entry[K, V]) {
-	_, index := s.index(entry.key)
-	s.shards[index].set(entry.key, entry)
+	s.hashmap.Set(entry.key, entry)
 	if entry.expire.Load() != 0 {
 		s.timerwheel.schedule(entry)
 	}
@@ -763,30 +708,26 @@ func (s *Store[K, V]) insertSimple(entry *Entry[K, V]) {
 
 func (s *Store[K, V]) processSecondary() {
 	for item := range s.secondaryCacheBuf {
-		tk := item.shard.mu.RLock()
 		// first double check key still exists in map,
 		// not exist means key already deleted by Delete API
-		_, exist := item.shard.get(item.entry.key)
+		_, exist := s.hashmap.Get(item.entry.key)
 		if exist {
 			err := s.secondaryCache.Set(
 				item.entry.key, item.entry.value,
 				item.entry.cost, item.entry.expire.Load(),
 			)
-			item.shard.mu.RUnlock(tk)
 			if err != nil {
 				s.secondaryCache.HandleAsyncError(err)
 				continue
 			}
 			if item.reason == EVICTED {
+				_, deleted := s.hashmap.Delete(item.entry.key)
 				item.shard.mu.Lock()
-				deleted := item.shard.delete(item.entry)
 				if deleted {
 					s.postDelete(item.entry)
 				}
 				item.shard.mu.Unlock()
 			}
-		} else {
-			item.shard.mu.RUnlock(tk)
 		}
 	}
 }

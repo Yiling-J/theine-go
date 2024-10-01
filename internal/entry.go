@@ -1,7 +1,5 @@
 package internal
 
-import "sync/atomic"
-
 const (
 	NEW int8 = iota
 	REMOVE
@@ -31,17 +29,6 @@ type MetaData[K comparable, V any] struct {
 	next      *Entry[K, V]
 	wheelPrev *Entry[K, V]
 	wheelNext *Entry[K, V]
-}
-
-type Entry[K comparable, V any] struct {
-	key       K
-	value     V
-	meta      MetaData[K, V]
-	cost      int64
-	expire    atomic.Int64
-	frequency atomic.Int32
-	queued    uint8
-	flag      Flag
 }
 
 func NewEntry[K comparable, V any](key K, value V, cost int64, expire int64) *Entry[K, V] {

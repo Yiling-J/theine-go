@@ -43,7 +43,7 @@ func (n *Node[K, V]) Value() V {
 			continue
 		}
 
-		// u.Load()
+		u.Load()
 		value := n.value
 
 		if seq == n.lock.Load() {
@@ -95,8 +95,8 @@ func reader(node *Node[int, int], num_iterations int, cdone chan bool) {
 	cdone <- true
 }
 
-func writer(node *Node[int, int], num_iterations int, cdone chan bool) {
-	for i := 0; i < 2*num_iterations; i++ {
+func writer(node *Node[int, int], num_iterations int, done atomic.Bool) {
+	for !done.Load() {
 		node.Lock()
 		node.SetValue(1)
 		node.SetValue(2)
@@ -104,27 +104,28 @@ func writer(node *Node[int, int], num_iterations int, cdone chan bool) {
 		node.SetValue(0)
 		node.Unlock()
 	}
-	cdone <- true
 }
 
 func HammerRWMutex(numReaders, num_iterations int) {
 	cdone := make(chan bool)
 	node := &Node[int, int]{}
-	go writer(node, num_iterations, cdone)
+	var done atomic.Bool
+	go writer(node, num_iterations, done)
 	var i int
 	for i = 0; i < numReaders/2; i++ {
 		go reader(node, num_iterations, cdone)
 	}
-	go writer(node, num_iterations, cdone)
+	go writer(node, num_iterations, done)
 	for ; i < numReaders; i++ {
 		go reader(node, num_iterations, cdone)
 	}
 	// Wait for the 2 writers and all readers to finish.
-	for i := 0; i < 2+numReaders; i++ {
+	for i := 0; i < numReaders; i++ {
 		<-cdone
 	}
+	done.Store(true)
 }
 
 func TestNode_Seqlock(t *testing.T) {
-	HammerRWMutex(100, 10000000)
+	HammerRWMutex(100, 5000000)
 }

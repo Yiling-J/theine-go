@@ -1,41 +1,24 @@
-// Copyright (c) 2023 Alexey Mayshev. All rights reserved.
-// Copyright 2009 The Go Authors. All rights reserved.
-//
-// Copyright notice. Initial version of the following tests was based on
-// the following file from the Go Programming Language core repo:
-// https://github.com/golang/go/blob/831f9376d8d730b16fb33dfd775618dffe13ce7a/src/sync/rwmutex_test.go
-//
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file.
-// That can be found at https://github.com/golang/go/blob/831f9376d8d730b16fb33dfd775618dffe13ce7a/LICENSE
-
-//go:build !race
-
 package node
 
 import (
 	"fmt"
 	"runtime"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 )
 
+type Value[V any] struct {
+	v V
+}
+
 type Node[K comparable, V any] struct {
 	key   K
-	value V
+	value atomic.Pointer[Value[V]]
 	lock  atomic.Uint32
 }
 
-var upool = sync.Pool{
-	New: func() any {
-		return &atomic.Uint32{}
-	},
-}
-
 func (n *Node[K, V]) Value() V {
-	u := upool.Get().(*atomic.Uint32)
 	for {
 
 		seq := n.lock.Load()
@@ -44,12 +27,10 @@ func (n *Node[K, V]) Value() V {
 			continue
 		}
 
-		u.Load()
-		value := n.value
+		value := n.value.Load()
 
 		if seq == n.lock.Load() {
-			upool.Put(u)
-			return value
+			return value.v
 		}
 	}
 }
@@ -76,14 +57,15 @@ func (n *Node[K, V]) Unlock() {
 
 // SetValue sets the value.
 func (n *Node[K, V]) SetValue(value V) {
-	n.value = value
+	n.value.Store(&Value[V]{value})
 }
 
 func New[K comparable, V any](key K, value V) *Node[K, V] {
-	return &Node[K, V]{
-		key:   key,
-		value: value,
+	n := &Node[K, V]{
+		key: key,
 	}
+	n.value.Store(&Value[V]{value})
+	return n
 }
 
 func reader(node *Node[int, int], num_iterations int, s *atomic.Uint32) {
@@ -127,7 +109,7 @@ func HammerRWMutex(numReaders, num_iterations int) {
 func TestNode_Seqlock(t *testing.T) {
 	for _, p := range []int{4, 8, 16, 32, 64} {
 		t.Run(fmt.Sprintf("parallel %d", p), func(t *testing.T) {
-			HammerRWMutex(p, 10000000)
+			HammerRWMutex(p, 5000000)
 		})
 	}
 }

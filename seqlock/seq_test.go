@@ -34,7 +34,7 @@ var upool = sync.Pool{
 }
 
 func (n *Node[K, V]) Value() V {
-	// u := upool.Get().(*atomic.Uint32)
+	u := upool.Get().(*atomic.Uint32)
 	for {
 
 		seq := n.lock.Load()
@@ -43,10 +43,10 @@ func (n *Node[K, V]) Value() V {
 			continue
 		}
 		value := n.value
-		// u.CompareAndSwap(0, 0)
+		u.CompareAndSwap(0, 0)
 
 		if seq == n.lock.Load() {
-			// upool.Put(u)
+			upool.Put(u)
 			return value
 		}
 	}

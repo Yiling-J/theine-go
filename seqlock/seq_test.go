@@ -127,7 +127,7 @@ func HammerRWMutex(numReaders, num_iterations int) {
 }
 
 func TestNode_Seqlock(t *testing.T) {
-	for p := range []int{4, 8, 16, 32, 64} {
+	for _, p := range []int{4, 8, 16, 32, 64} {
 		t.Run(fmt.Sprintf("parallel %d", p), func(t *testing.T) {
 			HammerRWMutex(p, 1000000)
 		})

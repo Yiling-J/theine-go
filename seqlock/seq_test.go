@@ -34,7 +34,7 @@ var upool = sync.Pool{
 }
 
 func (n *Node[K, V]) Value() V {
-	u := upool.Get().(*atomic.Uint32)
+	// u := upool.Get().(*atomic.Uint32)
 	for {
 
 		seq := n.lock.Load()
@@ -42,11 +42,12 @@ func (n *Node[K, V]) Value() V {
 			runtime.Gosched()
 			continue
 		}
+
+		// u.Load()
 		value := n.value
-		u.Load()
 
 		if seq == n.lock.Load() {
-			upool.Put(u)
+			// upool.Put(u)
 			return value
 		}
 	}
@@ -98,8 +99,8 @@ func writer(node *Node[int, int], num_iterations int, cdone chan bool) {
 	for i := 0; i < 2*num_iterations; i++ {
 		node.Lock()
 		node.SetValue(1)
-		for i := 0; i < 100; i++ {
-		}
+		node.SetValue(2)
+		node.SetValue(3)
 		node.SetValue(0)
 		node.Unlock()
 	}
@@ -125,5 +126,5 @@ func HammerRWMutex(numReaders, num_iterations int) {
 }
 
 func TestNode_Seqlock(t *testing.T) {
-	HammerRWMutex(10, 500000)
+	HammerRWMutex(100, 5000000)
 }

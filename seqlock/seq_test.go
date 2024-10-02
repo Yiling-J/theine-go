@@ -43,7 +43,7 @@ func (n *Node[K, V]) Value() V {
 			continue
 		}
 
-		u.Load()
+		u.CompareAndSwap(1, 2)
 		value := n.value
 
 		if seq == n.lock.Load() {

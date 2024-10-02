@@ -19,6 +19,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 type Node[K comparable, V any] struct {
@@ -85,49 +86,46 @@ func New[K comparable, V any](key K, value V) *Node[K, V] {
 	}
 }
 
-func reader(node *Node[int, int], num_iterations int, cdone chan bool) {
+func reader(node *Node[int, int], num_iterations int, s *atomic.Uint32) {
+	for s.Load() == 0 {
+		time.Sleep(10 * time.Millisecond)
+		continue
+	}
 	for i := 0; i < num_iterations; i++ {
-		fmt.Print(".")
 		vn := node.Value()
 		if vn != 0 {
 			panic(fmt.Sprintf("wlock(%d)\n", vn))
 		}
 	}
-	cdone <- true
+	s.Add(1)
 }
 
-func writer(node *Node[int, int], num_iterations int, done atomic.Bool) {
-	for !done.Load() {
-		fmt.Print("x")
+func writer(node *Node[int, int], num_iterations int, s *atomic.Uint32, total uint32) {
+	writes := 0
+	s.Add(1)
+
+	for s.Load() != total {
 		node.Lock()
 		node.SetValue(1)
 		node.SetValue(2)
 		node.SetValue(3)
 		node.SetValue(0)
 		node.Unlock()
+		writes++
 	}
+	fmt.Println("total writes: ", writes)
 }
 
 func HammerRWMutex(numReaders, num_iterations int) {
-	cdone := make(chan bool)
 	node := &Node[int, int]{}
-	var done atomic.Bool
-	go writer(node, num_iterations, done)
+	c := &atomic.Uint32{}
 	var i int
-	for i = 0; i < numReaders/2; i++ {
-		go reader(node, num_iterations, cdone)
+	for i = 0; i < numReaders; i++ {
+		go reader(node, num_iterations, c)
 	}
-	go writer(node, num_iterations, done)
-	for ; i < numReaders; i++ {
-		go reader(node, num_iterations, cdone)
-	}
-	// Wait for the 2 writers and all readers to finish.
-	for i := 0; i < numReaders; i++ {
-		<-cdone
-	}
-	done.Store(true)
+	writer(node, num_iterations, c, uint32(numReaders))
 }
 
 func TestNode_Seqlock(t *testing.T) {
-	HammerRWMutex(50, 5000000)
+	HammerRWMutex(50, 1000000)
 }

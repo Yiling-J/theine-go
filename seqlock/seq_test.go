@@ -43,7 +43,7 @@ func (n *Node[K, V]) Value() V {
 			continue
 		}
 		value := n.value
-		u.CompareAndSwap(0, 0)
+		u.CompareAndSwap(100, 0)
 
 		if seq == n.lock.Load() {
 			upool.Put(u)

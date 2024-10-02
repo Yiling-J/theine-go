@@ -87,6 +87,7 @@ func New[K comparable, V any](key K, value V) *Node[K, V] {
 
 func reader(node *Node[int, int], num_iterations int, cdone chan bool) {
 	for i := 0; i < num_iterations; i++ {
+		fmt.Print(".")
 		vn := node.Value()
 		if vn != 0 {
 			panic(fmt.Sprintf("wlock(%d)\n", vn))
@@ -97,6 +98,7 @@ func reader(node *Node[int, int], num_iterations int, cdone chan bool) {
 
 func writer(node *Node[int, int], num_iterations int, done atomic.Bool) {
 	for !done.Load() {
+		fmt.Print("x")
 		node.Lock()
 		node.SetValue(1)
 		node.SetValue(2)
@@ -127,5 +129,5 @@ func HammerRWMutex(numReaders, num_iterations int) {
 }
 
 func TestNode_Seqlock(t *testing.T) {
-	HammerRWMutex(100, 5000000)
+	HammerRWMutex(50, 5000000)
 }

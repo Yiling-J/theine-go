@@ -43,7 +43,7 @@ func (n *Node[K, V]) Value() V {
 			continue
 		}
 
-		u.Load()
+		// u.Load()
 		value := n.value
 
 		if seq == n.lock.Load() {
@@ -126,5 +126,5 @@ func HammerRWMutex(numReaders, num_iterations int) {
 }
 
 func TestNode_Seqlock(t *testing.T) {
-	HammerRWMutex(100, 5000000)
+	HammerRWMutex(100, 10000000)
 }

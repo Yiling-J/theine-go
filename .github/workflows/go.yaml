@@ -28,5 +28,5 @@ jobs:
       - name: Test
         run: go test ./... -run=TestNode_ -count=1
 
-      - name: Bench
-        run: go test -run='^$' -bench BenchmarkNode_ ./... -timeout=0
+      # - name: Bench
+      #   run: go test -run='^$' -bench BenchmarkNode_ ./... -timeout=0

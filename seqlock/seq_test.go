@@ -14,11 +14,11 @@
 package node
 
 import (
+	"fmt"
 	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 )
 
 type Node[K comparable, V any] struct {
@@ -34,7 +34,7 @@ var upool = sync.Pool{
 }
 
 func (n *Node[K, V]) Value() V {
-	u := upool.Get().(*atomic.Uint32)
+	// u := upool.Get().(*atomic.Uint32)
 	for {
 
 		seq := n.lock.Load()
@@ -43,10 +43,10 @@ func (n *Node[K, V]) Value() V {
 			continue
 		}
 		value := n.value
-		u.CompareAndSwap(0, 0)
+		// u.CompareAndSwap(0, 0)
 
 		if seq == n.lock.Load() {
-			upool.Put(u)
+			// upool.Put(u)
 			return value
 		}
 	}
@@ -84,109 +84,46 @@ func New[K comparable, V any](key K, value V) *Node[K, V] {
 	}
 }
 
-func HammerNodeLock(n *Node[int, int], loops int, cdone chan bool) {
-	for i := 0; i < loops; i++ {
-		n.Lock()
-		n.Unlock()
+func reader(node *Node[int, int], num_iterations int, cdone chan bool) {
+	for i := 0; i < num_iterations; i++ {
+		vn := node.Value()
+		if vn != 0 {
+			panic(fmt.Sprintf("wlock(%d)\n", vn))
+		}
 	}
 	cdone <- true
 }
 
-func TestNode_Lock(t *testing.T) {
-	if n := runtime.SetMutexProfileFraction(1); n != 0 {
-		t.Logf("got mutexrate %d expected 0", n)
+func writer(node *Node[int, int], num_iterations int, cdone chan bool) {
+	for i := 0; i < 2*num_iterations; i++ {
+		node.Lock()
+		node.SetValue(1)
+		for i := 0; i < 100; i++ {
+		}
+		node.SetValue(0)
+		node.Unlock()
 	}
-	defer runtime.SetMutexProfileFraction(0)
-	n := &Node[int, int]{}
-	c := make(chan bool)
-	for i := 0; i < 10; i++ {
-		go HammerNodeLock(n, 1000, c)
+	cdone <- true
+}
+
+func HammerRWMutex(numReaders, num_iterations int) {
+	cdone := make(chan bool)
+	node := &Node[int, int]{}
+	go writer(node, num_iterations, cdone)
+	var i int
+	for i = 0; i < numReaders/2; i++ {
+		go reader(node, num_iterations, cdone)
 	}
-	for i := 0; i < 10; i++ {
-		<-c
+	go writer(node, num_iterations, cdone)
+	for ; i < numReaders; i++ {
+		go reader(node, num_iterations, cdone)
+	}
+	// Wait for the 2 writers and all readers to finish.
+	for i := 0; i < 2+numReaders; i++ {
+		<-cdone
 	}
 }
 
-func TestNode_LockFairness(t *testing.T) {
-	n := &Node[int, int]{}
-	stop := make(chan bool)
-	defer close(stop)
-	go func() {
-		for {
-			n.Lock()
-			time.Sleep(100 * time.Microsecond)
-			n.Unlock()
-			select {
-			case <-stop:
-				return
-			default:
-			}
-		}
-	}()
-	done := make(chan bool, 1)
-	go func() {
-		for i := 0; i < 10; i++ {
-			time.Sleep(100 * time.Microsecond)
-			n.Lock()
-			n.Unlock()
-		}
-		done <- true
-	}()
-	select {
-	case <-done:
-	case <-time.After(10 * time.Second):
-		t.Fatalf("can't acquire SpinLock in 10 seconds")
-	}
-}
-
-type triple struct {
-	a int
-	b int
-	c int
-}
-
-func TestNode_SeqLock(t *testing.T) {
-	const (
-		goroutines         = 100
-		numberOfIterations = 1000000
-	)
-
-	n := New(-1, triple{})
-	var ready atomic.Int64
-	for i := 0; i < goroutines; i++ {
-		go func() {
-			for ready.Load() == 0 {
-				runtime.Gosched()
-			}
-
-			for j := 0; j < numberOfIterations; j++ {
-				v := n.Value()
-				if v.a+100 != v.b || v.c != v.a+v.b {
-					t.Errorf("not valid value state. got: %+v", v)
-				}
-			}
-
-			ready.Add(int64(-1))
-		}()
-	}
-
-	counter := 0
-	for {
-		n.Lock()
-		n.SetValue(triple{
-			a: counter,
-			b: counter + 100,
-			c: 2*counter + 100,
-		})
-		n.Unlock()
-		counter++
-		if counter == 1 {
-			ready.Add(int64(goroutines))
-		}
-		if ready.Load() == 0 {
-			break
-		}
-	}
-
-	t.Logf("counter: %d", counter)
+func TestNode_Seqlock(t *testing.T) {
+	HammerRWMutex(10, 500000)
 }

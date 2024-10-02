@@ -107,8 +107,6 @@ func writer(node *Node[int, int], num_iterations int, s *atomic.Uint32, total ui
 	for s.Load() != total {
 		node.Lock()
 		node.SetValue(1)
-		node.SetValue(2)
-		node.SetValue(3)
 		node.SetValue(0)
 		node.Unlock()
 		writes++
@@ -129,7 +127,7 @@ func HammerRWMutex(numReaders, num_iterations int) {
 func TestNode_Seqlock(t *testing.T) {
 	for _, p := range []int{4, 8, 16, 32, 64} {
 		t.Run(fmt.Sprintf("parallel %d", p), func(t *testing.T) {
-			HammerRWMutex(p, 1000000)
+			HammerRWMutex(p, 5000000)
 		})
 	}
 }

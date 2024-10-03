@@ -434,13 +434,11 @@ func (s *Store[K, V]) removeEntry(entry *Entry[K, V], reason RemoveReason) {
 	entry.flag.SetRemoved(true)
 	_, index := s.index(entry.key)
 	shard := s.shards[index]
-	shard.mu.Lock()
 
 	if reason == EXPIRED {
 		// entry might updated already
 		// update expire filed are protected by shard mutex
 		if entry.expire.Load() > s.timerwheel.clock.NowNano() {
-			shard.mu.Unlock()
 			return
 		}
 	}
@@ -465,10 +463,10 @@ func (s *Store[K, V]) removeEntry(entry *Entry[K, V], reason RemoveReason) {
 					reason: reason,
 					shard:  shard,
 				}
-				shard.mu.Unlock()
 				return
 			}
 		}
+		shard.mu.Lock()
 		deleted := shard.delete(entry)
 		shard.mu.Unlock()
 		if deleted {
@@ -481,12 +479,7 @@ func (s *Store[K, V]) removeEntry(entry *Entry[K, V], reason RemoveReason) {
 
 	// already removed from shard map
 	case REMOVED:
-		shard.mu.Unlock()
-		// _, index := s.index(entry.key)
-		// shard := s.shards[index]
-		// tk := shard.mu.RLock()
 		kv := s.kvBuilder(entry)
-		// shard.mu.RUnlock(tk)
 		_ = s.removalCallback(kv, reason)
 	}
 }
@@ -499,81 +492,89 @@ func (s *Store[K, V]) drainRead(buffer []ReadBufItem[K, V]) {
 	s.mlock.Unlock()
 }
 
-func (s *Store[K, V]) drainWrite() {
-	for _, item := range s.writeBuffer {
+func (s *Store[K, V]) sinkWrite(item WriteBufItem[K, V]) (tailUpdate bool) {
+	entry := item.entry
+	if entry == nil {
+		return
+	}
+	if item.fromNVM {
+		entry.flag.SetFromNVM(item.fromNVM)
+	}
 
-		entry := item.entry
-		if entry == nil {
-			continue
-		}
-		if item.fromNVM {
-			entry.flag.SetFromNVM(item.fromNVM)
-		}
+	// ignore removed entries, except code NEW
+	// which will reset removed flag
+	if entry.flag.IsRemoved() && item.code != NEW {
+		return
+	}
 
-		// ignore removed entries, except code NEW
-		// which will reset removed flag
-		if entry.flag.IsRemoved() && item.code != NEW {
-			continue
-		}
+	// lock free because store API never read/modify entry metadata
+	switch item.code {
+	case NEW:
+		entry.flag.SetRemoved(false)
+		if expire := entry.expire.Load(); expire != 0 {
 
-		// lock free because store API never read/modify entry metadata
-		switch item.code {
-		case NEW:
-			entry.flag.SetRemoved(false)
-			if expire := entry.expire.Load(); expire != 0 {
-
-				if expire <= s.timerwheel.clock.NowNano() {
-					s.removeEntry(entry, EXPIRED)
-					continue
-				} else {
-					s.timerwheel.schedule(entry)
-				}
-			}
-			evicted := s.policy.Set(entry)
-			if evicted != nil {
-				s.removeEntry(evicted, EVICTED)
-				s.tailUpdate = true
-			}
-			removed := s.policy.EvictEntries()
-			for _, e := range removed {
-				s.tailUpdate = true
-				s.removeEntry(e, EVICTED)
-			}
-
-		case REMOVE:
-			s.removeEntry(entry, REMOVED)
-			s.policy.threshold.Store(-1)
-		case EVICTE:
-			s.removeEntry(entry, EVICTED)
-			s.policy.threshold.Store(-1)
-		case UPDATE:
-			if item.rechedule {
+			if expire <= s.timerwheel.clock.NowNano() {
+				s.removeEntry(entry, EXPIRED)
+				return
+			} else {
 				s.timerwheel.schedule(entry)
 			}
-
-			// create/update race
-			if entry.meta.prev == nil {
-				entry.cost = item.cost
-				continue
-			}
-
-			if item.cost != entry.cost {
-				costChange := item.cost - entry.cost
-				entry.cost = item.cost
-				s.policy.UpdateCost(entry, costChange)
-				removed := s.policy.EvictEntries()
-				for _, e := range removed {
-					s.tailUpdate = true
-					s.removeEntry(e, EVICTED)
-				}
-			}
 		}
-		item.entry = nil
-		if s.tailUpdate {
-			s.policy.UpdateThreshold()
-			s.tailUpdate = false
+		evicted := s.policy.Set(entry)
+		if evicted != nil {
+			s.removeEntry(evicted, EVICTED)
+			tailUpdate = true
+		}
+		removed := s.policy.EvictEntries()
+		for _, e := range removed {
+			tailUpdate = true
+			s.removeEntry(e, EVICTED)
+		}
+
+	case REMOVE:
+		s.removeEntry(entry, REMOVED)
+	case EVICTE:
+		s.removeEntry(entry, EVICTED)
+	case UPDATE:
+		if item.rechedule {
+			s.timerwheel.schedule(entry)
+		}
+
+		// create/update race
+		if entry.meta.prev == nil {
+			entry.cost = item.cost
+			return
+		}
+
+		if item.cost != entry.cost {
+			costChange := item.cost - entry.cost
+			entry.cost = item.cost
+			s.policy.UpdateCost(entry, costChange)
+			removed := s.policy.EvictEntries()
+			for _, e := range removed {
+				tailUpdate = true
+				s.removeEntry(e, EVICTED)
+			}
 		}
 	}
+	item.entry = nil
+	return
+}
+
+func (s *Store[K, V]) drainWrite() {
+
+	for _, item := range s.writeBuffer {
+		t := s.sinkWrite(item)
+		if t {
+			s.tailUpdate = true
+		}
+
+	}
+	if s.tailUpdate {
+		s.policy.UpdateThreshold()
+		s.tailUpdate = false
+	}
+
 	s.writeBuffer = s.writeBuffer[:0]
 
 }

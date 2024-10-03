@@ -78,14 +78,15 @@ func TestStore_ProcessDeque(t *testing.T) {
 	}
 	require.Equal(t, []int{3, 4, 123}, keys)
 	require.Equal(t, 0, len(evicted))
+	time.Sleep(1 * time.Second)
 
 	// test evicted callback, cost less than threshold will be evicted immediately
-	store.policy.threshold.Store(100)
 	for i := 10; i < 15; i++ {
 		entry := &Entry[int, int]{key: i}
 		entry.cost = 1
 
 		store.shards[0].mu.Lock()
+		store.policy.threshold.Store(100)
 		store.setEntry(h, store.shards[0], 1, entry, false)
 		_, index := store.index(i)
 		store.shards[index].mu.Lock()
@@ -93,9 +94,10 @@ func TestStore_ProcessDeque(t *testing.T) {
 		store.shards[index].mu.Unlock()
 	}
 	time.Sleep(1 * time.Second)
+
 	mu.Lock()
+	defer mu.Unlock()
 	require.Equal(t, 5, len(evicted))
-	mu.Unlock()
 }
 
 func TestStore_RemoveDeque(t *testing.T) {
@@ -123,11 +125,11 @@ func TestStore_RemoveDeque(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	// because 123 is removed already, it should not be on any LRU list
-	shard.mu.Lock()
+	store.mlock.Lock()
 	require.True(t, entry.flag.IsRemoved())
 	require.Nil(t, entry.meta.prev)
 	require.Nil(t, entry.meta.next)
-	shard.mu.Unlock()
+	store.mlock.Unlock()
 	_, ok := store.Get(123)
 	require.False(t, ok)
 }

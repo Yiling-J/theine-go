@@ -202,6 +202,8 @@ func NewStore[K comparable, V any](
 
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 	s.timerwheel = NewTimerWheel[K, V](uint(maxsize))
+	s.timerwheel.clock.RefreshNowCache()
+
 	go s.maintenance()
 	if s.secondaryCache != nil {
 		s.secondaryCacheBuf = make(chan SecondaryCacheItem[K, V], 256)
@@ -599,9 +601,6 @@ func (s *Store[K, V]) drainWrite() {
 }
 
 func (s *Store[K, V]) maintenance() {
-	s.mlock.Lock()
-	s.timerwheel.clock.RefreshNowCache()
-	s.mlock.Unlock()
 
 	go func() {
 		s.mlock.Lock()

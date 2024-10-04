@@ -163,3 +163,42 @@ func TestStore_PolicyCounter(t *testing.T) {
 	require.Equal(t, uint64(1600), store.policy.hits.Value())
 	require.Equal(t, uint64(1600), store.policy.misses.Value())
 }
+
+func TestStore_GetExpire(t *testing.T) {
+	store := NewStore[int, int](1000, false, nil, nil, nil, 0, 0, nil)
+	defer store.Close()
+
+	_, i := store.index(123)
+	fakeNow := store.timerwheel.clock.NowNano() - 100*10e9
+	testNow := store.timerwheel.clock.NowNano()
+	entry := &Entry[int, int]{
+		key:   123,
+		value: 123,
+	}
+	entry.expire.Store(fakeNow)
+
+	store.shards[i].hashmap[123] = entry
+	store.mlock.Lock()
+
+	// already exprired
+	store.timerwheel.clock.SetNowCache(fakeNow + 1)
+	_, ok := store.Get(123)
+	require.False(t, ok)
+
+	// use cached now, not expire
+	store.timerwheel.clock.SetNowCache(fakeNow - 31*10e9)
+	v, ok := store.Get(123)
+	require.True(t, ok)
+	require.Equal(t, 123, v)
+
+	// less than 30 seconds and not expired, use real now
+	store.timerwheel.clock.SetNowCache(fakeNow - 1)
+	_, ok = store.Get(123)
+	require.False(t, ok)
+	store.mlock.Unlock()
+
+	// ticker refresh cached now
+	time.Sleep(1200 * time.Millisecond)
+	cachedNow := store.timerwheel.clock.NowNanoCached()
+	require.True(t, cachedNow > testNow)
+}

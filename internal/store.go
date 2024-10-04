@@ -220,7 +220,26 @@ func (s *Store[K, V]) getFromShard(key K, hash uint64, shard *Shard[K, V]) (V, b
 	var value V
 	if ok {
 		expire := entry.expire.Load()
-		if expire != 0 && expire <= s.timerwheel.clock.NowNano() {
+		var expired bool
+		if expire != 0 {
+			// Cached now is refreshed every second by ticker.
+			// However, since tickers aren't guaranteed to be precise
+			// https://github.com/golang/go/issues/45632
+			// relax this to 30 seconds. If the entry's expiration time is
+			// less than 30 seconds compared to the cached now,
+			// refetch the accurate now and compare again.
+			nowCached := s.timerwheel.clock.NowNanoCached()
+			if expire-nowCached <= 0 {
+				expired = true
+			} else if expire-nowCached < 30*1e9 {
+				now := s.timerwheel.clock.NowNano()
+				expired = (expire-now <= 0)
+			} else {
+				expired = false
+			}
+		}
+
+		if expired {
 			ok = false
 			s.policy.misses.Add(1)
 		} else {
@@ -580,6 +599,10 @@ func (s *Store[K, V]) drainWrite() {
 }
 
 func (s *Store[K, V]) maintenance() {
+	s.mlock.Lock()
+	s.timerwheel.clock.RefreshNowCache()
+	s.mlock.Unlock()
+
 	go func() {
 		s.mlock.Lock()
 		s.maintenanceTicker = time.NewTicker(time.Second)
@@ -592,6 +615,7 @@ func (s *Store[K, V]) maintenance() {
 				return
 			case <-s.maintenanceTicker.C:
 				s.mlock.Lock()
+				s.timerwheel.clock.RefreshNowCache()
 				if s.closed {
 					s.mlock.Unlock()
 					return

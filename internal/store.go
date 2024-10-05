@@ -207,7 +207,6 @@ func NewStore[K comparable, V any](
 	go s.maintenance()
 	if s.secondaryCache != nil {
 		s.secondaryCacheBuf = make(chan SecondaryCacheItem[K, V], 256)
-		s.secondaryCache.SetClock(s.timerwheel.clock)
 		for i := 0; i < workers; i++ {
 			go s.processSecondary()
 		}
@@ -282,17 +281,30 @@ func (s *Store[K, V]) GetWithSecodary(key K) (value V, ok bool, err error) {
 	}
 
 	value, err, _ = shard.vgroup.Do(key, func() (v V, err error) {
+		shard.mu.Lock()
 		v, cost, expire, ok, err := s.secondaryCache.Get(key)
 		if err != nil {
+			shard.mu.Unlock()
 			return v, err
 		}
 		if !ok {
+			shard.mu.Unlock()
 			return v, &NotFound{}
 		}
+		if expire <= s.timerwheel.clock.NowNano() {
+			err = s.secondaryCache.Delete(key)
+			if err == nil {
+				err = &NotFound{}
+			}
+			shard.mu.Unlock()
+			return v, err
+		}
+
 		// insert to cache
-		_, _, _ = s.setInternal(key, v, cost, expire, true)
+		_, _, _ = s.setShard(shard, h, key, v, cost, expire, true)
 		return v, err
 	})
+
 	var notFound *NotFound
 	if errors.As(err, &notFound) {
 		return value, false, nil
@@ -309,16 +321,13 @@ func (s *Store[K, V]) setEntry(hash uint64, shard *Shard[K, V], cost int64, entr
 	s.queue.Push(hash, entry, cost, fromNVM)
 }
 
-func (s *Store[K, V]) setInternal(key K, value V, cost int64, expire int64, nvmClean bool) (*Shard[K, V], *Entry[K, V], bool) {
-	h, index := s.index(key)
-	shard := s.shards[index]
-	shard.mu.Lock()
+func (s *Store[K, V]) setShard(shard *Shard[K, V], hash uint64, key K, value V, cost int64, expire int64, nvmClean bool) (*Shard[K, V], *Entry[K, V], bool) {
 	exist, ok := shard.get(key)
 
 	if ok {
 		exist.value = value
 		var reschedule bool
-		queued := s.queue.UpdateCost(h, exist, cost)
+		queued := s.queue.UpdateCost(hash, exist, cost)
 		if expire > 0 {
 			old := exist.expire.Swap(expire)
 			if old != expire {
@@ -343,7 +352,7 @@ func (s *Store[K, V]) setInternal(key K, value V, cost int64, expire int64, nvmC
 			shard.dookeeper.Reset()
 			shard.counter = 0
 		}
-		hit := shard.dookeeper.Insert(h)
+		hit := shard.dookeeper.Insert(hash)
 		if !hit {
 			shard.counter += 1
 			shard.mu.Unlock()
@@ -357,8 +366,17 @@ func (s *Store[K, V]) setInternal(key K, value V, cost int64, expire int64, nvmC
 	entry.expire.Store(expire)
 	entry.queued = 0 // 0: map, 1: queue, 2: queue->slru
 	entry.cost = -1
-	s.setEntry(h, shard, cost, entry, nvmClean)
+	s.setEntry(hash, shard, cost, entry, nvmClean)
 	return shard, entry, true
+
+}
+
+func (s *Store[K, V]) setInternal(key K, value V, cost int64, expire int64, nvmClean bool) (*Shard[K, V], *Entry[K, V], bool) {
+	h, index := s.index(key)
+	shard := s.shards[index]
+	shard.mu.Lock()
+
+	return s.setShard(shard, h, key, value, cost, expire, nvmClean)
 
 }
 
@@ -952,21 +970,35 @@ func (s *LoadingStore[K, V]) Get(ctx context.Context, key K) (V, error) {
 	v, ok := s.getFromShard(key, h, shard)
 	if !ok {
 		loaded, err, _ := shard.group.Do(key, func() (Loaded[V], error) {
+			shard.mu.Lock()
+
 			// first try get from secondary cache
 			if s.secondaryCache != nil {
 				vs, cost, expire, ok, err := s.secondaryCache.Get(key)
 				var notFound *NotFound
 				if err != nil && !errors.As(err, &notFound) {
+					shard.mu.Unlock()
 					return Loaded[V]{}, err
 				}
 				if ok {
-					_, _, _ = s.setInternal(key, vs, cost, expire, true)
+					_, _, _ = s.setShard(shard, h, key, vs, cost, expire, true)
 					return Loaded[V]{Value: vs}, nil
 				}
 			}
+
 			loaded, err := s.loader(ctx, key)
+			var expire int64
+			if loaded.TTL != 0 {
+				expire = s.timerwheel.clock.ExpireNano(loaded.TTL)
+			}
+			if loaded.Cost == 0 {
+				loaded.Cost = s.cost(loaded.Value)
+			}
+
 			if err == nil {
-				s.Set(key, loaded.Value, loaded.Cost, loaded.TTL)
+				s.setShard(shard, h, key, loaded.Value, loaded.Cost, expire, false)
+			} else {
+				shard.mu.Unlock()
 			}
 			return loaded, err
 		})

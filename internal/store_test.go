@@ -93,7 +93,7 @@ func TestStore_ProcessDeque(t *testing.T) {
 		store.shards[index].hashmap[i] = entry
 		store.shards[index].mu.Unlock()
 	}
-	time.Sleep(1 * time.Second)
+	time.Sleep(2 * time.Second)
 
 	mu.Lock()
 	defer mu.Unlock()

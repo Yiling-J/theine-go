@@ -1,6 +1,10 @@
 package internal
 
 import (
+	"errors"
+	"sync"
+	"sync/atomic"
+
 	"github.com/Yiling-J/theine-go/internal/clock"
 )
 
@@ -21,4 +25,65 @@ type SecondaryCache[K comparable, V any] interface {
 	Delete(key K) error
 	SetClock(clock *clock.Clock)
 	HandleAsyncError(err error)
+}
+
+// used in test only
+type SimpleMapSecondary[K comparable, V any] struct {
+	m          map[K]*Entry[K, V]
+	ErrCounter atomic.Uint64
+	mu         sync.Mutex
+	ErrMode    bool
+}
+
+func NewSimpleMapSecondary[K comparable, V any]() *SimpleMapSecondary[K, V] {
+	return &SimpleMapSecondary[K, V]{
+		m: make(map[K]*Entry[K, V]),
+	}
+}
+
+func (s *SimpleMapSecondary[K, V]) Get(key K) (value V, cost int64, expire int64, ok bool, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	e, ok := s.m[key]
+	if !ok {
+		return
+	}
+	return e.value, e.cost, e.expire.Load(), true, nil
+}
+
+func (s *SimpleMapSecondary[K, V]) Set(key K, value V, cost int64, expire int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.ErrMode {
+		return errors.New("err")
+	}
+
+	s.m[key] = &Entry[K, V]{
+		value: value,
+		cost:  cost,
+	}
+	s.m[key].expire.Store(expire)
+	return nil
+}
+
+func (s *SimpleMapSecondary[K, V]) Delete(key K) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.m[key]; !ok {
+		return nil
+	}
+	delete(s.m, key)
+	return nil
+}
+
+func (s *SimpleMapSecondary[K, V]) SetClock(clock *clock.Clock) {
+}
+
+func (s *SimpleMapSecondary[K, V]) HandleAsyncError(err error) {
+	if err != nil {
+		s.ErrCounter.Add(1)
+	}
 }

@@ -281,6 +281,7 @@ func (s *Store[K, V]) GetWithSecodary(key K) (value V, ok bool, err error) {
 	}
 
 	value, err, _ = shard.vgroup.Do(key, func() (v V, err error) {
+		// load and store should be atomic
 		shard.mu.Lock()
 		v, cost, expire, ok, err := s.secondaryCache.Get(key)
 		if err != nil {
@@ -970,6 +971,7 @@ func (s *LoadingStore[K, V]) Get(ctx context.Context, key K) (V, error) {
 	v, ok := s.getFromShard(key, h, shard)
 	if !ok {
 		loaded, err, _ := shard.group.Do(key, func() (Loaded[V], error) {
+			// load and store should be atomic
 			shard.mu.Lock()
 
 			// first try get from secondary cache

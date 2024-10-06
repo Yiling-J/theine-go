@@ -14,11 +14,11 @@ type ReadBufItem[K comparable, V any] struct {
 	hash  uint64
 }
 type WriteBufItem[K comparable, V any] struct {
-	entry     *Entry[K, V]
-	cost      int64
-	code      int8
-	rechedule bool
-	fromNVM   bool
+	entry      *Entry[K, V]
+	costChange int64
+	code       int8
+	rechedule  bool
+	fromNVM    bool
 }
 
 type QueueItem[K comparable, V any] struct {
@@ -34,14 +34,14 @@ type MetaData[K comparable, V any] struct {
 }
 
 type Entry[K comparable, V any] struct {
-	key       K
-	value     V
-	meta      MetaData[K, V]
-	cost      int64
-	expire    atomic.Int64
-	frequency atomic.Int32
-	queued    uint8
-	flag      Flag
+	key        K
+	value      V
+	meta       MetaData[K, V]
+	cost       atomic.Int64
+	expire     atomic.Int64
+	frequency  atomic.Int32
+	queueIndex atomic.Int32 // -1: on main, -2 new entry, >=0: index
+	flag       Flag
 }
 
 func NewEntry[K comparable, V any](key K, value V, cost int64, expire int64) *Entry[K, V] {
@@ -49,7 +49,7 @@ func NewEntry[K comparable, V any](key K, value V, cost int64, expire int64) *En
 		key:   key,
 		value: value,
 	}
-	entry.cost = cost
+	entry.cost.Store(cost)
 	if expire > 0 {
 		entry.expire.Store(expire)
 	}
@@ -132,7 +132,7 @@ func (e *Entry[K, V]) pentry() *Pentry[K, V] {
 	return &Pentry[K, V]{
 		Key:       e.key,
 		Value:     e.value,
-		Cost:      e.cost,
+		Cost:      e.cost.Load(),
 		Expire:    e.expire.Load(),
 		Frequency: e.frequency.Load(),
 		Removed:   e.flag.IsRemoved(),
@@ -154,7 +154,7 @@ func (e *Pentry[K, V]) entry() *Entry[K, V] {
 		key:   e.Key,
 		value: e.Value,
 	}
-	en.cost = e.Cost
+	en.cost.Store(e.Cost)
 	en.frequency.Store(e.Frequency)
 	en.expire.Store(e.Expire)
 	en.flag.SetRemoved(e.Removed)

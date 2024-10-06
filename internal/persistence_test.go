@@ -49,8 +49,9 @@ func TestStorePersistence(t *testing.T) {
 			value: i,
 		}
 		entry.frequency.Store(int32(i))
-		entry.cost = 1
+		entry.cost.Store(1)
 		store.shards[0].mu.Lock()
+		entry.queueIndex.Store(-2)
 		store.setEntry(123, store.shards[0], 1, entry, false)
 		_, index := store.index(i)
 		store.shards[index].mu.Lock()

@@ -257,12 +257,16 @@ func TestCache_CostUpdate(t *testing.T) {
 	time.Sleep(time.Second)
 	require.True(t, client.Len() <= 25 && client.Len() >= 24)
 	require.True(t, client.EstimatedSize() <= 500 && client.EstimatedSize() >= 480)
+
 	// update cost
 	success := client.Set("key:15", "", 200)
 	require.True(t, success)
 	time.Sleep(time.Second)
 
-	require.True(t, client.Len() <= 16 && client.Len() >= 15)
+	require.True(
+		t, client.Len() <= 16 && client.Len() >= 15,
+		fmt.Sprintf("length too large %d", client.Len()),
+	)
 	require.True(t, client.EstimatedSize() <= 500 && client.EstimatedSize() >= 480)
 }
 

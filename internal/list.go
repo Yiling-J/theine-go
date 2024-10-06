@@ -102,7 +102,7 @@ func (l *List[K, V]) insert(e, at *Entry[K, V]) *Entry[K, V] {
 	e.prev(l.listType).setNext(e, l.listType)
 	e.next(l.listType).setPrev(e, l.listType)
 	if l.bounded {
-		l.len.Add(e.cost)
+		l.len.Add(e.cost.Load())
 		// l.len += int(e.cost.Load())
 		l.count += 1
 	}
@@ -130,7 +130,7 @@ func (l *List[K, V]) remove(e *Entry[K, V]) {
 		e.flag.SetProtected(false)
 	}
 	if l.bounded {
-		l.len.Add(-e.cost)
+		l.len.Add(-e.cost.Load())
 		l.count -= 1
 	}
 }

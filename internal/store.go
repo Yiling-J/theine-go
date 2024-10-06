@@ -327,22 +327,38 @@ func (s *Store[K, V]) setShard(shard *Shard[K, V], hash uint64, key K, value V, 
 
 	if ok {
 		exist.value = value
+		old := exist.cost.Swap(cost)
+		// send costChange value to queue/main,
+		// create-update race:
+		// if update event is processed first, then the entry's removed flag is true,
+		// so the update event is skipped.
+		// delete-update race:
+		// delete then update is noop, update then delete still eventual consistent.
+		// update-update race:
+		// updates events order might not be right due to
+		// race condition, but final result of applying costChange events still correct
+		// even if order is wrong
+		costChange := cost - old
+		shard.mu.Unlock()
+
 		var reschedule bool
-		queued := s.queue.UpdateCost(hash, exist, cost)
+		queued := s.queue.UpdateCost(hash, exist, costChange)
 		if expire > 0 {
 			old := exist.expire.Swap(expire)
 			if old != expire {
 				reschedule = true
 			}
 		}
-		// on update, unlock shard lock until queue update,
-		// this is because when update/delete race, the deleted
-		// entry might already been reused if mutex not exist.
-		shard.mu.Unlock()
 
+		// race condition:
+		// there is a race conditon here theoretically, because no mutex is hold,
+		// an entry in main might be
+		// `removed -> reused from pool -> added to queue -> send to writeChan -> added to main again`
+		// before next line, in this case, this event will apply cost change to wrong entry.
+		// But the possibility is extreme low and safe to be ignored.
 		if !queued {
 			s.writeChan <- WriteBufItem[K, V]{
-				entry: exist, code: UPDATE, cost: cost, rechedule: reschedule,
+				entry: exist, code: UPDATE, costChange: costChange, rechedule: reschedule,
 			}
 		}
 		return shard, exist, true
@@ -365,8 +381,8 @@ func (s *Store[K, V]) setShard(shard *Shard[K, V], hash uint64, key K, value V, 
 	entry.key = key
 	entry.value = value
 	entry.expire.Store(expire)
-	entry.queued = 0 // 0: map, 1: queue, 2: queue->slru
-	entry.cost = -1
+	entry.cost.Store(cost)
+	entry.queueIndex.Store(-2)
 	s.setEntry(hash, shard, cost, entry, nvmClean)
 	return shard, entry, true
 
@@ -582,14 +598,11 @@ func (s *Store[K, V]) sinkWrite(item WriteBufItem[K, V]) (tailUpdate bool) {
 
 		// create/update race
 		if entry.meta.prev == nil {
-			entry.cost = item.cost
 			return
 		}
 
-		if item.cost != entry.cost {
-			costChange := item.cost - entry.cost
-			entry.cost = item.cost
-			s.policy.UpdateCost(entry, costChange)
+		if item.costChange != 0 {
+			s.policy.UpdateCost(entry, item.costChange)
 			removed := s.policy.EvictEntries()
 			for _, e := range removed {
 				tailUpdate = true
@@ -813,7 +826,7 @@ func (s *Store[K, V]) processSecondary() {
 		if exist {
 			err := s.secondaryCache.Set(
 				item.entry.key, item.entry.value,
-				item.entry.cost, item.entry.expire.Load(),
+				item.entry.cost.Load(), item.entry.expire.Load(),
 			)
 			item.shard.mu.RUnlock(tk)
 			if err != nil {
@@ -934,6 +947,7 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 					continue
 				}
 				entry := pentry.entry()
+				entry.queueIndex.Store(-2)
 				h, index := s.index(entry.key)
 				shard := s.shards[index]
 				shard.mu.Lock()

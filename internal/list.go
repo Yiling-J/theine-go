@@ -58,6 +58,12 @@ func (l *List[K, V]) display() string {
 	return strings.Join(s, "/")
 }
 
+func (l *List[K, V]) rangef(fn func(*Entry[K, V])) {
+	for e := l.Front(); e != nil; e = e.Next(l.listType) {
+		fn(e)
+	}
+}
+
 func (l *List[K, V]) displayReverse() string {
 	var s []string
 	for e := l.Back(); e != nil; e = e.Prev(l.listType) {
@@ -97,12 +103,13 @@ func (l *List[K, V]) insert(e, at *Entry[K, V]) *Entry[K, V] {
 			e.flag.SetProbation(true)
 		}
 	}
+
 	e.setPrev(at, l.listType)
 	e.setNext(at.next(l.listType), l.listType)
 	e.prev(l.listType).setNext(e, l.listType)
 	e.next(l.listType).setPrev(e, l.listType)
 	if l.bounded {
-		l.len.Add(e.cost.Load())
+		l.len.Add(e.policyWeight)
 		// l.len += int(e.cost.Load())
 		l.count += 1
 	}
@@ -130,7 +137,7 @@ func (l *List[K, V]) remove(e *Entry[K, V]) {
 		e.flag.SetProtected(false)
 	}
 	if l.bounded {
-		l.len.Add(-e.cost.Load())
+		l.len.Add(-e.policyWeight)
 		l.count -= 1
 	}
 }

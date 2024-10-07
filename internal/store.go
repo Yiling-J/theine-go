@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/gob"
 	"errors"
+	"fmt"
 	"io"
 	"math/rand"
 	"runtime"
@@ -194,10 +195,24 @@ func NewStore[K comparable, V any](
 		queueCount, queueSize, func() int32 { return s.policy.threshold.Load() },
 	)
 	s.queue.sendCallback = func(item QueueItem[K, V]) {
-		s.writeChan <- WriteBufItem[K, V]{entry: item.entry, code: NEW, fromNVM: item.fromNVM}
+		s.writeChan <- WriteBufItem[K, V]{
+			entry: item.entry, code: NEW, fromNVM: item.fromNVM,
+		}
 	}
 	s.queue.removeCallback = func(item QueueItem[K, V]) {
-		s.writeChan <- WriteBufItem[K, V]{entry: item.entry, code: EVICTE}
+		entry := item.entry
+		_, index := s.index(entry.key)
+		shard := s.shards[index]
+		shard.mu.Lock()
+		deleted := shard.delete(entry)
+		shard.mu.Unlock()
+		if deleted {
+			k, v := entry.key, entry.value
+			if s.removalListener != nil {
+				s.removalListener(k, v, EVICTED)
+			}
+			s.postDelete(entry)
+		}
 	}
 
 	s.ctx, s.cancel = context.WithCancel(context.Background())
@@ -327,7 +342,7 @@ func (s *Store[K, V]) setShard(shard *Shard[K, V], hash uint64, key K, value V, 
 
 	if ok {
 		exist.value = value
-		old := exist.cost.Swap(cost)
+		old := exist.weight.Swap(cost)
 		// send costChange value to queue/main,
 		// create-update race:
 		// if update event is processed first, then the entry's removed flag is true,
@@ -342,7 +357,7 @@ func (s *Store[K, V]) setShard(shard *Shard[K, V], hash uint64, key K, value V, 
 		shard.mu.Unlock()
 
 		var reschedule bool
-		queued := s.queue.UpdateCost(hash, exist, costChange)
+		queued := s.queue.UpdateCost(key, hash, exist, costChange)
 		if expire > 0 {
 			old := exist.expire.Swap(expire)
 			if old != expire {
@@ -359,6 +374,7 @@ func (s *Store[K, V]) setShard(shard *Shard[K, V], hash uint64, key K, value V, 
 		if !queued {
 			s.writeChan <- WriteBufItem[K, V]{
 				entry: exist, code: UPDATE, costChange: costChange, rechedule: reschedule,
+				hash: hash,
 			}
 		}
 		return shard, exist, true
@@ -381,7 +397,8 @@ func (s *Store[K, V]) setShard(shard *Shard[K, V], hash uint64, key K, value V, 
 	entry.key = key
 	entry.value = value
 	entry.expire.Store(expire)
-	entry.cost.Store(cost)
+	entry.weight.Store(cost)
+	entry.policyWeight = 0
 	entry.queueIndex.Store(-2)
 	s.setEntry(hash, shard, cost, entry, nvmClean)
 	return shard, entry, true
@@ -418,7 +435,7 @@ type dequeKV[K comparable, V any] struct {
 }
 
 func (s *Store[K, V]) Delete(key K) {
-	_, index := s.index(key)
+	h, index := s.index(key)
 	shard := s.shards[index]
 	shard.mu.Lock()
 	entry, ok := shard.get(key)
@@ -427,7 +444,9 @@ func (s *Store[K, V]) Delete(key K) {
 	}
 	shard.mu.Unlock()
 	if ok {
-		s.writeChan <- WriteBufItem[K, V]{entry: entry, code: REMOVE}
+		if !s.queue.Delete(h, entry) {
+			s.writeChan <- WriteBufItem[K, V]{entry: entry, code: REMOVE}
+		}
 	}
 }
 
@@ -553,6 +572,20 @@ func (s *Store[K, V]) sinkWrite(item WriteBufItem[K, V]) (tailUpdate bool) {
 	if entry == nil {
 		return
 	}
+
+	// race 1: entry is in write chan/buffer, but order changed due to race
+	// race 2:entry is evicted and reused and add to queue and leave, so this update
+	// is staled
+	// we need to apply race 1, but skip race 2
+	if entry.queueIndex.Load() == -1 && item.code == UPDATE {
+		hh := s.hasher.hash(entry.key)
+		if hh != item.hash {
+			return
+		}
+		entry.policyWeight += item.costChange
+		return
+	}
+
 	if item.fromNVM {
 		entry.flag.SetFromNVM(item.fromNVM)
 	}
@@ -566,6 +599,7 @@ func (s *Store[K, V]) sinkWrite(item WriteBufItem[K, V]) (tailUpdate bool) {
 	// lock free because store API never read/modify entry metadata
 	switch item.code {
 	case NEW:
+		entry.queueIndex.Store(-4)
 		entry.flag.SetRemoved(false)
 		if expire := entry.expire.Load(); expire != 0 {
 
@@ -602,6 +636,10 @@ func (s *Store[K, V]) sinkWrite(item WriteBufItem[K, V]) (tailUpdate bool) {
 		}
 
 		if item.costChange != 0 {
+			hh := s.hasher.hash(entry.key)
+			if hh != item.hash {
+				return
+			}
 			s.policy.UpdateCost(entry, item.costChange)
 			removed := s.policy.EvictEntries()
 			for _, e := range removed {
@@ -701,6 +739,17 @@ func (s *Store[K, V]) Range(f func(key K, value V) bool) {
 				shard.mu.RUnlock(tk)
 				return
 			}
+		}
+		shard.mu.RUnlock(tk)
+	}
+}
+
+// used in test
+func (s *Store[K, V]) RangeEntry(f func(entry *Entry[K, V])) {
+	for _, shard := range s.shards {
+		tk := shard.mu.RLock()
+		for _, entry := range shard.hashmap {
+			f(entry)
 		}
 		shard.mu.RUnlock(tk)
 	}
@@ -826,7 +875,7 @@ func (s *Store[K, V]) processSecondary() {
 		if exist {
 			err := s.secondaryCache.Set(
 				item.entry.key, item.entry.value,
-				item.entry.cost.Load(), item.entry.expire.Load(),
+				item.entry.weight.Load(), item.entry.expire.Load(),
 			)
 			item.shard.mu.RUnlock(tk)
 			if err != nil {
@@ -844,6 +893,19 @@ func (s *Store[K, V]) processSecondary() {
 		} else {
 			item.shard.mu.RUnlock(tk)
 		}
+	}
+}
+
+// wait write chan, used in test
+func (s *Store[K, V]) Wait() {
+	for len(s.writeChan) != 0 {
+		runtime.Gosched()
+	}
+	for i := 0; i < 10; i++ {
+		s.mlock.Lock()
+		_ = 1
+		s.mlock.Unlock()
+		runtime.Gosched()
 	}
 }
 
@@ -956,6 +1018,88 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 		}
 	}
 	return nil
+}
+
+type debugInfo struct {
+	QueueWeight          []int64
+	QueueWeightField     []int64
+	QueueCount           int64
+	ProbationWeight      int64
+	ProbationWeightField int64
+	ProbationCount       int64
+	ProtectedWeight      int64
+	ProtectedWeightField int64
+	ProtectedCount       int64
+}
+
+func (i debugInfo) String() string {
+	final := ""
+	final += fmt.Sprintf("total items in queues %d\n", i.QueueCount)
+	final += fmt.Sprintf("sum of weight of each queue %v\n", i.QueueWeight)
+	final += fmt.Sprintf("total items in probation list %d\n", i.ProbationCount)
+	final += fmt.Sprintf("sum of wieght of probation list %d\n", i.ProbationWeight)
+	final += fmt.Sprintf("total items in protected list %d\n", i.ProtectedCount)
+	final += fmt.Sprintf("sum of wieght of protected list %d\n", i.ProtectedWeight)
+	final += fmt.Sprintf("total items %d\n", i.QueueCount+i.ProbationCount+i.ProtectedCount)
+	return final
+}
+
+func (i debugInfo) TotalCount() int64 {
+	return i.QueueCount + i.ProbationCount + i.ProtectedCount
+}
+
+func (i debugInfo) TotalWeight() int64 {
+	var tw int64
+	for _, v := range i.QueueWeight {
+		tw += v
+	}
+	tw += i.ProbationWeight
+	tw += i.ProtectedWeight
+	return tw
+}
+
+// used for test, only
+func (s *Store[K, V]) DebugInfo() debugInfo {
+	qs := []int64{}
+	qsf := []int64{}
+	var qc int64
+	for _, q := range s.queue.qs {
+		var qsum int64
+		for i := 0; i < q.deque.Len(); i++ {
+			qc += 1
+			e := q.deque.At(i)
+			qsum += e.entry.policyWeight
+		}
+		qs = append(qs, qsum)
+		qsf = append(qsf, int64(q.len))
+	}
+
+	var probationSum int64
+	var probationCount int64
+	s.policy.slru.probation.rangef(func(e *Entry[K, V]) {
+		probationSum += e.policyWeight
+		probationCount += 1
+	})
+
+	var protectedSum int64
+	var protectedCount int64
+	s.policy.slru.protected.rangef(func(e *Entry[K, V]) {
+		protectedCount += 1
+		protectedSum += e.policyWeight
+	})
+
+	return debugInfo{
+		QueueWeight:          qs,
+		QueueWeightField:     qsf,
+		QueueCount:           qc,
+		ProbationWeight:      probationSum,
+		ProbationWeightField: int64(s.policy.slru.probation.Len()),
+		ProbationCount:       probationCount,
+		ProtectedWeight:      protectedSum,
+		ProtectedWeightField: int64(s.policy.slru.protected.Len()),
+		ProtectedCount:       protectedCount,
+	}
+
 }
 
 type Loaded[V any] struct {

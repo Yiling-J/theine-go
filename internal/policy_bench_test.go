@@ -19,7 +19,7 @@ func BenchmarkPolicy_Read(b *testing.B) {
 			key:   k,
 			value: true,
 		}
-		e.cost.Store(1)
+		e.weight.Store(1)
 		witems = append(witems, WriteBufItem[uint64, bool]{
 			entry:      e,
 			costChange: 0,
@@ -51,7 +51,8 @@ func BenchmarkPolicy_Write(b *testing.B) {
 			key:   uint64(i),
 			value: true,
 		}
-		e.cost.Store(1)
+		e.weight.Store(1)
+		e.policyWeight = 1
 		store.sinkWrite(WriteBufItem[uint64, bool]{
 			entry:      e,
 			costChange: 0,

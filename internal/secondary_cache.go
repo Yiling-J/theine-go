@@ -48,7 +48,7 @@ func (s *SimpleMapSecondary[K, V]) Get(key K) (value V, cost int64, expire int64
 	if !ok {
 		return
 	}
-	return e.value, e.cost.Load(), e.expire.Load(), true, nil
+	return e.value, e.weight.Load(), e.expire.Load(), true, nil
 }
 
 func (s *SimpleMapSecondary[K, V]) Set(key K, value V, cost int64, expire int64) error {
@@ -62,7 +62,7 @@ func (s *SimpleMapSecondary[K, V]) Set(key K, value V, cost int64, expire int64)
 	e := &Entry[K, V]{
 		value: value,
 	}
-	e.cost.Store(cost)
+	e.weight.Store(cost)
 
 	s.m[key] = e
 	s.m[key].expire.Store(expire)

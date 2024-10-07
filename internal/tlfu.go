@@ -151,6 +151,7 @@ func (t *TinyLfu[K, V]) Remove(entry *Entry[K, V]) {
 }
 
 func (t *TinyLfu[K, V]) UpdateCost(entry *Entry[K, V], delta int64) {
+	entry.policyWeight += delta
 	t.slru.updateCost(entry, delta)
 }
 

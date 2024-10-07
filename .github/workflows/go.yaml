@@ -44,6 +44,23 @@ jobs:
       - name: Upload coverage to codecov.io
         uses: codecov/codecov-action@v3
 
+  test-race:
+    name: test
+    strategy:
+      matrix:
+        go: ["1.23.x"]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Go
+        with:
+          go-version: ${{ matrix.go }}
+        uses: actions/setup-go@v2
+
+      - uses: actions/checkout@v2
+
+      - name: Test
+        run: make test-race
+
   test-os:
     name: test-os
     strategy:

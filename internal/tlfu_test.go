@@ -131,7 +131,7 @@ func TestEvictEntries(t *testing.T) {
 	tlfu.Access(ReadBufItem[string, string]{entry: new})
 	require.Equal(t, 0, int(tlfu.slru.probation.len.Load()))
 	require.Equal(t, 460, int(tlfu.slru.protected.len.Load()))
-	new.cost.Store(600)
+	new.weight.Store(600)
 	tlfu.UpdateCost(new, 140)
 	removed = tlfu.EvictEntries()
 	require.Equal(t, 1, len(removed))

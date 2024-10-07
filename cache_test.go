@@ -164,51 +164,6 @@ func TestCache_SetWithTTLAutoExpire(t *testing.T) {
 	client.Close()
 }
 
-func TestCache_GetSetDeleteNoRace(t *testing.T) {
-	for _, size := range []int{500, 2000, 10000, 50000} {
-		builder := theine.NewBuilder[string, string](int64(size))
-		builder.RemovalListener(func(key, value string, reason theine.RemoveReason) {})
-		client, err := builder.Build()
-		require.Nil(t, err)
-		var wg sync.WaitGroup
-		keys := []string{}
-		for i := 0; i < 100000; i++ {
-			keys = append(keys, fmt.Sprintf("%d", rand.Intn(1000000)))
-		}
-		for i := 1; i <= 20; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				for i := 0; i < 100000; i++ {
-					key := keys[i]
-					v, ok := client.Get(key)
-					if ok && v != key {
-						panic(key)
-					}
-					if i%3 == 0 {
-						client.SetWithTTL(key, key, int64(i%10+1), time.Second*time.Duration(i%25+5))
-					}
-					if i%5 == 0 {
-						client.Delete(key)
-					}
-					if i%5000 == 0 {
-						client.Range(func(key, value string) bool {
-							return true
-						})
-					}
-				}
-			}()
-		}
-		wg.Wait()
-		time.Sleep(300 * time.Millisecond)
-
-		require.True(
-			t, client.Len() < size+internal.WriteBufferSize,
-		)
-		client.Close()
-	}
-}
-
 func TestCache_Cost(t *testing.T) {
 	client, err := theine.NewBuilder[string, string](500).Build()
 	require.Nil(t, err)

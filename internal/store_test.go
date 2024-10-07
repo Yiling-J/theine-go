@@ -25,7 +25,7 @@ func TestStore_QueueExpire(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		entry := &Entry[int, int]{key: i}
 		entry.expire.Store(expire)
-		entry.cost.Store(1)
+		entry.weight.Store(1)
 		entry.queueIndex.Store(-2)
 		store.shards[0].mu.Lock()
 		store.setEntry(123, store.shards[0], 1, entry, false)
@@ -62,7 +62,7 @@ func TestStore_ProcessQueue(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		entry := &Entry[int, int]{key: i}
-		entry.cost.Store(1)
+		entry.weight.Store(1)
 		entry.queueIndex.Store(-2)
 		store.shards[0].mu.Lock()
 		store.setEntry(h, store.shards[0], 1, entry, false)
@@ -85,7 +85,7 @@ func TestStore_ProcessQueue(t *testing.T) {
 	// test evicted callback, cost less than threshold will be evicted immediately
 	for i := 10; i < 15; i++ {
 		entry := &Entry[int, int]{key: i}
-		entry.cost.Store(1)
+		entry.weight.Store(1)
 		entry.queueIndex.Store(-2)
 
 		store.shards[0].mu.Lock()
@@ -117,7 +117,7 @@ func TestStore_RemoveQueue(t *testing.T) {
 	q.size = 10
 	q.len = 10
 	entryNew := &Entry[int, int]{key: 1}
-	entryNew.cost.Store(1)
+	entryNew.weight.Store(1)
 	entryNew.queueIndex.Store(-2)
 	store.queue.Push(h, entryNew, 1, false)
 	shard.hashmap[1] = entryNew

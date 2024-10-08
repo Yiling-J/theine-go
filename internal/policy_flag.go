@@ -6,7 +6,7 @@ package internal
 // Bit 1: Indicates if this entry is a root of linked list.
 // Bit 2: Indicates if this entry is on probation.
 // Bit 3: Indicates if this entry is protected.
-// Bit 4: Indicates if this entry is removed.
+// Bit 4: Indicates if this entry is removed from main(SLRU).
 // Bit 5: Indicates if this entry is from NVM.
 // Bit 6: Indicates if this entry is deleted by API.
 type Flag struct {

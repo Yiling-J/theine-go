@@ -36,6 +36,12 @@ func (s *StripedQueue[K, V]) Push(hash uint64, entry *Entry[K, V], cost int64, f
 	q.push(hash, entry, cost, fromNVM, s.thresholdLoad(), s.sendCallback, s.removeCallback)
 }
 
+func (s *StripedQueue[K, V]) PushSimple(hash uint64, entry *Entry[K, V]) {
+	q := s.qs[hash&uint64(s.count-1)]
+	q.len += int(entry.policyWeight)
+	q.deque.PushFront(QueueItem[K, V]{entry: entry, fromNVM: entry.flag.IsFromNVM()})
+}
+
 func (s *StripedQueue[K, V]) UpdateCost(key K, hash uint64, entry *Entry[K, V], costChange int64) bool {
 	q := s.qs[hash&uint64(s.count-1)]
 

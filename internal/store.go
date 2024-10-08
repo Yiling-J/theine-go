@@ -947,7 +947,7 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 			break
 		}
 		switch block.Type {
-		case 1:
+		case 1: // metadata
 			metaDecoder := gob.NewDecoder(reader)
 			m := &StoreMeta{}
 			err = metaDecoder.Decode(m)
@@ -959,7 +959,7 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 			}
 			s.policy.sketch = m.Sketch
 			s.timerwheel.clock.SetStart(m.StartNano)
-		case 2:
+		case 2: // main-protected
 			entryDecoder := gob.NewDecoder(reader)
 			for {
 				pentry := &Pentry[K, V]{}
@@ -981,7 +981,7 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 					s.insertSimple(entry)
 				}
 			}
-		case 3:
+		case 3: // main-probation
 			entryDecoder := gob.NewDecoder(reader)
 			for {
 				pentry := &Pentry[K, V]{}
@@ -1004,7 +1004,7 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 					s.insertSimple(entry)
 				}
 			}
-		case 4:
+		case 4: // queue
 			entryDecoder := gob.NewDecoder(reader)
 			for {
 				pentry := &Pentry[K, V]{}
@@ -1021,10 +1021,10 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 				}
 				entry := pentry.entry()
 				entry.queueIndex.Store(-2)
-				h, index := s.index(entry.key)
-				shard := s.shards[index]
-				shard.mu.Lock()
-				s.setEntry(h, shard, pentry.Cost, entry, entry.flag.IsFromNVM())
+				h, _ := s.index(entry.key)
+				s.queue.PushSimple(h, entry)
+				s.insertSimple(entry)
+
 			}
 		}
 	}

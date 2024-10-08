@@ -83,18 +83,18 @@ func TestStore_ProcessQueue(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	// test evicted callback, cost less than threshold will be evicted immediately
+	store.policy.threshold.Store(100)
 	for i := 10; i < 15; i++ {
 		entry := &Entry[int, int]{key: i}
 		entry.weight.Store(1)
 		entry.queueIndex.Store(-2)
-
-		store.shards[0].mu.Lock()
-		store.policy.threshold.Store(100)
-		store.setEntry(h, store.shards[0], 1, entry, false)
 		_, index := store.index(i)
 		store.shards[index].mu.Lock()
 		store.shards[index].hashmap[i] = entry
 		store.shards[index].mu.Unlock()
+
+		store.shards[0].mu.Lock()
+		store.setEntry(h, store.shards[0], 1, entry, false)
 	}
 	time.Sleep(2 * time.Second)
 

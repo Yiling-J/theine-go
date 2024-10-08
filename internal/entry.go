@@ -48,12 +48,14 @@ type Entry[K comparable, V any] struct {
 	flag         Flag
 }
 
+// used in test only
 func NewEntry[K comparable, V any](key K, value V, cost int64, expire int64) *Entry[K, V] {
 	entry := &Entry[K, V]{
 		key:   key,
 		value: value,
 	}
 	entry.weight.Store(cost)
+	entry.policyWeight = cost
 	if expire > 0 {
 		entry.expire.Store(expire)
 	}
@@ -134,23 +136,25 @@ func (e *Entry[K, V]) setNext(entry *Entry[K, V], listType uint8) {
 
 func (e *Entry[K, V]) pentry() *Pentry[K, V] {
 	return &Pentry[K, V]{
-		Key:       e.key,
-		Value:     e.value,
-		Cost:      e.weight.Load(),
-		Expire:    e.expire.Load(),
-		Frequency: e.frequency.Load(),
-		Removed:   e.flag.IsRemoved(),
+		Key:          e.key,
+		Value:        e.value,
+		Weight:       e.weight.Load(),
+		PolicyWeight: e.policyWeight,
+		Expire:       e.expire.Load(),
+		Frequency:    e.frequency.Load(),
+		Flag:         e.flag,
 	}
 }
 
 // entry for persistence
 type Pentry[K comparable, V any] struct {
-	Key       K
-	Value     V
-	Cost      int64
-	Expire    int64
-	Frequency int32
-	Removed   bool
+	Key          K
+	Value        V
+	Weight       int64
+	PolicyWeight int64
+	Expire       int64
+	Frequency    int32
+	Flag         Flag
 }
 
 func (e *Pentry[K, V]) entry() *Entry[K, V] {
@@ -158,10 +162,11 @@ func (e *Pentry[K, V]) entry() *Entry[K, V] {
 		key:   e.Key,
 		value: e.Value,
 	}
-	en.weight.Store(e.Cost)
+	en.weight.Store(e.Weight)
 	en.frequency.Store(e.Frequency)
 	en.expire.Store(e.Expire)
-	en.flag.SetRemoved(e.Removed)
+	en.flag = e.Flag
+	en.policyWeight = e.PolicyWeight
 	return en
 }
 

@@ -28,7 +28,7 @@ jobs:
     name: test
     strategy:
       matrix:
-        go: ["1.19.x", "1.22.x", "1.23.x"]
+        go: ["1.22.x", "1.23.x"]
     runs-on: ubuntu-latest
     steps:
       - name: Setup Go
@@ -82,7 +82,7 @@ jobs:
     name: test-os
     strategy:
       matrix:
-        go: ["1.19.x", "1.22.x", "1.23.x"]
+        go: ["1.22.x", "1.23.x"]
         os: [macos-latest, windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:

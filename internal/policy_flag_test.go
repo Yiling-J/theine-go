@@ -87,7 +87,7 @@ func TestFlag_CombinedFlags(t *testing.T) {
 	}
 
 	// reset
-	f.flags = 0
+	f.Flags = 0
 
 	if f.IsRoot() {
 		t.Error("Expected root flag to be false, got true")

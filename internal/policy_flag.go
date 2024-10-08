@@ -10,77 +10,77 @@ package internal
 // Bit 5: Indicates if this entry is from NVM.
 // Bit 6: Indicates if this entry is deleted by API.
 type Flag struct {
-	flags int8
+	Flags int8
 }
 
 func (f *Flag) SetRoot(isRoot bool) {
 	if isRoot {
-		f.flags |= (1 << 0) // Set bit 1 (root)
+		f.Flags |= (1 << 0) // Set bit 1 (root)
 	} else {
-		f.flags &^= (1 << 0) // Clear bit 1 (root)
+		f.Flags &^= (1 << 0) // Clear bit 1 (root)
 	}
 }
 
 func (f *Flag) SetProbation(isProbation bool) {
 	if isProbation {
-		f.flags |= (1 << 1) // Set bit 2 (probation)
+		f.Flags |= (1 << 1) // Set bit 2 (probation)
 	} else {
-		f.flags &^= (1 << 1) // Clear bit 2 (probation)
+		f.Flags &^= (1 << 1) // Clear bit 2 (probation)
 	}
 }
 
 func (f *Flag) SetProtected(isProtected bool) {
 	if isProtected {
-		f.flags |= (1 << 2) // Set bit 3 (protected)
+		f.Flags |= (1 << 2) // Set bit 3 (protected)
 	} else {
-		f.flags &^= (1 << 2) // Clear bit 3 (protected)
+		f.Flags &^= (1 << 2) // Clear bit 3 (protected)
 	}
 }
 
 func (f *Flag) SetRemoved(isRemoved bool) {
 	if isRemoved {
-		f.flags |= (1 << 3) // Set bit 4 (removed)
+		f.Flags |= (1 << 3) // Set bit 4 (removed)
 	} else {
-		f.flags &^= (1 << 3) // Clear bit 4 (removed)
+		f.Flags &^= (1 << 3) // Clear bit 4 (removed)
 	}
 }
 
 func (f *Flag) SetFromNVM(isFromNVM bool) {
 	if isFromNVM {
-		f.flags |= (1 << 4) // Set bit 5 (from NVM)
+		f.Flags |= (1 << 4) // Set bit 5 (from NVM)
 	} else {
-		f.flags &^= (1 << 4) // Clear bit 5 (from NVM)
+		f.Flags &^= (1 << 4) // Clear bit 5 (from NVM)
 	}
 }
 
 func (f *Flag) SetDeleted(isDeleted bool) {
 	if isDeleted {
-		f.flags |= (1 << 5) // Set bit 6 (deleted)
+		f.Flags |= (1 << 5) // Set bit 6 (deleted)
 	} else {
-		f.flags &^= (1 << 5) // Clear bit 6 (deleted)
+		f.Flags &^= (1 << 5) // Clear bit 6 (deleted)
 	}
 }
 
 func (f *Flag) IsRoot() bool {
-	return (f.flags & (1 << 0)) != 0
+	return (f.Flags & (1 << 0)) != 0
 }
 
 func (f *Flag) IsProbation() bool {
-	return (f.flags & (1 << 1)) != 0
+	return (f.Flags & (1 << 1)) != 0
 }
 
 func (f *Flag) IsProtected() bool {
-	return (f.flags & (1 << 2)) != 0
+	return (f.Flags & (1 << 2)) != 0
 }
 
 func (f *Flag) IsRemoved() bool {
-	return (f.flags & (1 << 3)) != 0
+	return (f.Flags & (1 << 3)) != 0
 }
 
 func (f *Flag) IsFromNVM() bool {
-	return (f.flags & (1 << 4)) != 0
+	return (f.Flags & (1 << 4)) != 0
 }
 
 func (f *Flag) IsDeleted() bool {
-	return (f.flags & (1 << 5)) != 0
+	return (f.Flags & (1 << 5)) != 0
 }

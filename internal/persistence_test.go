@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestStorePersistence(t *testing.T) {
+func TestStorePersistence_Simple(t *testing.T) {
 	store := NewStore[int, int](1000, false, nil, nil, nil, 0, 0, nil)
 	for _, q := range store.queue.qs {
 		q.size = 0
@@ -109,7 +109,7 @@ func TestStorePersistence(t *testing.T) {
 
 }
 
-func TestStorePersistenceTTL(t *testing.T) {
+func TestStorePersistence_TTL(t *testing.T) {
 	store := NewStore[int, int](1000, false, nil, nil, nil, 0, 0, nil)
 	for i := 0; i < 10; i++ {
 		_ = store.Set(i, i, 1, 2*time.Second)
@@ -158,7 +158,7 @@ func TestStorePersistenceTTL(t *testing.T) {
 	}
 }
 
-func TestStorePersistenceResize(t *testing.T) {
+func TestStorePersistence_Resize(t *testing.T) {
 	store := NewStore[int, int](1000, false, nil, nil, nil, 0, 0, nil)
 	for i := 0; i < 1000; i++ {
 		_ = store.Set(i, i, 1, 0)

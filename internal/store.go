@@ -901,12 +901,13 @@ func (s *Store[K, V]) Wait() {
 	for len(s.writeChan) != 0 {
 		runtime.Gosched()
 	}
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 15; i++ {
 		s.mlock.Lock()
 		_ = 1
 		s.mlock.Unlock()
 		runtime.Gosched()
 	}
+	time.Sleep(200 * time.Millisecond)
 }
 
 func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {

@@ -13,7 +13,7 @@ import (
 func keyGen() []uint64 {
 	keys := []uint64{}
 	r := rand.New(rand.NewSource(0))
-	z := rand.NewZipf(r, 1.01, 9.0, 100000)
+	z := rand.NewZipf(r, 1.01, 9.0, 200000)
 	for i := 0; i < 2<<16; i++ {
 		keys = append(keys, z.Uint64())
 	}
@@ -111,11 +111,29 @@ func TestCacheRace_GetSetDeleteNoRace(t *testing.T) {
 			}()
 		}
 		wg.Wait()
-		time.Sleep(300 * time.Millisecond)
+
+		client.store.Wait()
 
 		require.True(
 			t, client.Len() < size+internal.WriteBufferSize,
 		)
+
+		di := client.store.DebugInfo()
+
+		require.Equal(t, client.Len(), int(di.TotalCount()))
+		require.True(t, di.TotalWeight() <= int64(size+size/10))
+		require.Equal(t, di.ProbationWeight, di.ProbationWeightField)
+		require.Equal(t, di.ProtectedWeight, di.ProtectedWeightField)
+
+		for i := 0; i < len(di.QueueWeight); i++ {
+			require.Equal(t, di.QueueWeight[i], di.QueueWeightField[i])
+		}
+
+		client.store.RangeEntry(func(entry *internal.Entry[uint64, uint64]) {
+			require.Equal(t, entry.Weight(), entry.PolicyWeight(), entry.Position())
+		})
+
 		client.Close()
+
 	}
 }

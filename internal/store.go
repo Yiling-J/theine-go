@@ -343,16 +343,10 @@ func (s *Store[K, V]) setShard(shard *Shard[K, V], hash uint64, key K, value V, 
 	if ok {
 		exist.value = value
 		old := exist.weight.Swap(cost)
-		// send costChange value to queue/main,
-		// create-update race:
-		// if update event is processed first, then the entry's removed flag is true,
-		// so the update event is skipped.
-		// delete-update race:
-		// delete then update is noop, update then delete still eventual consistent.
-		// update-update race:
-		// updates events order might not be right due to
-		// race condition, but final result of applying costChange events still correct
-		// even if order is wrong
+
+		// create/update events order might change due to race,
+		// send cost change in event and apply them to entry policy weight
+		// so different order still works.
 		costChange := cost - old
 		shard.mu.Unlock()
 
@@ -365,12 +359,6 @@ func (s *Store[K, V]) setShard(shard *Shard[K, V], hash uint64, key K, value V, 
 			}
 		}
 
-		// race condition:
-		// there is a race conditon here theoretically, because no mutex is hold,
-		// an entry in main might be
-		// `removed -> reused from pool -> added to queue -> send to writeChan -> added to main again`
-		// before next line, in this case, this event will apply cost change to wrong entry.
-		// But the possibility is extreme low and safe to be ignored.
 		if !queued {
 			s.writeChan <- WriteBufItem[K, V]{
 				entry: exist, code: UPDATE, costChange: costChange, rechedule: reschedule,
@@ -574,7 +562,7 @@ func (s *Store[K, V]) sinkWrite(item WriteBufItem[K, V]) (tailUpdate bool) {
 		return
 	}
 
-	// entry removed by API explicitly will not put into sync pool,
+	// entry removed by API explicitly will not resue by sync pool,
 	// so all events can be ignored except the REMOVE one.
 	if entry.flag.IsDeleted() {
 		return
@@ -583,11 +571,9 @@ func (s *Store[K, V]) sinkWrite(item WriteBufItem[K, V]) (tailUpdate bool) {
 		entry.flag.SetDeleted(true)
 	}
 
-	// race 1: entry is in write chan/buffer, but order changed due to race
-	// race 2:entry is evicted and reused and add to queue and leave, so this update
-	// is staled
-	// we need to apply race 1, but skip race 2
 	if entry.queueIndex.Load() == -1 && item.code == UPDATE {
+		// double check key hash, in case
+		// entry is evicted -> reused -> add to queue -> add to main
 		hh := s.hasher.hash(entry.key)
 		if hh != item.hash {
 			return

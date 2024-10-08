@@ -554,6 +554,7 @@ func (s *Store[K, V]) removeEntry(entry *Entry[K, V], reason RemoveReason) {
 
 	// already removed from shard map
 	case REMOVED:
+		entry.flag.SetDeleted(true)
 		kv := s.kvBuilder(entry)
 		_ = s.removalCallback(kv, reason)
 	}
@@ -571,6 +572,15 @@ func (s *Store[K, V]) sinkWrite(item WriteBufItem[K, V]) (tailUpdate bool) {
 	entry := item.entry
 	if entry == nil {
 		return
+	}
+
+	// entry removed by API explicitly will not put into sync pool,
+	// so all events can be ignored except the REMOVE one.
+	if entry.flag.IsDeleted() {
+		return
+	}
+	if item.code == REMOVE {
+		entry.flag.SetDeleted(true)
 	}
 
 	// race 1: entry is in write chan/buffer, but order changed due to race
@@ -1067,9 +1077,14 @@ func (s *Store[K, V]) DebugInfo() debugInfo {
 	for _, q := range s.queue.qs {
 		var qsum int64
 		for i := 0; i < q.deque.Len(); i++ {
-			qc += 1
 			e := q.deque.At(i)
 			qsum += e.entry.policyWeight
+			// if entry is removed, don't update queue entry count
+			// because we will compare this to hashmap entry count
+			if e.entry.queueIndex.Load() < 0 {
+				continue
+			}
+			qc += 1
 		}
 		qs = append(qs, qsum)
 		qsf = append(qsf, int64(q.len))

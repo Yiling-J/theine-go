@@ -8,6 +8,7 @@ package internal
 // Bit 3: Indicates if this entry is protected.
 // Bit 4: Indicates if this entry is removed.
 // Bit 5: Indicates if this entry is from NVM.
+// Bit 6: Indicates if this entry is deleted by API.
 type Flag struct {
 	flags int8
 }
@@ -52,6 +53,14 @@ func (f *Flag) SetFromNVM(isFromNVM bool) {
 	}
 }
 
+func (f *Flag) SetDeleted(isDeleted bool) {
+	if isDeleted {
+		f.flags |= (1 << 5) // Set bit 6 (deleted)
+	} else {
+		f.flags &^= (1 << 5) // Clear bit 6 (deleted)
+	}
+}
+
 func (f *Flag) IsRoot() bool {
 	return (f.flags & (1 << 0)) != 0
 }
@@ -70,4 +79,8 @@ func (f *Flag) IsRemoved() bool {
 
 func (f *Flag) IsFromNVM() bool {
 	return (f.flags & (1 << 4)) != 0
+}
+
+func (f *Flag) IsDeleted() bool {
+	return (f.flags & (1 << 5)) != 0
 }

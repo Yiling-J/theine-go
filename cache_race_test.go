@@ -69,7 +69,7 @@ func TestCacheRace_CreateUpdate(t *testing.T) {
 		}
 
 		client.store.RangeEntry(func(entry *internal.Entry[uint64, uint64]) {
-			require.Equal(t, entry.Weight(), entry.PolicyWeight())
+			require.Equal(t, entry.Weight(), entry.PolicyWeight(), entry.Position())
 		})
 
 		client.Close()

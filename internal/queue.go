@@ -62,10 +62,10 @@ func (s *StripedQueue[K, V]) UpdateCost(key K, hash uint64, entry *Entry[K, V], 
 		return false
 	case -2:
 		// there are 2 kinds of race here:
-		// - create/update race for same entry
+		// - create/update race for same entry, because create also
+		// use += on policy weight, the result is consistent.
 		// - evict/update race for differnet entry, because evicted
-		// entry will be resued from sync pool
-		// second case we can't update policy weight because that's incorrect
+		// entry will be resued from sync pool, in this case policy weight should not update.
 		if entry.key == key {
 			entry.policyWeight += costChange
 		}
@@ -119,8 +119,8 @@ func (q *Queue[K, V]) push(hash uint64, entry *Entry[K, V], costChange int64, fr
 	if !success {
 		panic(fmt.Sprintf("add to queue failed %d", entry.queueIndex.Load()))
 	}
-	// use real weight as policy weight when new entry added.
-	entry.policyWeight = costChange
+	// += here because of possible create/update race
+	entry.policyWeight += costChange
 
 	q.len += int(entry.policyWeight)
 	q.deque.PushFront(QueueItem[K, V]{entry: entry, fromNVM: fromNVM})

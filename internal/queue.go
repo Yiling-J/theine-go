@@ -75,6 +75,7 @@ func (s *StripedQueue[K, V]) UpdateCost(key K, hash uint64, entry *Entry[K, V], 
 		// use += on policy weight, the result is consistent.
 		// - evict/update race for differnet entry, because evicted
 		// entry will be resued from sync pool, in this case policy weight should not update.
+		// race detector may report this line, but safe to ignore.
 		if entry.key == key {
 			entry.policyWeight += costChange
 		}

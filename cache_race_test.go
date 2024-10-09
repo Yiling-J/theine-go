@@ -20,7 +20,7 @@ func keyGen() []uint64 {
 	return keys
 }
 
-func TestCacheRace_CreateUpdate(t *testing.T) {
+func TestCacheRace_GetSet(t *testing.T) {
 	for _, size := range []int{500, 2000, 10000, 50000} {
 		builder := NewBuilder[uint64, uint64](int64(size))
 		builder.RemovalListener(func(key, value uint64, reason RemoveReason) {})
@@ -76,7 +76,7 @@ func TestCacheRace_CreateUpdate(t *testing.T) {
 	}
 }
 
-func TestCacheRace_GetSetDeleteNoRace(t *testing.T) {
+func TestCacheRace_GetSetDeleteExpire(t *testing.T) {
 	for _, size := range []int{500, 2000, 10000, 50000} {
 		builder := NewBuilder[uint64, uint64](int64(size))
 		builder.RemovalListener(func(key, value uint64, reason RemoveReason) {})

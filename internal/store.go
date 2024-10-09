@@ -381,6 +381,12 @@ func (s *Store[K, V]) setShard(shard *Shard[K, V], hash uint64, key K, value V, 
 		}
 	}
 	entry := s.entryPool.Get().(*Entry[K, V])
+	if entry.key == key {
+		// put back and create an entry manually
+		// because same key reuse might cause race condition
+		s.entryPool.Put(entry)
+		entry = &Entry[K, V]{}
+	}
 	entry.key = key
 	entry.value = value
 	entry.expire.Store(expire)
@@ -573,6 +579,9 @@ func (s *Store[K, V]) sinkWrite(item WriteBufItem[K, V]) (tailUpdate bool) {
 	if entry.queueIndex.Load() == -1 && item.code == UPDATE {
 		// double check key hash, in case
 		// entry is evicted -> reused -> add to queue -> add to main
+		// if entry is resused but still with same key, then this is
+		// a race, but only in the situation when a key is frequently updated
+		// and evicted.
 		hh := s.hasher.hash(entry.key)
 		if hh != item.hash {
 			return

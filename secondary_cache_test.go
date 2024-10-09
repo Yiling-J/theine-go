@@ -14,7 +14,7 @@ import (
 
 func TestSecondaryCache_GetSetGetDeleteGet(t *testing.T) {
 	secondary := internal.NewSimpleMapSecondary[int, int]()
-	client, err := theine.NewBuilder[int, int](100).Hybrid(secondary).Workers(8).AdmProbability(1).Build()
+	client, err := theine.NewBuilder[int, int](50000).Hybrid(secondary).Workers(8).AdmProbability(1).Build()
 	require.Nil(t, err)
 	for i := 0; i < 1000; i++ {
 		_, ok, _ := client.Get(i)

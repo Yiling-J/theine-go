@@ -50,16 +50,10 @@ func (s *StripedQueue[K, V]) UpdateCost(key K, hash uint64, entry *Entry[K, V], 
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	// The entry is in the main when this function is called, but before loading the queue index,
-	// the entry is evicted from the main cache and reused for a different key. As a result, this entry
-	// object now represents a different key and has already been added to another queue.
-	// The queue index still exists, but we should not update it for the current queue.
-	// Instead, the new queue should handle the new entry.
 	index := entry.queueIndex.Load()
 
 	switch index {
-	// If the entry's queue index matches the current queue index, the entry must be in this queue.
-	// Removing the entry from the queue is protected by the queue's mutex, so there is no risk of a race condition.
+
 	case q.index:
 		entry.policyWeight += costChange
 		q.len += int(costChange)
@@ -69,12 +63,10 @@ func (s *StripedQueue[K, V]) UpdateCost(key K, hash uint64, entry *Entry[K, V], 
 		// also send update event to main
 		return false
 	case -2:
-		// there are 2 kinds of race here:
-		// - create/update race for same entry, because create also
-		// use += on policy weight, the result is consistent.
-		// - evict/update race for differnet entry, because evicted
-		// entry will be resued from sync pool, in this case policy weight should not update.
-		// race detector may report this line, but safe to ignore.
+		// there are two types of race conditions here:
+		// - Create/update race for the same entry: Since both create and update use `+=` on the policy weight, the result is consistent.
+		// - Evict/update race for different entries: When an entry is evicted and reused from the sync pool, the policy weight should not be updated in this case.
+		// The race detector may flag this line, but it's safe to ignore.
 		if entry.key == key {
 			entry.policyWeight += costChange
 		}
@@ -82,6 +74,7 @@ func (s *StripedQueue[K, V]) UpdateCost(key K, hash uint64, entry *Entry[K, V], 
 	case -3:
 		// entry is removed from queue
 		// still return true here because entry is not on main yet.
+		// So don't send event to main.
 		return true
 	default:
 		return false

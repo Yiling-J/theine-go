@@ -577,11 +577,11 @@ func (s *Store[K, V]) sinkWrite(item WriteBufItem[K, V]) (tailUpdate bool) {
 	}
 
 	if entry.queueIndex.Load() == -1 && item.code == UPDATE {
-		// double check key hash, in case
-		// entry is evicted -> reused -> add to queue -> add to main
-		// if entry is resused but still with same key, then this is
-		// a race, but only in the situation when a key is frequently updated
-		// and evicted.
+
+		// Double-check the key hash, in case the sequence is:
+		// entry is evicted -> reused -> added to queue -> added back to main.
+		// If the entry is reused but still associated with the same key,
+		// it could lead to a race condition.
 		hh := s.hasher.hash(entry.key)
 		if hh != item.hash {
 			return
@@ -701,13 +701,8 @@ func (s *Store[K, V]) maintenance() {
 		}
 	}()
 
-	// Continuously receive the first item from the buffered channel.
-	// Then, attempt to retrieve up to 127 more items from the channel in a non-blocking manner
-	// to batch process them together. This reduces contention by minimizing the number of
-	// times the mutex lock is acquired for processing the buffer.
-	// If the channel is closed during the select, exit the loop.
-	// After collecting up to 127 items (or fewer if no more are available), lock the mutex,
-	// process the batch with drainWrite(), and then release the lock.
+	// continuously receive the first item from the buffered channel.
+	// avoid a busy loop while still processing data in batches.
 	for first := range s.writeChan {
 		s.writeBuffer = append(s.writeBuffer, first)
 	loop:

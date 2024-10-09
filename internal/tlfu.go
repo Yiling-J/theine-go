@@ -95,10 +95,7 @@ func (t *TinyLfu[K, V]) Set(entry *Entry[K, V]) *Entry[K, V] {
 	}
 	if entry.meta.prev == nil {
 		if victim := t.slru.victim(); victim != nil {
-			freq := int(entry.frequency.Load())
-			if freq == -1 {
-				freq = int(t.sketch.Estimate(t.hasher.hash(entry.key)))
-			}
+			freq := int(t.sketch.Estimate(t.hasher.hash(entry.key)))
 			evictedCount := uint(freq) + uint(t.lruFactor)
 			victimCount := t.sketch.Estimate(t.hasher.hash(victim.key))
 			if evictedCount <= uint(victimCount) {
@@ -135,8 +132,6 @@ func (t *TinyLfu[K, V]) Access(item ReadBufItem[K, V]) {
 			if tail {
 				t.UpdateThreshold()
 			}
-		} else {
-			entry.frequency.Store(int32(t.sketch.Estimate(item.hash)))
 		}
 	} else {
 		reset := t.sketch.Add(item.hash)

@@ -13,19 +13,22 @@ type StripedQueue[K comparable, V any] struct {
 	thresholdLoad  func() int32
 	sendCallback   func(item QueueItem[K, V])
 	removeCallback func(item QueueItem[K, V])
+	sketch         *CountMinSketch
 }
 
-func NewStripedQueue[K comparable, V any](queueCount int, queueSize int, thresholdLoad func() int32) *StripedQueue[K, V] {
+func NewStripedQueue[K comparable, V any](queueCount int, queueSize int, sketch *CountMinSketch, thresholdLoad func() int32) *StripedQueue[K, V] {
 	sq := &StripedQueue[K, V]{
 		qs:            make([]*Queue[K, V], 0),
 		count:         queueCount,
 		thresholdLoad: thresholdLoad,
+		sketch:        sketch,
 	}
 	for i := 0; i < queueCount; i++ {
 		sq.qs = append(sq.qs, &Queue[K, V]{
-			deque: deque.New[QueueItem[K, V]](8),
-			size:  queueSize,
-			index: int32(i),
+			deque:  deque.New[QueueItem[K, V]](8),
+			size:   queueSize,
+			index:  int32(i),
+			sketch: sketch,
 		})
 	}
 	return sq
@@ -39,7 +42,7 @@ func (s *StripedQueue[K, V]) Push(hash uint64, entry *Entry[K, V], cost int64, f
 func (s *StripedQueue[K, V]) PushSimple(hash uint64, entry *Entry[K, V]) {
 	q := s.qs[hash&uint64(s.count-1)]
 	q.len += int(entry.policyWeight)
-	q.deque.PushFront(QueueItem[K, V]{entry: entry, fromNVM: entry.flag.IsFromNVM()})
+	q.deque.PushFront(QueueItem[K, V]{entry: entry, fromNVM: entry.flag.IsFromNVM(), hash: hash})
 }
 
 func (s *StripedQueue[K, V]) UpdateCost(key K, hash uint64, entry *Entry[K, V], costChange int64) bool {
@@ -106,11 +109,12 @@ func (s *StripedQueue[K, V]) Delete(hash uint64, entry *Entry[K, V]) bool {
 }
 
 type Queue[K comparable, V any] struct {
-	index int32
-	deque *deque.Deque[QueueItem[K, V]]
-	len   int
-	size  int
-	mu    sync.Mutex
+	index  int32
+	deque  *deque.Deque[QueueItem[K, V]]
+	len    int
+	size   int
+	mu     sync.Mutex
+	sketch *CountMinSketch
 }
 
 func (q *Queue[K, V]) push(hash uint64, entry *Entry[K, V], costChange int64, fromNVM bool, threshold int32, sendCallback func(item QueueItem[K, V]), removeCallback func(item QueueItem[K, V])) {
@@ -129,7 +133,7 @@ func (q *Queue[K, V]) push(hash uint64, entry *Entry[K, V], costChange int64, fr
 	entry.policyWeight += costChange
 
 	q.len += int(entry.policyWeight)
-	q.deque.PushFront(QueueItem[K, V]{entry: entry, fromNVM: fromNVM})
+	q.deque.PushFront(QueueItem[K, V]{entry: entry, fromNVM: fromNVM, hash: hash})
 	if q.len <= q.size {
 		q.mu.Unlock()
 		return
@@ -148,17 +152,13 @@ func (q *Queue[K, V]) push(hash uint64, entry *Entry[K, V], costChange int64, fr
 			continue
 		}
 
-		count := evicted.entry.frequency.Load()
+		count := q.sketch.Estimate(evicted.hash)
 		var index int32 = -1
-		if count == -1 {
+		if int32(count) >= threshold {
 			send = append(send, evicted)
 		} else {
-			if int32(count) >= threshold {
-				send = append(send, evicted)
-			} else {
-				index = -3
-				removed = append(removed, evicted)
-			}
+			index = -3
+			removed = append(removed, evicted)
 		}
 
 		success := evicted.entry.queueIndex.CompareAndSwap(q.index, index)

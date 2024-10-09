@@ -26,6 +26,7 @@ type WriteBufItem[K comparable, V any] struct {
 
 type QueueItem[K comparable, V any] struct {
 	entry   *Entry[K, V]
+	hash    uint64
 	fromNVM bool
 }
 
@@ -43,7 +44,6 @@ type Entry[K comparable, V any] struct {
 	weight       atomic.Int64
 	policyWeight int64
 	expire       atomic.Int64
-	frequency    atomic.Int32
 	queueIndex   atomic.Int32 // -1: queue to main, -2 new entry, -3: removed, -4: main, >=0: index
 	flag         Flag
 }
@@ -141,7 +141,6 @@ func (e *Entry[K, V]) pentry() *Pentry[K, V] {
 		Weight:       e.weight.Load(),
 		PolicyWeight: e.policyWeight,
 		Expire:       e.expire.Load(),
-		Frequency:    e.frequency.Load(),
 		Flag:         e.flag,
 	}
 }
@@ -163,7 +162,6 @@ func (e *Pentry[K, V]) entry() *Entry[K, V] {
 		value: e.Value,
 	}
 	en.weight.Store(e.Weight)
-	en.frequency.Store(e.Frequency)
 	en.expire.Store(e.Expire)
 	en.flag = e.Flag
 	en.policyWeight = e.PolicyWeight

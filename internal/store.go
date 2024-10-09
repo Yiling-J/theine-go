@@ -192,7 +192,7 @@ func NewStore[K comparable, V any](
 		s.shards = append(s.shards, NewShard[K, V](doorkeeper))
 	}
 	s.queue = NewStripedQueue[K, V](
-		queueCount, queueSize, func() int32 { return s.policy.threshold.Load() },
+		queueCount, queueSize, s.policy.sketch, func() int32 { return s.policy.threshold.Load() },
 	)
 	s.queue.sendCallback = func(item QueueItem[K, V]) {
 		s.writeChan <- WriteBufItem[K, V]{
@@ -381,7 +381,6 @@ func (s *Store[K, V]) setShard(shard *Shard[K, V], hash uint64, key K, value V, 
 		}
 	}
 	entry := s.entryPool.Get().(*Entry[K, V])
-	entry.frequency.Store(-1)
 	entry.key = key
 	entry.value = value
 	entry.expire.Store(expire)
@@ -775,7 +774,7 @@ func (s *Store[K, V]) getReadBufferIdx() int {
 type StoreMeta struct {
 	Version   uint64
 	StartNano int64
-	Sketch    *CountMinSketch
+	Sketch    *CountMinSketchPersist
 }
 
 func (m *StoreMeta) Persist(writer io.Writer, blockEncoder *gob.Encoder) error {
@@ -820,7 +819,7 @@ func (s *Store[K, V]) Persist(version uint64, writer io.Writer) error {
 	meta := &StoreMeta{
 		Version:   version,
 		StartNano: s.timerwheel.clock.Start.UnixNano(),
-		Sketch:    s.policy.sketch,
+		Sketch:    s.policy.sketch.CountMinSketchPersist(),
 	}
 	err := meta.Persist(writer, blockEncoder)
 	if err != nil {
@@ -943,7 +942,7 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 			if m.Version != version {
 				return VersionMismatch
 			}
-			s.policy.sketch = m.Sketch
+			s.policy.sketch = m.Sketch.CountMinSketch()
 			s.timerwheel.clock.SetStart(m.StartNano)
 		case 2: // main-protected
 			entryDecoder := gob.NewDecoder(reader)

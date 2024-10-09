@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestTlfu(t *testing.T) {
+func TestTlfu_Basic(t *testing.T) {
 	hasher := NewHasher[string](nil)
 	tlfu := NewTinyLfu[string, string](1000, hasher)
 	require.Equal(t, uint(1000), tlfu.slru.probation.capacity)
@@ -80,7 +80,7 @@ func TestTlfu(t *testing.T) {
 
 }
 
-func TestEvictEntries(t *testing.T) {
+func TestTlfu_EvictEntries(t *testing.T) {
 	hasher := NewHasher[string](nil)
 	tlfu := NewTinyLfu[string, string](500, hasher)
 	require.Equal(t, uint(500), tlfu.slru.probation.capacity)
@@ -94,7 +94,7 @@ func TestEvictEntries(t *testing.T) {
 	require.Equal(t, 500, int(tlfu.slru.probation.len.Load()))
 	require.Equal(t, 0, int(tlfu.slru.protected.len.Load()))
 	new := NewEntry("l:10", "", 10, 0)
-	new.frequency.Store(10)
+	tlfu.sketch.Addn(hasher.hash(new.key), 10)
 	tlfu.Set(new)
 	require.Equal(t, 509, int(tlfu.slru.probation.len.Load()))
 	require.Equal(t, 0, int(tlfu.slru.protected.len.Load()))
@@ -110,7 +110,7 @@ func TestEvictEntries(t *testing.T) {
 	// put l:450 to probation, this will remove 1 entry, probation len is 949 now
 	// remove 449 entries from probation
 	new = NewEntry("l:450", "", 450, 0)
-	new.frequency.Store(10)
+	tlfu.sketch.Addn(hasher.hash(new.key), 10)
 	tlfu.Set(new)
 	removed = tlfu.EvictEntries()
 	require.Equal(t, 449, len(removed))
@@ -120,7 +120,7 @@ func TestEvictEntries(t *testing.T) {
 	// put l:460 to probation, this will remove 1 entry, probation len is 959 now
 	// remove all entries except the new l:460 one
 	new = NewEntry("l:460", "", 460, 0)
-	new.frequency.Store(10)
+	tlfu.sketch.Addn(hasher.hash(new.key), 10)
 	tlfu.Set(new)
 	removed = tlfu.EvictEntries()
 	require.Equal(t, 41, len(removed))

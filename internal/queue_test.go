@@ -7,7 +7,7 @@ import (
 )
 
 func TestQueue_UpdateCost(t *testing.T) {
-	q := NewStripedQueue[int, int](1, 10, func() int32 { return -1 })
+	q := NewStripedQueue[int, int](1, 10, NewCountMinSketch(), func() int32 { return -1 })
 	entry := &Entry[int, int]{key: 1}
 	entry.weight.Store(1)
 	entry.queueIndex.Store(-2)

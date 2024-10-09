@@ -20,7 +20,7 @@ High performance in-memory & hybrid cache inspired by [Caffeine](https://github.
 - [Benchmarks](#benchmarks)
   * [throughput](#throughput)
   * [hit ratios](#hit-ratios)
-- [Hybrid Cache(Experimental)](#hybrid-cacheexperimental)
+- [Secondary Cache(Experimental)](#secondary-cacheexperimental)
 - [Support](#support)
 
 ## Requirements
@@ -246,9 +246,24 @@ BenchmarkCache/zipf_ristretto_reads=0%,writes=100%-8     	 2028530	       670.6 
 ![hit ratios](benchmarks/results/oltp.png)
 
 
-## Hybrid Cache(Experimental)
+## Secondary Cache(Experimental)
 
-#### Using Hybrid Cache
+SecondaryCache is the interface for caching data on a secondary tier, which can be a non-volatile media or alternate forms of caching such as compressed data. The purpose of the secondary cache is to support other ways of caching the object, such as persistent or compressed data. It can be viewed as an extension of Theine’s current in-memory cache.
+
+Currently, the SecondaryCache interface has one implementation inspired by CacheLib's Hybrid Cache.
+
+```go
+type SecondaryCache[K comparable, V any] interface {
+	Get(key K) (value V, cost int64, expire int64, ok bool, err error)
+	Set(key K, value V, cost int64, expire int64) error
+	Delete(key K) error
+	HandleAsyncError(err error)
+}
+```
+
+If you plan to use a remote cache or database, such as Redis, as a secondary cache, keep in mind that the in-memory cache remains the primary source of truth. Evicted entries from memory are sent to the secondary cache. This approach differs from most tiered cache systems, where the remote cache is treated as the primary source of truth and is written to first.
+
+#### Secondary Cache Implementations
 NVM: https://github.com/Yiling-J/theine-nvm
 
 #### Limitations

@@ -11,13 +11,13 @@ import (
 	"github.com/zeebo/xxh3"
 )
 
-func TestEnsureCapacity(t *testing.T) {
+func TestSketch_EnsureCapacity(t *testing.T) {
 	sketch := NewCountMinSketch()
 	sketch.EnsureCapacity(1)
 	require.Equal(t, 16, len(sketch.Table))
 }
 
-func TestSketch(t *testing.T) {
+func TestSketch_Basic(t *testing.T) {
 	sketch := NewCountMinSketch()
 	sketch.EnsureCapacity(100)
 	require.Equal(t, 128, len(sketch.Table))

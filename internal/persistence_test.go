@@ -48,7 +48,7 @@ func TestStorePersistence_Simple(t *testing.T) {
 			key:   i,
 			value: i,
 		}
-		entry.frequency.Store(int32(i))
+		store.policy.sketch.Addn(store.hasher.hash(entry.key), 10)
 		entry.weight.Store(1)
 		store.shards[0].mu.Lock()
 		entry.queueIndex.Store(-2)

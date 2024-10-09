@@ -22,6 +22,7 @@ func (s *CountMinSketchPersist) CountMinSketch() *CountMinSketch {
 	p := &CountMinSketch{
 		Additions: s.Additions, SampleSize: s.SampleSize, BlockMask: s.BlockMask,
 		Table: make([]atomic.Uint64, len(s.Table)),
+		mu:    NewRBMutex(),
 	}
 	for i := 0; i < len(s.Table); i++ {
 		p.Table[i].Store(s.Table[i])

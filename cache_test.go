@@ -67,7 +67,7 @@ func TestCache_SetParallel(t *testing.T) {
 }
 
 func TestCache_GetSetGetDeleteGet(t *testing.T) {
-	client, err := theine.NewBuilder[string, string](1000).Build()
+	client, err := theine.NewBuilder[string, string](50000).Build()
 	require.Nil(t, err)
 	for i := 0; i < 20000; i++ {
 		key := fmt.Sprintf("key:%d", rand.Intn(3000))

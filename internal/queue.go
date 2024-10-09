@@ -1,7 +1,6 @@
 package internal
 
 import (
-	"fmt"
 	"sync"
 
 	"github.com/gammazero/deque"
@@ -128,7 +127,7 @@ func (q *Queue[K, V]) push(hash uint64, entry *Entry[K, V], costChange int64, fr
 
 	success := entry.queueIndex.CompareAndSwap(-2, q.index)
 	if !success {
-		panic(fmt.Sprintf("add to queue failed %d", entry.queueIndex.Load()))
+		return
 	}
 	// += here because of possible create/update race
 	entry.policyWeight += costChange
@@ -162,11 +161,7 @@ func (q *Queue[K, V]) push(hash uint64, entry *Entry[K, V], costChange int64, fr
 			removed = append(removed, evicted)
 		}
 
-		success := evicted.entry.queueIndex.CompareAndSwap(q.index, index)
-		if !success {
-			panic(fmt.Sprintf("evict queue failed %d %d",
-				evicted.entry.queueIndex.Load(), q.index))
-		}
+		evicted.entry.queueIndex.CompareAndSwap(q.index, index)
 	}
 	q.mu.Unlock()
 	for _, item := range send {

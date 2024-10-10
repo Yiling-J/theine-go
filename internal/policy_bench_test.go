@@ -15,14 +15,15 @@ func BenchmarkPolicy_Read(b *testing.B) {
 	ritems := []ReadBufItem[uint64, bool]{}
 	for i := 0; i < 100000; i++ {
 		k := z.Uint64()
+		e := &Entry[uint64, bool]{
+			key:   k,
+			value: true,
+		}
+		e.weight.Store(1)
 		witems = append(witems, WriteBufItem[uint64, bool]{
-			entry: &Entry[uint64, bool]{
-				key:   k,
-				value: true,
-				cost:  1,
-			},
-			cost: 1,
-			code: NEW,
+			entry:      e,
+			costChange: 0,
+			code:       NEW,
 		})
 	}
 	for _, wi := range witems {
@@ -46,14 +47,16 @@ func BenchmarkPolicy_Write(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
+		e := &Entry[uint64, bool]{
+			key:   uint64(i),
+			value: true,
+		}
+		e.weight.Store(1)
+		e.policyWeight = 1
 		store.sinkWrite(WriteBufItem[uint64, bool]{
-			entry: &Entry[uint64, bool]{
-				key:   uint64(i),
-				value: true,
-				cost:  1,
-			},
-			cost: 1,
-			code: NEW,
+			entry:      e,
+			costChange: 0,
+			code:       NEW,
 		})
 	}
 

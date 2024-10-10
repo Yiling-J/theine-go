@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestPersistBasic(t *testing.T) {
+func TestPersist_Basic(t *testing.T) {
 	client, err := theine.NewBuilder[int, int](100).Build()
 	require.Nil(t, err)
 	for i := 0; i < 1000; i++ {
@@ -43,7 +43,7 @@ func TestPersistBasic(t *testing.T) {
 
 }
 
-func TestLoadingPersistBasic(t *testing.T) {
+func TestPersist_LoadingBasic(t *testing.T) {
 	client, err := theine.NewBuilder[int, int](100).BuildWithLoader(func(ctx context.Context, key int) (theine.Loaded[int], error) {
 		return theine.Loaded[int]{Value: key, Cost: 1, TTL: 0}, nil
 	})
@@ -79,7 +79,7 @@ func TestLoadingPersistBasic(t *testing.T) {
 
 }
 
-func TestVersionMismatch(t *testing.T) {
+func TestPersist_TestVersionMismatch(t *testing.T) {
 	client, err := theine.NewBuilder[int, int](100).Build()
 	require.Nil(t, err)
 	f, err := os.Create("ptest")
@@ -97,7 +97,7 @@ func TestVersionMismatch(t *testing.T) {
 	require.Equal(t, theine.VersionMismatch, err)
 }
 
-func TestChecksumMismatch(t *testing.T) {
+func TestPersist_TestChecksumMismatch(t *testing.T) {
 	client, err := theine.NewBuilder[int, int](100).Build()
 	require.Nil(t, err)
 	f, err := os.Create("ptest")
@@ -126,7 +126,7 @@ type PStruct struct {
 	Data []byte
 }
 
-func TestPersistLarge(t *testing.T) {
+func TestPersist_Large(t *testing.T) {
 	client, err := theine.NewBuilder[int, PStruct](100000).Build()
 	require.Nil(t, err)
 	for i := 0; i < 100000; i++ {
@@ -165,7 +165,7 @@ func TestPersistLarge(t *testing.T) {
 	}
 }
 
-func TestPersistOS(t *testing.T) {
+func TestPersist_OS(t *testing.T) {
 	f, err := os.Open("otest")
 	require.Nil(t, err)
 	client, err := theine.NewBuilder[int, int](100).Build()

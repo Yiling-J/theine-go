@@ -1,6 +1,8 @@
 package internal
 
-import "sync/atomic"
+import (
+	"sync/atomic"
+)
 
 const (
 	NEW int8 = iota
@@ -14,15 +16,17 @@ type ReadBufItem[K comparable, V any] struct {
 	hash  uint64
 }
 type WriteBufItem[K comparable, V any] struct {
-	entry     *Entry[K, V]
-	cost      int64
-	code      int8
-	rechedule bool
-	fromNVM   bool
+	entry      *Entry[K, V]
+	costChange int64
+	code       int8
+	rechedule  bool
+	fromNVM    bool
+	hash       uint64
 }
 
 type QueueItem[K comparable, V any] struct {
 	entry   *Entry[K, V]
+	hash    uint64
 	fromNVM bool
 }
 
@@ -34,22 +38,24 @@ type MetaData[K comparable, V any] struct {
 }
 
 type Entry[K comparable, V any] struct {
-	key       K
-	value     V
-	meta      MetaData[K, V]
-	cost      int64
-	expire    atomic.Int64
-	frequency atomic.Int32
-	queued    uint8
-	flag      Flag
+	key          K
+	value        V
+	meta         MetaData[K, V]
+	weight       atomic.Int64
+	policyWeight int64
+	expire       atomic.Int64
+	queueIndex   atomic.Int32 // -1: queue to main, -2 new entry, -3: removed, -4: main, >=0: index
+	flag         Flag
 }
 
+// used in test only
 func NewEntry[K comparable, V any](key K, value V, cost int64, expire int64) *Entry[K, V] {
 	entry := &Entry[K, V]{
 		key:   key,
 		value: value,
 	}
-	entry.cost = cost
+	entry.weight.Store(cost)
+	entry.policyWeight = cost
 	if expire > 0 {
 		entry.expire.Store(expire)
 	}
@@ -130,23 +136,24 @@ func (e *Entry[K, V]) setNext(entry *Entry[K, V], listType uint8) {
 
 func (e *Entry[K, V]) pentry() *Pentry[K, V] {
 	return &Pentry[K, V]{
-		Key:       e.key,
-		Value:     e.value,
-		Cost:      e.cost,
-		Expire:    e.expire.Load(),
-		Frequency: e.frequency.Load(),
-		Removed:   e.flag.IsRemoved(),
+		Key:          e.key,
+		Value:        e.value,
+		Weight:       e.weight.Load(),
+		PolicyWeight: e.policyWeight,
+		Expire:       e.expire.Load(),
+		Flag:         e.flag,
 	}
 }
 
 // entry for persistence
 type Pentry[K comparable, V any] struct {
-	Key       K
-	Value     V
-	Cost      int64
-	Expire    int64
-	Frequency int32
-	Removed   bool
+	Key          K
+	Value        V
+	Weight       int64
+	PolicyWeight int64
+	Expire       int64
+	Frequency    int32
+	Flag         Flag
 }
 
 func (e *Pentry[K, V]) entry() *Entry[K, V] {
@@ -154,9 +161,30 @@ func (e *Pentry[K, V]) entry() *Entry[K, V] {
 		key:   e.Key,
 		value: e.Value,
 	}
-	en.cost = e.Cost
-	en.frequency.Store(e.Frequency)
+	en.weight.Store(e.Weight)
 	en.expire.Store(e.Expire)
-	en.flag.SetRemoved(e.Removed)
+	en.flag = e.Flag
+	en.policyWeight = e.PolicyWeight
 	return en
+}
+
+func (e *Entry[K, V]) Weight() int64 {
+	return e.weight.Load()
+}
+
+func (e *Entry[K, V]) PolicyWeight() int64 {
+	return e.policyWeight
+}
+
+func (e *Entry[K, V]) Position() string {
+	if e.queueIndex.Load() == -3 {
+		return "REMOVED"
+	}
+	if e.queueIndex.Load() >= 0 {
+		return "QUEUE"
+	}
+	if e.meta.prev != nil {
+		return "MAIN"
+	}
+	return "UNKNOWN"
 }

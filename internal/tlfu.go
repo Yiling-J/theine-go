@@ -5,19 +5,20 @@ import (
 )
 
 type TinyLfu[K comparable, V any] struct {
-	slru       *Slru[K, V]
-	sketch     *CountMinSketch
-	hasher     *Hasher[K]
-	size       uint
-	counter    uint
-	misses     *UnsignedCounter
-	hits       *UnsignedCounter
-	hitsPrev   uint64
-	missesPrev uint64
-	hr         float32
-	threshold  atomic.Int32
-	lruFactor  uint8
-	step       int8
+	slru           *Slru[K, V]
+	sketch         *CountMinSketch
+	hasher         *Hasher[K]
+	size           uint
+	counter        uint
+	misses         *UnsignedCounter
+	hits           *UnsignedCounter
+	hitsPrev       uint64
+	missesPrev     uint64
+	hr             float32
+	threshold      atomic.Int32
+	lruFactor      uint8
+	step           int8
+	removeCallback func(entry *Entry[K, V])
 }
 
 func NewTinyLfu[K comparable, V any](size uint, hasher *Hasher[K]) *TinyLfu[K, V] {
@@ -95,10 +96,7 @@ func (t *TinyLfu[K, V]) Set(entry *Entry[K, V]) *Entry[K, V] {
 	}
 	if entry.meta.prev == nil {
 		if victim := t.slru.victim(); victim != nil {
-			freq := int(entry.frequency.Load())
-			if freq == -1 {
-				freq = int(t.sketch.Estimate(t.hasher.hash(entry.key)))
-			}
+			freq := int(t.sketch.Estimate(t.hasher.hash(entry.key)))
 			evictedCount := uint(freq) + uint(t.lruFactor)
 			victimCount := t.sketch.Estimate(t.hasher.hash(victim.key))
 			if evictedCount <= uint(victimCount) {
@@ -135,8 +133,6 @@ func (t *TinyLfu[K, V]) Access(item ReadBufItem[K, V]) {
 			if tail {
 				t.UpdateThreshold()
 			}
-		} else {
-			entry.frequency.Store(int32(t.sketch.Estimate(item.hash)))
 		}
 	} else {
 		reset := t.sketch.Add(item.hash)
@@ -151,27 +147,29 @@ func (t *TinyLfu[K, V]) Remove(entry *Entry[K, V]) {
 }
 
 func (t *TinyLfu[K, V]) UpdateCost(entry *Entry[K, V], delta int64) {
+	entry.policyWeight += delta
 	t.slru.updateCost(entry, delta)
 }
 
-func (t *TinyLfu[K, V]) EvictEntries() []*Entry[K, V] {
-	removed := []*Entry[K, V]{}
+func (t *TinyLfu[K, V]) EvictEntries() (evicted bool) {
 
 	for t.slru.probation.Len()+t.slru.protected.Len() > int(t.slru.maxsize) {
 		entry := t.slru.probation.PopTail()
 		if entry == nil {
 			break
 		}
-		removed = append(removed, entry)
+		evicted = true
+		t.removeCallback(entry)
 	}
 	for t.slru.probation.Len()+t.slru.protected.Len() > int(t.slru.maxsize) {
 		entry := t.slru.protected.PopTail()
 		if entry == nil {
 			break
 		}
-		removed = append(removed, entry)
+		evicted = true
+		t.removeCallback(entry)
 	}
-	return removed
+	return
 }
 
 func (t *TinyLfu[K, V]) UpdateThreshold() {

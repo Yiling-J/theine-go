@@ -15,12 +15,7 @@ func NewSlru[K comparable, V any](size uint) *Slru[K, V] {
 }
 
 func (s *Slru[K, V]) insert(entry *Entry[K, V]) *Entry[K, V] {
-	var evicted *Entry[K, V]
-	if s.probation.Len()+s.protected.Len() >= int(s.maxsize) {
-		evicted = s.probation.PopTail()
-	}
-	s.probation.PushFront(entry)
-	return evicted
+	return s.probation.PushFront(entry)
 }
 
 func (s *Slru[K, V]) victim() *Entry[K, V] {

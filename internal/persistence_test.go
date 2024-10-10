@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestStorePersistence(t *testing.T) {
+func TestStorePersistence_Simple(t *testing.T) {
 	store := NewStore[int, int](1000, false, nil, nil, nil, 0, 0, nil)
 	for _, q := range store.queue.qs {
 		q.size = 0
@@ -48,9 +48,10 @@ func TestStorePersistence(t *testing.T) {
 			key:   i,
 			value: i,
 		}
-		entry.frequency.Store(int32(i))
-		entry.cost = 1
+		store.policy.sketch.Addn(store.hasher.hash(entry.key), 10)
+		entry.weight.Store(1)
 		store.shards[0].mu.Lock()
+		entry.queueIndex.Store(-2)
 		store.setEntry(123, store.shards[0], 1, entry, false)
 		_, index := store.index(i)
 		store.shards[index].mu.Lock()
@@ -108,7 +109,7 @@ func TestStorePersistence(t *testing.T) {
 
 }
 
-func TestStorePersistenceTTL(t *testing.T) {
+func TestStorePersistence_TTL(t *testing.T) {
 	store := NewStore[int, int](1000, false, nil, nil, nil, 0, 0, nil)
 	for i := 0; i < 10; i++ {
 		_ = store.Set(i, i, 1, 2*time.Second)
@@ -157,7 +158,7 @@ func TestStorePersistenceTTL(t *testing.T) {
 	}
 }
 
-func TestStorePersistenceResize(t *testing.T) {
+func TestStorePersistence_Resize(t *testing.T) {
 	store := NewStore[int, int](1000, false, nil, nil, nil, 0, 0, nil)
 	for i := 0; i < 1000; i++ {
 		_ = store.Set(i, i, 1, 0)

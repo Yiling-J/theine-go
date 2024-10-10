@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestList(t *testing.T) {
+func TestList_PushPop(t *testing.T) {
 	l := NewList[string, string](5, LIST_PROBATION)
 	require.Equal(t, uint(5), l.capacity)
 	require.Equal(t, LIST_PROBATION, l.listType)
@@ -55,7 +55,7 @@ func TestList(t *testing.T) {
 
 }
 
-func TestListCountCost(t *testing.T) {
+func TestList_CountCost(t *testing.T) {
 	l := NewList[string, string](100, LIST_PROBATION)
 	require.Equal(t, uint(100), l.capacity)
 	require.Equal(t, LIST_PROBATION, l.listType)
@@ -73,7 +73,7 @@ func TestListCountCost(t *testing.T) {
 	require.Equal(t, 2, l.count)
 }
 
-func TestWheelList(t *testing.T) {
+func TestList_WheelList(t *testing.T) {
 	l := NewList[string, string](5, WHEEL_LIST)
 	require.Equal(t, uint(5), l.capacity)
 	require.Equal(t, WHEEL_LIST, l.listType)

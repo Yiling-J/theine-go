@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestStore_DequeExpire(t *testing.T) {
+func TestStore_QueueExpire(t *testing.T) {
 	store := NewStore[int, int](5000, false, nil, nil, nil, 0, 0, nil)
 	defer store.Close()
 
@@ -25,7 +25,8 @@ func TestStore_DequeExpire(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		entry := &Entry[int, int]{key: i}
 		entry.expire.Store(expire)
-		entry.cost = 1
+		entry.weight.Store(1)
+		entry.queueIndex.Store(-2)
 		store.shards[0].mu.Lock()
 		store.setEntry(123, store.shards[0], 1, entry, false)
 		_, index := store.index(i)
@@ -40,7 +41,7 @@ func TestStore_DequeExpire(t *testing.T) {
 	mu.Unlock()
 }
 
-func TestStore_ProcessDeque(t *testing.T) {
+func TestStore_ProcessQueue(t *testing.T) {
 	store := NewStore[int, int](20000, false, nil, nil, nil, 0, 0, nil)
 	defer store.Close()
 
@@ -61,7 +62,8 @@ func TestStore_ProcessDeque(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		entry := &Entry[int, int]{key: i}
-		entry.cost = 1
+		entry.weight.Store(1)
+		entry.queueIndex.Store(-2)
 		store.shards[0].mu.Lock()
 		store.setEntry(h, store.shards[0], 1, entry, false)
 		_, index := store.index(i)
@@ -81,17 +83,18 @@ func TestStore_ProcessDeque(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	// test evicted callback, cost less than threshold will be evicted immediately
+	store.policy.threshold.Store(100)
 	for i := 10; i < 15; i++ {
 		entry := &Entry[int, int]{key: i}
-		entry.cost = 1
-
-		store.shards[0].mu.Lock()
-		store.policy.threshold.Store(100)
-		store.setEntry(h, store.shards[0], 1, entry, false)
+		entry.weight.Store(1)
+		entry.queueIndex.Store(-2)
 		_, index := store.index(i)
 		store.shards[index].mu.Lock()
 		store.shards[index].hashmap[i] = entry
 		store.shards[index].mu.Unlock()
+
+		store.shards[0].mu.Lock()
+		store.setEntry(h, store.shards[0], 1, entry, false)
 	}
 	time.Sleep(2 * time.Second)
 
@@ -100,7 +103,7 @@ func TestStore_ProcessDeque(t *testing.T) {
 	require.Equal(t, 5, len(evicted))
 }
 
-func TestStore_RemoveDeque(t *testing.T) {
+func TestStore_RemoveQueue(t *testing.T) {
 	store := NewStore[int, int](20000, false, nil, nil, nil, 0, 0, nil)
 	defer store.Close()
 	h, index := store.index(123)
@@ -114,7 +117,8 @@ func TestStore_RemoveDeque(t *testing.T) {
 	q.size = 10
 	q.len = 10
 	entryNew := &Entry[int, int]{key: 1}
-	entryNew.cost = 1
+	entryNew.weight.Store(1)
+	entryNew.queueIndex.Store(-2)
 	store.queue.Push(h, entryNew, 1, false)
 	shard.hashmap[1] = entryNew
 	// delete key
@@ -175,6 +179,7 @@ func TestStore_GetExpire(t *testing.T) {
 		key:   123,
 		value: 123,
 	}
+	entry.queueIndex.Store(-2)
 	entry.expire.Store(fakeNow)
 
 	store.shards[i].hashmap[123] = entry

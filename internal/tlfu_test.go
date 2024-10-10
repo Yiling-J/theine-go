@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestTlfu(t *testing.T) {
+func TestTlfu_Basic(t *testing.T) {
 	hasher := NewHasher[string](nil)
 	tlfu := NewTinyLfu[string, string](1000, hasher)
 	require.Equal(t, uint(1000), tlfu.slru.probation.capacity)
@@ -80,13 +80,17 @@ func TestTlfu(t *testing.T) {
 
 }
 
-func TestEvictEntries(t *testing.T) {
+func TestTlfu_EvictEntries(t *testing.T) {
 	hasher := NewHasher[string](nil)
 	tlfu := NewTinyLfu[string, string](500, hasher)
 	require.Equal(t, uint(500), tlfu.slru.probation.capacity)
 	require.Equal(t, uint(400), tlfu.slru.protected.capacity)
 	require.Equal(t, 0, int(tlfu.slru.probation.len.Load()))
 	require.Equal(t, 0, int(tlfu.slru.protected.len.Load()))
+	em := []*Entry[string, string]{}
+	tlfu.removeCallback = func(entry *Entry[string, string]) {
+		em = append(em, entry)
+	}
 
 	for i := 0; i < 500; i++ {
 		tlfu.Set(NewEntry(fmt.Sprintf("%d:1", i), "", 1, 0))
@@ -94,47 +98,53 @@ func TestEvictEntries(t *testing.T) {
 	require.Equal(t, 500, int(tlfu.slru.probation.len.Load()))
 	require.Equal(t, 0, int(tlfu.slru.protected.len.Load()))
 	new := NewEntry("l:10", "", 10, 0)
-	new.frequency.Store(10)
+	tlfu.sketch.Addn(hasher.hash(new.key), 10)
 	tlfu.Set(new)
 	require.Equal(t, 509, int(tlfu.slru.probation.len.Load()))
 	require.Equal(t, 0, int(tlfu.slru.protected.len.Load()))
 	//  2. probation length is 509, so remove 9 entries from probation
-	removed := tlfu.EvictEntries()
-	for _, rm := range removed {
+	tlfu.EvictEntries()
+	for _, rm := range em {
 		require.True(t, strings.HasSuffix(rm.key, ":1"))
 	}
-	require.Equal(t, 9, len(removed))
+	require.Equal(t, 9, len(em))
 	require.Equal(t, 500, int(tlfu.slru.probation.len.Load()))
 	require.Equal(t, 0, int(tlfu.slru.protected.len.Load()))
+	// reset evicted list
+	em = []*Entry[string, string]{}
 
 	// put l:450 to probation, this will remove 1 entry, probation len is 949 now
 	// remove 449 entries from probation
 	new = NewEntry("l:450", "", 450, 0)
-	new.frequency.Store(10)
+	tlfu.sketch.Addn(hasher.hash(new.key), 10)
 	tlfu.Set(new)
-	removed = tlfu.EvictEntries()
-	require.Equal(t, 449, len(removed))
+	tlfu.EvictEntries()
+	require.Equal(t, 449, len(em))
 	require.Equal(t, 500, int(tlfu.slru.probation.len.Load()))
 	require.Equal(t, 0, int(tlfu.slru.protected.len.Load()))
+	// reset evicted list
+	em = []*Entry[string, string]{}
 
 	// put l:460 to probation, this will remove 1 entry, probation len is 959 now
 	// remove all entries except the new l:460 one
 	new = NewEntry("l:460", "", 460, 0)
-	new.frequency.Store(10)
+	tlfu.sketch.Addn(hasher.hash(new.key), 10)
 	tlfu.Set(new)
-	removed = tlfu.EvictEntries()
-	require.Equal(t, 41, len(removed))
+	tlfu.EvictEntries()
+	require.Equal(t, 41, len(em))
 	require.Equal(t, 460, int(tlfu.slru.probation.len.Load()))
 	require.Equal(t, 0, int(tlfu.slru.protected.len.Load()))
+	// reset evicted list
+	em = []*Entry[string, string]{}
 
 	// access
 	tlfu.Access(ReadBufItem[string, string]{entry: new})
 	require.Equal(t, 0, int(tlfu.slru.probation.len.Load()))
 	require.Equal(t, 460, int(tlfu.slru.protected.len.Load()))
-	new.cost = 600
+	new.weight.Store(600)
 	tlfu.UpdateCost(new, 140)
-	removed = tlfu.EvictEntries()
-	require.Equal(t, 1, len(removed))
+	tlfu.EvictEntries()
+	require.Equal(t, 1, len(em))
 	require.Equal(t, 0, int(tlfu.slru.probation.len.Load()))
 	require.Equal(t, 0, int(tlfu.slru.protected.len.Load()))
 

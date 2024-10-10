@@ -196,38 +196,82 @@ Source: https://github.com/maypok86/benchmarks
 
 ### throughput
 
+100% read (cpu 8/16/32)
+
 ```
-goos: darwin
+goos: linux
 goarch: amd64
 pkg: github.com/maypok86/benchmarks/throughput
-cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
+cpu: Intel(R) Xeon(R) Platinum 8163 CPU @ 2.50GHz
 
-BenchmarkCache/zipf_otter_reads=100%,writes=0%-8         	97981804	        10.80 ns/op	  92581426 ops/s
-BenchmarkCache/zipf_theine_reads=100%,writes=0%-8        	35600335	        32.25 ns/op	  31010119 ops/s
-BenchmarkCache/zipf_ristretto_reads=100%,writes=0%-8     	30536737	        40.39 ns/op	  24756714 ops/s
-BenchmarkCache/zipf_ccache_reads=100%,writes=0%-8        	10951008	       107.4 ns/op	   9307602 ops/s
-BenchmarkCache/zipf_gcache_reads=100%,writes=0%-8        	 3695197	       392.3 ns/op	   2549346 ops/s
-BenchmarkCache/zipf_ttlcache_reads=100%,writes=0%-8      	 1901844	       621.0 ns/op	   1610412 ops/s
-BenchmarkCache/zipf_golang-lru_reads=100%,writes=0%-8    	 5925349	       209.1 ns/op	   4781422 ops/s
+BenchmarkCache/zipf_otter_reads=100%,writes=0%-8                88954334                14.78 ns/op       67648151 ops/s
+BenchmarkCache/zipf_theine_reads=100%,writes=0%-8               51908306                21.87 ns/op       45729075 ops/s
+BenchmarkCache/zipf_ristretto_reads=100%,writes=0%-8            27217994                42.36 ns/op       23606992 ops/s
 
-BenchmarkCache/zipf_otter_reads=0%,writes=100%-8         	 2109556	       540.4 ns/op	   1850519 ops/s
-BenchmarkCache/zipf_theine_reads=0%,writes=100%-8        	 3066583	       370.8 ns/op	   2696582 ops/s
-BenchmarkCache/zipf_ristretto_reads=0%,writes=100%-8     	 2161082	       580.9 ns/op	   1721398 ops/s
-BenchmarkCache/zipf_ccache_reads=0%,writes=100%-8        	 1000000	      1033 ns/op	    967961 ops/s
-BenchmarkCache/zipf_gcache_reads=0%,writes=100%-8        	 2832288	       418.2 ns/op	   2391415 ops/s
-BenchmarkCache/zipf_ttlcache_reads=0%,writes=100%-8      	 2525420	       455.6 ns/op	   2194879 ops/s
-BenchmarkCache/zipf_golang-lru_reads=0%,writes=100%-8    	 3691684	       319.3 ns/op	   3132129 ops/s
+BenchmarkCache/zipf_otter_reads=100%,writes=0%-16               132372591                8.397 ns/op     119086508 ops/s
+BenchmarkCache/zipf_theine_reads=100%,writes=0%-16              85420364                13.78 ns/op       72549558 ops/s
+BenchmarkCache/zipf_ristretto_reads=100%,writes=0%-16           47790158                25.17 ns/op       39734070 ops/s
+
+BenchmarkCache/zipf_otter_reads=100%,writes=0%-32               174121321                7.078 ns/op     141273879 ops/s
+BenchmarkCache/zipf_theine_reads=100%,writes=0%-32              118185849               10.45 ns/op       95703790 ops/s
+BenchmarkCache/zipf_ristretto_reads=100%,writes=0%-32           66458452                18.85 ns/op       53055079 ops/s
+
 ```
 
-benchmem:
+75% read (cpu 8/16/32)
 ```
-BenchmarkCache/zipf_otter_reads=100%,writes=0%-8         	100362195	        11.54 ns/op	  86621545 ops/s	       0 B/op	       0 allocs/op
-BenchmarkCache/zipf_theine_reads=100%,writes=0%-8        	31538078	        32.68 ns/op	  30602449 ops/s	       0 B/op	       0 allocs/op
-BenchmarkCache/zipf_ristretto_reads=100%,writes=0%-8     	30308824	        40.52 ns/op	  24676203 ops/s	      16 B/op	       1 allocs/op
+goos: linux
+goarch: amd64
+pkg: github.com/maypok86/benchmarks/throughput
+cpu: Intel(R) Xeon(R) Platinum 8163 CPU @ 2.50GHz
 
-BenchmarkCache/zipf_otter_reads=0%,writes=100%-8         	 2232979	       544.6 ns/op	   1836201 ops/s	      80 B/op	       1 allocs/op
-BenchmarkCache/zipf_theine_reads=0%,writes=100%-8        	 2854908	       485.1 ns/op	   2061454 ops/s	       0 B/op	       0 allocs/op
-BenchmarkCache/zipf_ristretto_reads=0%,writes=100%-8     	 2028530	       670.6 ns/op	   1491240 ops/s	     112 B/op	       3 allocs/op
+BenchmarkCache/zipf_otter_reads=75%,writes=25%-8                49907841                32.67 ns/op       30609572 ops/s
+BenchmarkCache/zipf_theine_reads=75%,writes=25%-8               21484245                48.89 ns/op       20453469 ops/s
+BenchmarkCache/zipf_ristretto_reads=75%,writes=25%-8             8651056               130.5 ns/op         7664450 ops/s
+
+BenchmarkCache/zipf_otter_reads=75%,writes=25%-16               50226466                21.85 ns/op       45764160 ops/s
+BenchmarkCache/zipf_theine_reads=75%,writes=25%-16              46674459                24.68 ns/op       40523215 ops/s
+BenchmarkCache/zipf_ristretto_reads=75%,writes=25%-16           10233784               108.0 ns/op         9262524 ops/s
+
+BenchmarkCache/zipf_otter_reads=75%,writes=25%-32               89651678                11.96 ns/op       83606257 ops/s
+BenchmarkCache/zipf_theine_reads=75%,writes=25%-32              75969892                15.53 ns/op       64394679 ops/s
+BenchmarkCache/zipf_ristretto_reads=75%,writes=25%-32           15766912                76.37 ns/op       13093551 ops/s
+
+```
+
+
+100% write (cpu 8/16/32)
+
+```
+goos: linux
+goarch: amd64
+pkg: github.com/maypok86/benchmarks/throughput
+cpu: Intel(R) Xeon(R) Platinum 8163 CPU @ 2.50GHz
+
+BenchmarkCache/zipf_otter_reads=0%,writes=100%-8                 1567917               723.0 ns/op         1383080 ops/s
+BenchmarkCache/zipf_theine_reads=0%,writes=100%-8                2194747               542.4 ns/op         1843615 ops/s
+BenchmarkCache/zipf_ristretto_reads=0%,writes=100%-8             1839237               642.5 ns/op         1556503 ops/s
+
+BenchmarkCache/zipf_otter_reads=0%,writes=100%-16                1384345               846.0 ns/op         1181980 ops/s
+BenchmarkCache/zipf_theine_reads=0%,writes=100%-16               1915946               528.8 ns/op         1891008 ops/s
+BenchmarkCache/zipf_ristretto_reads=0%,writes=100%-16            1765465               697.3 ns/op         1434089 ops/s
+
+BenchmarkCache/zipf_otter_reads=0%,writes=100%-32                1265883               979.8 ns/op         1020607 ops/s
+BenchmarkCache/zipf_theine_reads=0%,writes=100%-32               1953358               526.1 ns/op         1900935 ops/s
+BenchmarkCache/zipf_ristretto_reads=0%,writes=100%-32            1618098               696.1 ns/op         1436625 ops/s
+```
+
+benchmem 100% write (cpu 32)
+```
+goos: linux
+goarch: amd64
+pkg: github.com/maypok86/benchmarks/throughput
+cpu: Intel(R) Xeon(R) Platinum 8163 CPU @ 2.50GHz
+
+BenchmarkCache/zipf_otter_reads=0%,writes=100%-32                80 B/op          1 allocs/op
+BenchmarkCache/zipf_theine_reads=0%,writes=100%-32               0 B/op           0 allocs/op
+BenchmarkCache/zipf_ristretto_reads=0%,writes=100%-32            112 B/op         3 allocs/op
+
 ```
 
 ### hit ratios

@@ -96,7 +96,7 @@ func TestCacheRace_GetSetDeleteExpire(t *testing.T) {
 					if ok && v != key {
 						panic(key)
 					}
-					if i%3 == 0 {
+					if !ok {
 						client.SetWithTTL(key, key, int64(i%10+1), time.Second*time.Duration(i%25+5))
 					}
 					if i%5 == 0 {

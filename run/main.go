@@ -56,7 +56,7 @@ func main() {
 		log.Println(http.ListenAndServe("localhost:6060", nil))
 	}()
 
-	g // http://localhost:18066/debug/statsview
+	// http://localhost:18066/debug/statsview
 	// mgr := statsview.New()
 	// go func() { _ = mgr.Start() }()
 

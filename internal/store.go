@@ -214,6 +214,9 @@ func NewStore[K comparable, V any](
 			s.postDelete(entry)
 		}
 	}
+	s.policy.removeCallback = func(entry *Entry[K, V]) {
+		s.removeEntry(entry, EVICTED)
+	}
 
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 	s.timerwheel = NewTimerWheel[K, V](uint(maxsize))
@@ -619,10 +622,9 @@ func (s *Store[K, V]) sinkWrite(item WriteBufItem[K, V]) (tailUpdate bool) {
 			s.removeEntry(evicted, EVICTED)
 			tailUpdate = true
 		}
-		removed := s.policy.EvictEntries()
-		for _, e := range removed {
+		t := s.policy.EvictEntries()
+		if t {
 			tailUpdate = true
-			s.removeEntry(e, EVICTED)
 		}
 
 	case REMOVE:
@@ -645,11 +647,7 @@ func (s *Store[K, V]) sinkWrite(item WriteBufItem[K, V]) (tailUpdate bool) {
 				return
 			}
 			s.policy.UpdateCost(entry, item.costChange)
-			removed := s.policy.EvictEntries()
-			for _, e := range removed {
-				tailUpdate = true
-				s.removeEntry(e, EVICTED)
-			}
+			tailUpdate = s.policy.EvictEntries()
 		}
 	}
 	item.entry = nil

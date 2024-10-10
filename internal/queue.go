@@ -13,6 +13,7 @@ type StripedQueue[K comparable, V any] struct {
 	sendCallback   func(item QueueItem[K, V])
 	removeCallback func(item QueueItem[K, V])
 	sketch         *CountMinSketch
+	qpool          *sync.Pool
 }
 
 func NewStripedQueue[K comparable, V any](queueCount int, queueSize int, sketch *CountMinSketch, thresholdLoad func() int32) *StripedQueue[K, V] {
@@ -21,6 +22,14 @@ func NewStripedQueue[K comparable, V any](queueCount int, queueSize int, sketch 
 		count:         queueCount,
 		thresholdLoad: thresholdLoad,
 		sketch:        sketch,
+		qpool: &sync.Pool{
+			New: func() any {
+				return &qslice[K, V]{
+					send:    make([]QueueItem[K, V], 0, 2),
+					removed: make([]QueueItem[K, V], 0, 2),
+				}
+			},
+		},
 	}
 	for i := 0; i < queueCount; i++ {
 		sq.qs = append(sq.qs, &Queue[K, V]{
@@ -28,6 +37,7 @@ func NewStripedQueue[K comparable, V any](queueCount int, queueSize int, sketch 
 			size:   queueSize,
 			index:  int32(i),
 			sketch: sketch,
+			qpool:  sq.qpool,
 		})
 	}
 	return sq
@@ -101,6 +111,11 @@ func (s *StripedQueue[K, V]) Delete(hash uint64, entry *Entry[K, V]) bool {
 	}
 }
 
+type qslice[K comparable, V any] struct {
+	send    []QueueItem[K, V]
+	removed []QueueItem[K, V]
+}
+
 type Queue[K comparable, V any] struct {
 	index  int32
 	deque  *deque.Deque[QueueItem[K, V]]
@@ -108,6 +123,7 @@ type Queue[K comparable, V any] struct {
 	size   int
 	mu     sync.Mutex
 	sketch *CountMinSketch
+	qpool  *sync.Pool
 }
 
 func (q *Queue[K, V]) push(hash uint64, entry *Entry[K, V], costChange int64, fromNVM bool, threshold int32, sendCallback func(item QueueItem[K, V]), removeCallback func(item QueueItem[K, V])) {
@@ -132,10 +148,7 @@ func (q *Queue[K, V]) push(hash uint64, entry *Entry[K, V], costChange int64, fr
 		return
 	}
 
-	// send to slru
-	send := make([]QueueItem[K, V], 0, 2)
-	// removed because frequency < slru tail frequency
-	removed := make([]QueueItem[K, V], 0, 2)
+	qs := q.qpool.Get().(*qslice[K, V])
 
 	for q.len > q.size {
 		evicted := q.deque.PopBack()
@@ -148,19 +161,22 @@ func (q *Queue[K, V]) push(hash uint64, entry *Entry[K, V], costChange int64, fr
 		count := q.sketch.Estimate(evicted.hash)
 		var index int32 = -1
 		if int32(count) >= threshold {
-			send = append(send, evicted)
+			qs.send = append(qs.send, evicted)
 		} else {
 			index = -3
-			removed = append(removed, evicted)
+			qs.removed = append(qs.removed, evicted)
 		}
 
 		evicted.entry.queueIndex.CompareAndSwap(q.index, index)
 	}
 	q.mu.Unlock()
-	for _, item := range send {
+	for _, item := range qs.send {
 		sendCallback(item)
 	}
-	for _, item := range removed {
+	for _, item := range qs.removed {
 		removeCallback(item)
 	}
+	qs.send = qs.send[:0]
+	qs.removed = qs.removed[:0]
+	q.qpool.Put(qs)
 }

@@ -5,19 +5,20 @@ import (
 )
 
 type TinyLfu[K comparable, V any] struct {
-	slru       *Slru[K, V]
-	sketch     *CountMinSketch
-	hasher     *Hasher[K]
-	size       uint
-	counter    uint
-	misses     *UnsignedCounter
-	hits       *UnsignedCounter
-	hitsPrev   uint64
-	missesPrev uint64
-	hr         float32
-	threshold  atomic.Int32
-	lruFactor  uint8
-	step       int8
+	slru           *Slru[K, V]
+	sketch         *CountMinSketch
+	hasher         *Hasher[K]
+	size           uint
+	counter        uint
+	misses         *UnsignedCounter
+	hits           *UnsignedCounter
+	hitsPrev       uint64
+	missesPrev     uint64
+	hr             float32
+	threshold      atomic.Int32
+	lruFactor      uint8
+	step           int8
+	removeCallback func(entry *Entry[K, V])
 }
 
 func NewTinyLfu[K comparable, V any](size uint, hasher *Hasher[K]) *TinyLfu[K, V] {
@@ -150,24 +151,25 @@ func (t *TinyLfu[K, V]) UpdateCost(entry *Entry[K, V], delta int64) {
 	t.slru.updateCost(entry, delta)
 }
 
-func (t *TinyLfu[K, V]) EvictEntries() []*Entry[K, V] {
-	removed := []*Entry[K, V]{}
+func (t *TinyLfu[K, V]) EvictEntries() (evicted bool) {
 
 	for t.slru.probation.Len()+t.slru.protected.Len() > int(t.slru.maxsize) {
 		entry := t.slru.probation.PopTail()
 		if entry == nil {
 			break
 		}
-		removed = append(removed, entry)
+		evicted = true
+		t.removeCallback(entry)
 	}
 	for t.slru.probation.Len()+t.slru.protected.Len() > int(t.slru.maxsize) {
 		entry := t.slru.protected.PopTail()
 		if entry == nil {
 			break
 		}
-		removed = append(removed, entry)
+		evicted = true
+		t.removeCallback(entry)
 	}
-	return removed
+	return
 }
 
 func (t *TinyLfu[K, V]) UpdateThreshold() {

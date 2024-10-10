@@ -34,6 +34,7 @@ var (
 	StripedBufferSize  int
 	WriteChanSize      int
 	WriteBufferSize    int
+	raceDetector       bool
 )
 
 func init() {
@@ -387,7 +388,9 @@ func (s *Store[K, V]) setShard(shard *Shard[K, V], hash uint64, key K, value V, 
 	if entry.key == key {
 		// put back and create an entry manually
 		// because same key reuse might cause race condition
-		s.entryPool.Put(entry)
+		if !raceDetector {
+			s.entryPool.Put(entry)
+		}
 		entry = &Entry[K, V]{}
 	}
 	entry.key = key
@@ -496,7 +499,9 @@ func (s *Store[K, V]) index(key K) (uint64, int) {
 func (s *Store[K, V]) postDelete(entry *Entry[K, V]) {
 	var zero V
 	entry.value = zero
-	s.entryPool.Put(entry)
+	if !raceDetector {
+		s.entryPool.Put(entry)
+	}
 }
 
 // remove entry from cache/policy/timingwheel and add back to pool

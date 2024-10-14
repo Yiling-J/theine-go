@@ -292,7 +292,7 @@ BenchmarkCache/zipf_ristretto_reads=0%,writes=100%-32            112 B/op       
 
 ## Secondary Cache(Experimental)
 
-SecondaryCache is the interface for caching data on a secondary tier, which can be a non-volatile media or alternate forms of caching such as compressed data. The purpose of the secondary cache is to support other ways of caching the object, such as persistent or compressed data. It can be viewed as an extension of Theine’s current in-memory cache.
+SecondaryCache is the interface for caching data on a secondary tier, which can be a non-volatile media or alternate forms of caching such as sqlite. The purpose of the secondary cache is to support other ways of caching the object. It can be viewed as an extension of Theine’s current in-memory cache.
 
 Currently, the SecondaryCache interface has one implementation inspired by CacheLib's Hybrid Cache.
 

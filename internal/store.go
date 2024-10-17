@@ -399,6 +399,7 @@ func (s *Store[K, V]) setShard(shard *Shard[K, V], hash uint64, key K, value V, 
 	entry.weight.Store(cost)
 	entry.policyWeight = 0
 	entry.queueIndex.Store(-2)
+	entry.flag = Flag{}
 	s.setEntry(hash, shard, cost, entry, nvmClean)
 	return shard, entry, true
 

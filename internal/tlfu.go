@@ -50,6 +50,7 @@ func (t *TinyLfu[K, V]) climb() {
 	delta := current - t.hr
 	var diff int8
 	if delta > 0.0 {
+		newFactor := int8(t.lruFactor) + t.step
 		if t.step < 0 {
 			t.step -= 1
 		} else {
@@ -60,7 +61,6 @@ func (t *TinyLfu[K, V]) climb() {
 		} else if t.step > 13 {
 			t.step = 13
 		}
-		newFactor := int8(t.lruFactor) + t.step
 		if newFactor < 0 {
 			newFactor = 0
 		} else if newFactor > 16 {
@@ -89,11 +89,6 @@ func (t *TinyLfu[K, V]) climb() {
 }
 
 func (t *TinyLfu[K, V]) Set(entry *Entry[K, V]) *Entry[K, V] {
-	t.counter++
-	if t.counter > 10*t.size {
-		t.climb()
-		t.counter = 0
-	}
 	if entry.meta.prev == nil {
 		if victim := t.slru.victim(); victim != nil {
 			freq := int(t.sketch.Estimate(t.hasher.hash(entry.key)))
@@ -166,7 +161,6 @@ func (t *TinyLfu[K, V]) EvictEntries() (evicted bool) {
 		if entry == nil {
 			break
 		}
-		evicted = true
 		t.removeCallback(entry)
 	}
 	return

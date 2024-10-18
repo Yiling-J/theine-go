@@ -81,6 +81,7 @@ func TestStore_ProcessQueue(t *testing.T) {
 	require.Equal(t, []int{3, 4, 123}, keys)
 	require.Equal(t, 0, len(evicted))
 	time.Sleep(1 * time.Second)
+	store.Wait()
 
 	// test evicted callback, cost less than threshold will be evicted immediately
 	store.policy.threshold.Store(100)
@@ -96,7 +97,6 @@ func TestStore_ProcessQueue(t *testing.T) {
 		store.shards[0].mu.Lock()
 		store.setEntry(h, store.shards[0], 1, entry, false)
 	}
-	time.Sleep(2 * time.Second)
 
 	mu.Lock()
 	defer mu.Unlock()

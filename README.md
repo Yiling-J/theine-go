@@ -43,7 +43,7 @@ Loading cache uses [singleflight](https://pkg.go.dev/golang.org/x/sync/singlefli
 
 Theine provides an option called `UseEntryPool` to help reduce memory allocation during heavy concurrent writes. It achieves this by reusing evicted entry structs through a `sync pool`. However, if you don't experience heavy concurrent writes, the sync pool may not be beneficial and could only slow things down.
 
-One drawback of the entry pool is the potential for occasional **race conditions within the policy**. Theine sends events to the policy asynchronously using channels/buffers, and the policy decides which entries to keep or evict when the cache is full. This means that when the policy receives an UPDATE event, the related entry might already have been returned to the sync pool and reused.
+One drawback of the entry pool is the potential for occasional **race conditions within the policy**. Theine sends events to the policy asynchronously using channels/buffers, and the policy decides which entries to keep or evict when the cache is full. Although the design minimizes the likelihood of race conditions, there remains a very small chance the event is applied to a wrong entry in policy.
 
 For **READ** events, a race condition could occur under the following scenario:
 1. Get EntryA using the API.
@@ -61,7 +61,7 @@ In this case, the policy may incorrectly promote EntryB. However, the likelihood
 For **UPDATE** events which also update entry's cost (weight), a similar race condition might occur under heavy concurrent UPDATE operations. Unlike reads, the write buffer is a buffered channel that drains proactively, not just when full. Additionally, when the policy processes UPDATE events, it checks the key again to ensure it matches. **If a race occurs for UPDATE events, the entry's cost stored in the policy might differ from the actual cost.**
 
 
-A correctness test runs as part of the CI, simulating heavy concurrent cost UPDATE and INSERT operations with a Zipf-distributed workload. This test verifies that the entry's policy cost (weight) matches its actual cost (weight). You can find the test here: [cache_race_test.go](https://github.com/Yiling-J/theine-go/blob/main/cache_race_test.go).
+A correctness test runs as part of the CI, simulating heavy concurrent cost UPDATE and INSERT operations with a Zipf-distributed workload. This test verifies that the entry's policy cost (weight) matches its actual cost (weight) with `UseEntryPool` enabled. You can find the test here: [cache_race_test.go](https://github.com/Yiling-J/theine-go/blob/main/cache_race_test.go).
 
 This option was introduced in Theine v0.5.1. Before this version, the entry pool was **always used**. Starting from v0.5.1, the `UseEntryPool` option was added and **defaults to false**.
 

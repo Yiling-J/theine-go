@@ -26,6 +26,7 @@ type baseParams[K comparable, V any] struct {
 	maxsize         int64
 	doorkeeper      bool
 	stringKeyFunc   func(key K) string
+	useEntryPool    bool
 }
 
 func (p *baseParams[K, V]) validate() error {
@@ -85,10 +86,20 @@ func (b *Builder[K, V]) Cost(cost func(v V) int64) *Builder[K, V] {
 	return b
 }
 
-// Doorkeeper enables doorkeeper.
+// Doorkeeper enables/disables doorkeeper.
 // Doorkeeper will drop Set if they are not in bloomfilter yet.
 func (b *Builder[K, V]) Doorkeeper(enabled bool) *Builder[K, V] {
-	b.doorkeeper = true
+	b.doorkeeper = enabled
+	return b
+}
+
+// UseEntryPool enables/disables reusing evicted entries through a sync pool.
+// This can significantly reduce memory allocation under heavy concurrent writes,
+// but it may lead to occasional race conditions. Theine updates its policy asynchronously,
+// so when an Update event is processed, the corresponding entry might have already been reused.
+// Theine will compare the key again, but this does not completely eliminate the risk of a race.
+func (b *Builder[K, V]) UseEntryPool(enabled bool) *Builder[K, V] {
+	b.useEntryPool = enabled
 	return b
 }
 
@@ -104,7 +115,7 @@ func (b *Builder[K, V]) Build() (*Cache[K, V], error) {
 	if err := validateParams(&b.baseParams); err != nil {
 		return nil, err
 	}
-	store := internal.NewStore(b.maxsize, b.doorkeeper, b.removalListener, b.cost, nil, 0, 0, b.stringKeyFunc)
+	store := internal.NewStore(b.maxsize, b.doorkeeper, b.useEntryPool, b.removalListener, b.cost, nil, 0, 0, b.stringKeyFunc)
 	return &Cache[K, V]{store: store}, nil
 }
 
@@ -140,7 +151,7 @@ func (b *Builder[K, V]) BuildWithLoader(loader func(ctx context.Context, key K) 
 	if loader == nil {
 		return nil, errors.New("loader function required")
 	}
-	store := internal.NewStore(b.maxsize, b.doorkeeper, b.removalListener, b.cost, nil, 0, 0, b.stringKeyFunc)
+	store := internal.NewStore(b.maxsize, b.doorkeeper, b.useEntryPool, b.removalListener, b.cost, nil, 0, 0, b.stringKeyFunc)
 	loadingStore := internal.NewLoadingStore(store)
 	loadingStore.Loader(func(ctx context.Context, key K) (internal.Loaded[V], error) {
 		v, err := loader(ctx, key)
@@ -171,7 +182,7 @@ func (b *LoadingBuilder[K, V]) Build() (*LoadingCache[K, V], error) {
 	if err := validateParams(&b.baseParams, &b.loadingParams); err != nil {
 		return nil, err
 	}
-	store := internal.NewStore(b.maxsize, b.doorkeeper, b.removalListener, b.cost, nil, 0, 0, b.stringKeyFunc)
+	store := internal.NewStore(b.maxsize, b.doorkeeper, b.useEntryPool, b.removalListener, b.cost, nil, 0, 0, b.stringKeyFunc)
 	loadingStore := internal.NewLoadingStore(store)
 	loadingStore.Loader(func(ctx context.Context, key K) (internal.Loaded[V], error) {
 		v, err := b.loader(ctx, key)
@@ -216,7 +227,7 @@ func (b *HybridBuilder[K, V]) Build() (*HybridCache[K, V], error) {
 	if err := validateParams(&b.baseParams, &b.hybridParams); err != nil {
 		return nil, err
 	}
-	store := internal.NewStore(b.maxsize, b.doorkeeper, b.removalListener, b.cost,
+	store := internal.NewStore(b.maxsize, b.doorkeeper, b.useEntryPool, b.removalListener, b.cost,
 		b.secondaryCache, b.workers, b.admProbability, b.stringKeyFunc,
 	)
 	return &HybridCache[K, V]{store: store}, nil
@@ -234,7 +245,7 @@ func (b *HybridLoadingBuilder[K, V]) Build() (*HybridLoadingCache[K, V], error) 
 		return nil, err
 	}
 	store := internal.NewStore(
-		b.maxsize, b.doorkeeper, b.removalListener, b.cost, b.secondaryCache, b.workers,
+		b.maxsize, b.doorkeeper, b.useEntryPool, b.removalListener, b.cost, b.secondaryCache, b.workers,
 		b.admProbability, b.stringKeyFunc,
 	)
 	loadingStore := internal.NewLoadingStore(store)

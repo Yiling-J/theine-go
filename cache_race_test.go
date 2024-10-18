@@ -13,16 +13,20 @@ import (
 func keyGen() []uint64 {
 	keys := []uint64{}
 	r := rand.New(rand.NewSource(0))
-	z := rand.NewZipf(r, 1.01, 9.0, 200000)
+	z := rand.NewZipf(r, 1.01, 9.0, 20000000)
 	for i := 0; i < 2<<16; i++ {
 		keys = append(keys, z.Uint64())
 	}
 	return keys
 }
 
-func TestCacheRace_GetSet(t *testing.T) {
+func getSet(t *testing.T, entrypool bool) {
 	for _, size := range []int{500, 2000, 10000, 50000} {
 		builder := NewBuilder[uint64, uint64](int64(size))
+		if entrypool {
+			builder.UseEntryPool(true)
+		}
+
 		builder.RemovalListener(func(key, value uint64, reason RemoveReason) {})
 		client, err := builder.Build()
 		require.Nil(t, err)
@@ -34,7 +38,7 @@ func TestCacheRace_GetSet(t *testing.T) {
 			go func() {
 				defer wg.Done()
 				rd := rand.Intn(2 << 16)
-				for i := 0; i < 100000; i++ {
+				for i := 0; i < 500000; i++ {
 					keyGet := keys[(i+rd)&(2<<16-1)]
 					keyUpdate := keys[(i+3*rd)&(2<<16-1)]
 
@@ -76,9 +80,21 @@ func TestCacheRace_GetSet(t *testing.T) {
 	}
 }
 
-func TestCacheRace_GetSetDeleteExpire(t *testing.T) {
+func TestCacheRace_EntryPool_GetSet(t *testing.T) {
+	getSet(t, true)
+
+}
+func TestCacheRace_NoPool_GetSet(t *testing.T) {
+	getSet(t, false)
+
+}
+
+func getSetDeleteExpire(t *testing.T, entrypool bool) {
 	for _, size := range []int{500, 2000, 10000, 50000} {
 		builder := NewBuilder[uint64, uint64](int64(size))
+		if entrypool {
+			builder.UseEntryPool(true)
+		}
 		builder.RemovalListener(func(key, value uint64, reason RemoveReason) {})
 		client, err := builder.Build()
 		require.Nil(t, err)
@@ -136,4 +152,12 @@ func TestCacheRace_GetSetDeleteExpire(t *testing.T) {
 		client.Close()
 
 	}
+}
+
+func TestCacheRace_EntryPool_GetSetDeleteExpire(t *testing.T) {
+	getSetDeleteExpire(t, true)
+}
+
+func TestCacheRace_NoPool_GetSetDeleteExpire(t *testing.T) {
+	getSetDeleteExpire(t, false)
 }

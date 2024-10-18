@@ -9,7 +9,7 @@ import (
 )
 
 func TestStore_QueueExpire(t *testing.T) {
-	store := NewStore[int, int](5000, false, nil, nil, nil, 0, 0, nil)
+	store := NewStore[int, int](5000, false, true, nil, nil, nil, 0, 0, nil)
 	defer store.Close()
 
 	expired := map[int]int{}
@@ -42,7 +42,7 @@ func TestStore_QueueExpire(t *testing.T) {
 }
 
 func TestStore_ProcessQueue(t *testing.T) {
-	store := NewStore[int, int](20000, false, nil, nil, nil, 0, 0, nil)
+	store := NewStore[int, int](20000, false, true, nil, nil, nil, 0, 0, nil)
 	defer store.Close()
 
 	evicted := map[int]int{}
@@ -81,6 +81,7 @@ func TestStore_ProcessQueue(t *testing.T) {
 	require.Equal(t, []int{3, 4, 123}, keys)
 	require.Equal(t, 0, len(evicted))
 	time.Sleep(1 * time.Second)
+	store.Wait()
 
 	// test evicted callback, cost less than threshold will be evicted immediately
 	store.policy.threshold.Store(100)
@@ -96,7 +97,6 @@ func TestStore_ProcessQueue(t *testing.T) {
 		store.shards[0].mu.Lock()
 		store.setEntry(h, store.shards[0], 1, entry, false)
 	}
-	time.Sleep(2 * time.Second)
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -104,7 +104,7 @@ func TestStore_ProcessQueue(t *testing.T) {
 }
 
 func TestStore_RemoveQueue(t *testing.T) {
-	store := NewStore[int, int](20000, false, nil, nil, nil, 0, 0, nil)
+	store := NewStore[int, int](20000, false, true, nil, nil, nil, 0, 0, nil)
 	defer store.Close()
 	h, index := store.index(123)
 	qindex := h & uint64(RoundedParallelism-1)
@@ -139,7 +139,7 @@ func TestStore_RemoveQueue(t *testing.T) {
 }
 
 func TestStore_DoorKeeperDynamicSize(t *testing.T) {
-	store := NewStore[int, int](200000, true, nil, nil, nil, 0, 0, nil)
+	store := NewStore[int, int](200000, true, true, nil, nil, nil, 0, 0, nil)
 	defer store.Close()
 	shard := store.shards[0]
 	require.True(t, shard.dookeeper.Capacity == 512)
@@ -150,7 +150,7 @@ func TestStore_DoorKeeperDynamicSize(t *testing.T) {
 }
 
 func TestStore_PolicyCounter(t *testing.T) {
-	store := NewStore[int, int](1000, false, nil, nil, nil, 0, 0, nil)
+	store := NewStore[int, int](1000, false, true, nil, nil, nil, 0, 0, nil)
 	defer store.Close()
 	for i := 0; i < 1000; i++ {
 		store.Set(i, i, 1, 0)
@@ -169,7 +169,7 @@ func TestStore_PolicyCounter(t *testing.T) {
 }
 
 func TestStore_GetExpire(t *testing.T) {
-	store := NewStore[int, int](1000, false, nil, nil, nil, 0, 0, nil)
+	store := NewStore[int, int](1000, false, true, nil, nil, nil, 0, 0, nil)
 	defer store.Close()
 
 	_, i := store.index(123)

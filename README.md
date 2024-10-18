@@ -39,6 +39,31 @@ Theine provides two types of client, simple cache and loading cache. Both of the
 
 Loading cache uses [singleflight](https://pkg.go.dev/golang.org/x/sync/singleflight) to prevent concurrent loading to same key(thundering herd).
 
+**Entry Pool**
+
+Theine provides an option called `UseEntryPool` to help reduce memory allocation during heavy concurrent writes. It achieves this by reusing evicted entry structs through a sync pool. However, if you don't experience heavy concurrent writes, the sync pool may not be beneficial and could only slow things down.
+
+One drawback of the entry pool is the potential for occasional race conditions within the policy. Theine sends events to the policy asynchronously using channels/buffers, and the policy decides which entries to keep or evict when the cache is full. This means that when the policy receives an UPDATE event, the related entry might already have been returned to the sync pool and reused.
+
+For READ events, a race condition could occur under the following scenario:
+1. Get EntryA using the API.
+2. Add EntryA "get" event to the read buffer.
+3. EntryA is evicted by the policy.
+4. EntryA is reused, becoming EntryB.
+5. EntryB is added to the window queue (FIFO).
+6. EntryB leaves the window queue.
+7. EntryB's "create" event is added to the write buffer.
+8. EntryB's "create" event is processed by the policy.
+9. EntryA's "get" event is processed by the policy.
+
+In this case, the policy may incorrectly promote EntryB. However, the likelihood of this scenario is extremely low. One potential situation where this could happen is if, after EntryA is added to the buffer, all reads stop, and only writes remain. Since the read buffer is only sent to the policy when it is full, this race condition may occur. **If a race happens for READ events, the entry might be incorrectly promoted to the head of the policy's LRU.**
+
+For UPDATE events, a similar race condition might occur, but it is less likely because the write buffer is a channel that drains proactively, not just when full. Additionally, when the policy processes UPDATE events, it checks the key again to ensure it matches. **If a race occurs for UPDATE events, the entry's cost stored in the policy might differ from the actual cost.**
+
+This option was introduced in Theine v0.5.1. Before this version, the entry pool was always used. Starting from v0.5.1, the `UseEntryPool` option was added and defaults to **false**.
+
+**API Details**
+
 simple cache:
 
 ```GO
@@ -64,7 +89,10 @@ builder.Cost(func(v string) int64 {
 		return int64(len(v))
 })
 
-// doorkeeper
+// enable entryPool (default false)
+builder.UseEntryPool(true)
+
+// doorkeeper (default false)
 // doorkeeper will drop Set if they are not in bloomfilter yet
 // this can improve write performance, but may lower hit ratio
 builder.Doorkeeper(true)

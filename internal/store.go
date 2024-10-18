@@ -34,7 +34,6 @@ var (
 	StripedBufferSize  int
 	WriteChanSize      int
 	WriteBufferSize    int
-	raceDetector       bool
 )
 
 func init() {
@@ -101,7 +100,7 @@ type Metrics struct {
 }
 
 type Store[K comparable, V any] struct {
-	entryPool         sync.Pool
+	entryPool         *sync.Pool
 	writeChan         chan WriteBufItem[K, V]
 	writeBuffer       []WriteBufItem[K, V]
 	hasher            *Hasher[K]
@@ -132,7 +131,7 @@ type Store[K comparable, V any] struct {
 
 // New returns a new data struct with the specified capacity
 func NewStore[K comparable, V any](
-	maxsize int64, doorkeeper bool, listener func(key K, value V, reason RemoveReason),
+	maxsize int64, doorkeeper bool, entryPool bool, listener func(key K, value V, reason RemoveReason),
 	cost func(v V) int64, secondaryCache SecondaryCache[K, V], workers int, probability float32, stringKeyFunc func(k K) string,
 ) *Store[K, V] {
 	hasher := NewHasher(stringKeyFunc)
@@ -168,7 +167,6 @@ func NewStore[K comparable, V any](
 		mask:          uint32(StripedBufferSize - 1),
 		writeChan:     make(chan WriteBufItem[K, V], WriteChanSize),
 		writeBuffer:   make([]WriteBufItem[K, V], 0, WriteBufferSize),
-		entryPool:     sync.Pool{New: func() any { return &Entry[K, V]{} }},
 		shardCount:    uint(shardCount),
 		doorkeeper:    doorkeeper,
 		kvBuilder: func(entry *Entry[K, V]) dequeKV[K, V] {
@@ -182,12 +180,17 @@ func NewStore[K comparable, V any](
 		secondaryCache:  secondaryCache,
 		probability:     probability,
 	}
+	if entryPool {
+		s.entryPool = &sync.Pool{New: func() any { return &Entry[K, V]{} }}
+	}
+
 	s.removalCallback = func(kv dequeKV[K, V], reason RemoveReason) error {
 		if s.removalListener != nil {
 			s.removalListener(kv.k, kv.v, reason)
 		}
 		return nil
 	}
+
 	s.shards = make([]*Shard[K, V], 0, s.shardCount)
 	for i := 0; i < int(s.shardCount); i++ {
 		s.shards = append(s.shards, NewShard[K, V](doorkeeper))
@@ -384,15 +387,20 @@ func (s *Store[K, V]) setShard(shard *Shard[K, V], hash uint64, key K, value V, 
 			return shard, nil, false
 		}
 	}
-	entry := s.entryPool.Get().(*Entry[K, V])
-	if entry.key == key {
-		// put back and create an entry manually
-		// because same key reuse might cause race condition
-		if !raceDetector {
+	var entry *Entry[K, V]
+
+	if s.entryPool != nil {
+		entry = s.entryPool.Get().(*Entry[K, V])
+		if entry.key == key {
+			// put back and create an entry manually
+			// because same key reuse might cause race condition
 			s.entryPool.Put(entry)
+			entry = &Entry[K, V]{}
 		}
+	} else {
 		entry = &Entry[K, V]{}
 	}
+
 	entry.key = key
 	entry.value = value
 	entry.expire.Store(expire)
@@ -500,7 +508,7 @@ func (s *Store[K, V]) index(key K) (uint64, int) {
 func (s *Store[K, V]) postDelete(entry *Entry[K, V]) {
 	var zero V
 	entry.value = zero
-	if !raceDetector {
+	if s.entryPool != nil {
 		s.entryPool.Put(entry)
 	}
 }
@@ -799,7 +807,7 @@ func (m *StoreMeta) Persist(writer io.Writer, blockEncoder *gob.Encoder) error {
 	return nil
 }
 
-func persistDeque[K comparable, V any](dq *deque.Deque[QueueItem[K, V]], writer io.Writer, blockEncoder *gob.Encoder) error {
+func persistDeque[K comparable, V any](dq *deque.Deque[QueueItem[K, V]], blockEncoder *gob.Encoder) error {
 	buffer := bytes.NewBuffer(make([]byte, 0, BlockBufferSize))
 	block := NewBlock[*Pentry[K, V]](4, buffer, blockEncoder)
 	for dq.Len() > 0 {
@@ -845,7 +853,7 @@ func (s *Store[K, V]) Persist(version uint64, writer io.Writer) error {
 
 	for _, q := range s.queue.qs {
 		q.mu.Lock()
-		err = persistDeque(q.deque, writer, blockEncoder)
+		err = persistDeque(q.deque, blockEncoder)
 		if err != nil {
 			return err
 		}
@@ -933,9 +941,6 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 		}
 
 		reader := bytes.NewReader(block.Data)
-		if err != nil {
-			return err
-		}
 		if block.Type == 255 {
 			break
 		}

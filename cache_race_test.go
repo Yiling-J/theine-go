@@ -20,9 +20,13 @@ func keyGen() []uint64 {
 	return keys
 }
 
-func TestCacheRace_GetSet(t *testing.T) {
+func getSet(t *testing.T, entrypool bool) {
 	for _, size := range []int{500, 2000, 10000, 50000} {
 		builder := NewBuilder[uint64, uint64](int64(size))
+		if entrypool {
+			builder.UseEntryPool(true)
+		}
+
 		builder.RemovalListener(func(key, value uint64, reason RemoveReason) {})
 		client, err := builder.Build()
 		require.Nil(t, err)
@@ -76,9 +80,21 @@ func TestCacheRace_GetSet(t *testing.T) {
 	}
 }
 
-func TestCacheRace_GetSetDeleteExpire(t *testing.T) {
+func TestCacheRace_EntryPool_GetSet(t *testing.T) {
+	getSet(t, true)
+
+}
+func TestCacheRace_NoPool_GetSet(t *testing.T) {
+	getSet(t, false)
+
+}
+
+func getSetDeleteExpire(t *testing.T, entrypool bool) {
 	for _, size := range []int{500, 2000, 10000, 50000} {
 		builder := NewBuilder[uint64, uint64](int64(size))
+		if entrypool {
+			builder.UseEntryPool(true)
+		}
 		builder.RemovalListener(func(key, value uint64, reason RemoveReason) {})
 		client, err := builder.Build()
 		require.Nil(t, err)
@@ -136,4 +152,12 @@ func TestCacheRace_GetSetDeleteExpire(t *testing.T) {
 		client.Close()
 
 	}
+}
+
+func TestCacheRace_EntryPool_GetSetDeleteExpire(t *testing.T) {
+	getSetDeleteExpire(t, true)
+}
+
+func TestCacheRace_NoPool_GetSetDeleteExpire(t *testing.T) {
+	getSetDeleteExpire(t, false)
 }

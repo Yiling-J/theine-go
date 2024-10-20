@@ -51,9 +51,51 @@ func TestSketch_Basic(t *testing.T) {
 	}
 	require.True(t, float32(failed)/4000 < 0.1)
 	require.True(t, sketch.Additions > 3500)
-	a := sketch.Additions
+}
+
+func TestSketch_ResetFreq(t *testing.T) {
+	sketch := NewCountMinSketch()
+	sketch.EnsureCapacity(1000)
+	for i := 0; i < len(sketch.Table); i++ {
+		sketch.Table[i].Store(^uint64(0))
+	}
+	keyh := xxhash.Sum64String("key1")
+	require.Equal(t, 15, int(sketch.Estimate(keyh)))
 	sketch.reset()
-	require.Equal(t, a>>1, sketch.Additions)
+	require.Equal(t, 7, int(sketch.Estimate(keyh)))
+
+}
+
+func TestSketch_ResetAddition(t *testing.T) {
+	sketch := NewCountMinSketch()
+	sketch.EnsureCapacity(100)
+	require.Equal(t, 128, len(sketch.Table))
+	require.Equal(t, uint(1000), sketch.SampleSize)
+	// override sampleSize so test won't reset
+	sketch.SampleSize = 5120
+
+	keyh := xxhash.Sum64String("k1")
+	sketch.Add(keyh)
+	sketch.Add(keyh)
+	sketch.Add(keyh)
+	sketch.Add(keyh)
+	sketch.Add(keyh)
+	keyh2 := xxhash.Sum64String("k1b")
+	sketch.Add(keyh2)
+	sketch.Add(keyh2)
+	sketch.Add(keyh2)
+
+	es1 := sketch.Estimate(keyh)
+	es2 := sketch.Estimate(keyh2)
+	additions := sketch.Additions
+	sketch.reset()
+	additionsNew := sketch.Additions
+	es1h := sketch.Estimate(keyh)
+	es2h := sketch.Estimate(keyh2)
+	require.Equal(t, es1/2, es1h)
+	require.Equal(t, es2/2, es2h)
+	require.Equal(t, additions-(es1-es1h)-(es2-es2h), additionsNew)
+
 }
 
 func BenchmarkSketch(b *testing.B) {

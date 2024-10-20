@@ -119,6 +119,7 @@ func (t *TinyLfu[K, V]) Access(item ReadBufItem[K, V]) {
 		if reset {
 			t.threshold.Store(t.threshold.Load() / 2)
 		}
+
 		if entry.meta.prev != nil {
 			var tail bool
 			if entry == t.slru.victim() {

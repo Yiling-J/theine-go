@@ -1,6 +1,14 @@
 package internal
 
-import "sync/atomic"
+import (
+	"math/bits"
+	"sync/atomic"
+)
+
+const (
+	resetMask = 0x7777777777777777
+	oneMask   = 0x1111111111111111
+)
 
 type CountMinSketch struct {
 	Table      []atomic.Uint64
@@ -110,11 +118,13 @@ func (s *CountMinSketch) Addn(h uint64, n int) {
 }
 
 func (s *CountMinSketch) reset() {
+	count := 0
 	for i := range s.Table {
 		v := s.Table[i].Load()
-		s.Table[i].Store(v >> 1)
+		count += bits.OnesCount64(v & oneMask)
+		s.Table[i].Store((v >> 1) & resetMask)
 	}
-	s.Additions = s.Additions >> 1
+	s.Additions = (s.Additions - uint(count>>2)) >> 1
 }
 
 func (s *CountMinSketch) count(h uint64, block uint64, offset uint8) uint {

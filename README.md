@@ -41,29 +41,13 @@ Loading cache uses [singleflight](https://pkg.go.dev/golang.org/x/sync/singlefli
 
 **Entry Pool**
 
-Theine provides an option called `UseEntryPool` to help reduce memory allocation during heavy concurrent writes. It achieves this by reusing evicted entry structs through a `sync pool`. However, if you don't experience heavy concurrent writes, the sync pool may not be beneficial and could only slow things down.
+Theine stores `*Entry` as the value in the hashmap, where each entry contains key, value, and metadata related to the policy. Before v0.6.0, Theine used a sync pool to automatically reuse evicted entries. This approach was particularly beneficial for scenarios with heavy writes and when values were stored directly (not as pointers), as it significantly reduced memory allocations.
 
-One drawback of the entry pool is the potential for occasional **race conditions within the policy**. Theine sends events to the policy asynchronously using channels/buffers, and the policy decides which entries to keep or evict when the cache is full. Although the design minimizes the likelihood of race conditions, there remains a very small chance the event is applied to a wrong entry in policy.
+However, the sync pool had a potential drawback: **race conditions within the policy**. Theine sends events to the policy asynchronously via channels/buffers, and there was a small chance that an event could be applied to the wrong entry if the entry was evicted and then reused by the pool. As a result, the policy might end up with incorrect cost/frequency data. Despite this, read, update, and delete operations on entry values were protected by a mutex, ensuring data consistency.
 
-For **READ** events, a race condition could occur under the following scenario:
-1. Get EntryA using the API.
-2. Add EntryA "get" event to the read buffer.
-3. EntryA is evicted by the policy.
-4. EntryA is reused, becoming EntryB.
-5. EntryB is added to the window queue (FIFO).
-6. EntryB leaves the window queue.
-7. EntryB's "create" event is added to the write buffer.
-8. EntryB's "create" event is processed by the policy.
-9. EntryA's "get" event is processed by the policy.
-
-In this case, the policy may incorrectly promote EntryB. However, the likelihood of this scenario is extremely low. One potential situation where this could happen is if, after EntryA is added to the buffer, all reads stop, and only writes remain. Since the read buffer is only sent to the policy when it is full, this race condition may occur. **If a race happens for READ events, the entry might be incorrectly promoted to the head of the policy's LRU.**
-
-For **UPDATE** events which also update entry's cost (weight), a similar race condition might occur under heavy concurrent UPDATE operations. Unlike reads, the write buffer is a buffered channel that drains proactively, not just when full. Additionally, when the policy processes UPDATE events, it checks the key again to ensure it matches. **If a race occurs for UPDATE events, the entry's cost stored in the policy might differ from the actual cost.**
-
+To mitigate this, Theine rechecks the key when updating the policy, but this behavior might be flagged by the race detector. Starting from v0.6.0, Theine introduced a new option called `UseEntryPool`, which defaults to `false`. If you are dealing with heavy writes and want to minimize allocations, and you can tolerate a slight risk of policy inconsistency, you can enable this option.
 
 A correctness test runs as part of the CI, simulating heavy concurrent cost UPDATE and INSERT operations with a Zipf-distributed workload. This test verifies that the entry's policy cost (weight) matches its actual cost (weight) with `UseEntryPool` enabled. You can find the test here: [cache_race_test.go](https://github.com/Yiling-J/theine-go/blob/main/cache_race_test.go).
-
-This option was introduced in Theine v0.5.1. Before this version, the entry pool was **always used**. Starting from v0.5.1, the `UseEntryPool` option was added and **defaults to false**.
 
 **API Details**
 

@@ -56,14 +56,15 @@ func (s *CountMinSketch) CountMinSketchPersist() *CountMinSketchPersist {
 }
 
 // indexOf return table index and counter index together
-func (s *CountMinSketch) indexOf(h uint64, block uint64, offset uint8) (uint, uint) {
-	counterHash := h + uint64(1+offset)*(h>>32)
+func (s *CountMinSketch) indexOf(counterHash uint64, block uint64, offset uint8) (uint, uint) {
+	h := counterHash >> (offset << 3)
 	// max block + 7(8 * 8 bytes), fit 64 bytes cache line
-	index := block + counterHash&1 + uint64(offset<<1)
-	return uint(index), uint((counterHash & 0xF) << 2)
+	index := block + h&1 + uint64(offset<<1)
+	return uint(index), uint((h >> 1) & 0xf)
 }
 
 func (s *CountMinSketch) inc(index uint, offset uint) bool {
+	offset = offset << 2
 	mask := uint64(0xF << offset)
 	v := s.Table[index].Load()
 	if v&mask != mask {
@@ -74,13 +75,13 @@ func (s *CountMinSketch) inc(index uint, offset uint) bool {
 }
 
 func (s *CountMinSketch) Add(h uint64) bool {
-	hn := spread(h)
-	block := (hn & uint64(s.BlockMask)) << 3
-	hc := rehash(h)
-	index0, offset0 := s.indexOf(hc, block, 0)
-	index1, offset1 := s.indexOf(hc, block, 1)
-	index2, offset2 := s.indexOf(hc, block, 2)
-	index3, offset3 := s.indexOf(hc, block, 3)
+	blockHash := spread(h)
+	block := (blockHash & uint64(s.BlockMask)) << 3
+	counterHash := rehash(h)
+	index0, offset0 := s.indexOf(counterHash, block, 0)
+	index1, offset1 := s.indexOf(counterHash, block, 1)
+	index2, offset2 := s.indexOf(counterHash, block, 2)
+	index3, offset3 := s.indexOf(counterHash, block, 3)
 
 	added := s.inc(index0, offset0)
 	added = s.inc(index1, offset1) || added
@@ -122,6 +123,7 @@ func (s *CountMinSketch) reset() {
 	for i := range s.Table {
 		v := s.Table[i].Load()
 		count += bits.OnesCount64(v & oneMask)
+
 		s.Table[i].Store((v >> 1) & resetMask)
 	}
 	s.Additions = (s.Additions - uint(count>>2)) >> 1
@@ -129,8 +131,27 @@ func (s *CountMinSketch) reset() {
 
 func (s *CountMinSketch) count(h uint64, block uint64, offset uint8) uint {
 	index, off := s.indexOf(h, block, offset)
+	off = off << 2
 	count := (s.Table[index].Load() >> off) & 0xF
 	return uint(count)
+}
+
+// used in test
+func uint64ToBase10Slice(n uint64) []int {
+	result := make([]int, 16)
+	for i := 0; i < 16; i++ {
+		result[15-i] = int((n >> (i * 4)) & 0xF)
+	}
+	return result
+}
+
+// used in test
+func (s *CountMinSketch) counters() [][]int {
+	all := [][]int{}
+	for i := 0; i < len(s.Table); i++ {
+		all = append(all, uint64ToBase10Slice(s.Table[i].Load()))
+	}
+	return all
 }
 
 func min(a, b uint) uint {
@@ -163,7 +184,7 @@ func (s *CountMinSketch) EnsureCapacity(size uint) {
 	newSize := next2Power(size)
 	s.mu.Lock()
 	s.Table = make([]atomic.Uint64, newSize)
-	s.SampleSize = 10 * size
+	s.SampleSize = 10 * newSize
 	s.BlockMask = uint((len(s.Table) >> 3) - 1)
 	s.Additions = 0
 	s.mu.Unlock()

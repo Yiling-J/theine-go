@@ -19,14 +19,12 @@ func TestSketch_EnsureCapacity(t *testing.T) {
 
 func TestSketch_Basic(t *testing.T) {
 	sketch := NewCountMinSketch()
-	sketch.EnsureCapacity(100)
-	require.Equal(t, 128, len(sketch.Table))
-	require.Equal(t, uint(1000), sketch.SampleSize)
-	// override sampleSize so test won't reset
-	sketch.SampleSize = 5120
+	sketch.EnsureCapacity(10000)
+	require.Equal(t, 16384, len(sketch.Table))
+	require.Equal(t, uint(163840), sketch.SampleSize)
 
 	failed := 0
-	for i := 0; i < 500; i++ {
+	for i := 0; i < 10000; i++ {
 		key := fmt.Sprintf("key:%d", i)
 		keyh := xxhash.Sum64String(key)
 		sketch.Add(keyh)
@@ -42,15 +40,17 @@ func TestSketch_Basic(t *testing.T) {
 
 		es1 := sketch.Estimate(keyh)
 		es2 := sketch.Estimate(keyh2)
-		if es2 > es1 {
+		if es1 != 5 {
+			failed++
+		}
+		if es2 != 3 {
 			failed++
 		}
 		require.True(t, es1 >= 5)
 		require.True(t, es2 >= 3)
 
 	}
-	require.True(t, float32(failed)/4000 < 0.1)
-	require.True(t, sketch.Additions > 3500)
+	require.True(t, failed < 40)
 }
 
 func TestSketch_ResetFreq(t *testing.T) {
@@ -63,6 +63,11 @@ func TestSketch_ResetFreq(t *testing.T) {
 	require.Equal(t, 15, int(sketch.Estimate(keyh)))
 	sketch.reset()
 	require.Equal(t, 7, int(sketch.Estimate(keyh)))
+	for _, cs := range sketch.counters() {
+		for _, c := range cs {
+			require.Equal(t, c, 7)
+		}
+	}
 
 }
 
@@ -70,7 +75,7 @@ func TestSketch_ResetAddition(t *testing.T) {
 	sketch := NewCountMinSketch()
 	sketch.EnsureCapacity(100)
 	require.Equal(t, 128, len(sketch.Table))
-	require.Equal(t, uint(1000), sketch.SampleSize)
+	require.Equal(t, uint(1280), sketch.SampleSize)
 	// override sampleSize so test won't reset
 	sketch.SampleSize = 5120
 

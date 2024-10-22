@@ -95,9 +95,6 @@ func (s *Shard[K, V]) len() int {
 	return len(s.hashmap)
 }
 
-type Metrics struct {
-}
-
 type Store[K comparable, V any] struct {
 	entryPool         *sync.Pool
 	writeChan         chan WriteBufItem[K, V]
@@ -114,7 +111,7 @@ type Store[K comparable, V any] struct {
 	shards            []*Shard[K, V]
 	cap               uint
 	shardCount        uint
-	mlock             sync.Mutex
+	policyMu          sync.Mutex
 	doorkeeper        bool
 	closed            bool
 	secondaryCache    SecondaryCache[K, V]
@@ -540,11 +537,11 @@ func (s *Store[K, V]) removeEntry(entry *Entry[K, V], reason RemoveReason) {
 }
 
 func (s *Store[K, V]) drainRead(buffer []ReadBufItem[K, V]) {
-	s.mlock.Lock()
+	s.policyMu.Lock()
 	for _, e := range buffer {
 		s.policy.Access(e)
 	}
-	s.mlock.Unlock()
+	s.policyMu.Unlock()
 }
 
 func (s *Store[K, V]) sinkWrite(item WriteBufItem[K, V]) {
@@ -647,9 +644,9 @@ func (s *Store[K, V]) drainWrite() {
 func (s *Store[K, V]) maintenance() {
 
 	go func() {
-		s.mlock.Lock()
+		s.policyMu.Lock()
 		s.maintenanceTicker = time.NewTicker(time.Second)
-		s.mlock.Unlock()
+		s.policyMu.Unlock()
 
 		for {
 			select {
@@ -657,15 +654,15 @@ func (s *Store[K, V]) maintenance() {
 				s.maintenanceTicker.Stop()
 				return
 			case <-s.maintenanceTicker.C:
-				s.mlock.Lock()
+				s.policyMu.Lock()
 				s.timerwheel.clock.RefreshNowCache()
 				if s.closed {
-					s.mlock.Unlock()
+					s.policyMu.Unlock()
 					return
 				}
 				s.timerwheel.advance(0, s.removeEntry)
 				s.maintenanceTicker.Reset(time.Second)
-				s.mlock.Unlock()
+				s.policyMu.Unlock()
 			}
 		}
 	}()
@@ -687,9 +684,9 @@ func (s *Store[K, V]) maintenance() {
 			}
 		}
 
-		s.mlock.Lock()
+		s.policyMu.Lock()
 		s.drainWrite()
-		s.mlock.Unlock()
+		s.policyMu.Unlock()
 
 	}
 }
@@ -734,10 +731,10 @@ func (s *Store[K, V]) Close() {
 		s.hashmap = nil
 		s.mu.RUnlock(tk)
 	}
-	s.mlock.Lock()
+	s.policyMu.Lock()
 	s.closed = true
 	s.cancel()
-	s.mlock.Unlock()
+	s.policyMu.Unlock()
 	close(s.writeChan)
 }
 
@@ -767,7 +764,7 @@ func (m *StoreMeta) Persist(writer io.Writer, blockEncoder *gob.Encoder) error {
 
 func (s *Store[K, V]) Persist(version uint64, writer io.Writer) error {
 	blockEncoder := gob.NewEncoder(writer)
-	s.mlock.Lock()
+	s.policyMu.Lock()
 	meta := &StoreMeta{
 		Version:   version,
 		StartNano: s.timerwheel.clock.Start.UnixNano(),
@@ -791,7 +788,7 @@ func (s *Store[K, V]) Persist(version uint64, writer io.Writer) error {
 	if err != nil {
 		return err
 	}
-	s.mlock.Unlock()
+	s.policyMu.Unlock()
 
 	// write end block
 	block := NewBlock[int](255, bytes.NewBuffer(make([]byte, 0)), blockEncoder)
@@ -849,8 +846,8 @@ func (s *Store[K, V]) Wait() {
 func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 	blockDecoder := gob.NewDecoder(reader)
 	block := &DataBlock[any]{}
-	s.mlock.Lock()
-	defer s.mlock.Unlock()
+	s.policyMu.Lock()
+	defer s.policyMu.Unlock()
 	for {
 		// reset block first
 		block.Data = nil

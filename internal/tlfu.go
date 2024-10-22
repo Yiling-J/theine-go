@@ -39,7 +39,6 @@ func NewTinyLfu[K comparable, V any](size uint, hasher *Hasher[K]) *TinyLfu[K, V
 		window:     NewList[K, V](windowSize, LIST_WINDOW),
 	}
 
-	// default threshold to -1 so all entries are admitted until cache is full
 	return tlfu
 }
 

@@ -65,12 +65,9 @@ func getSet(t *testing.T, entrypool bool) {
 
 		require.Equal(t, client.Len(), int(di.TotalCount()))
 		require.True(t, di.TotalWeight() <= int64(size+size/10))
+		require.Equal(t, di.WindowWeight, di.WindowWeightField)
 		require.Equal(t, di.ProbationWeight, di.ProbationWeightField)
 		require.Equal(t, di.ProtectedWeight, di.ProtectedWeightField)
-
-		for i := 0; i < len(di.QueueWeight); i++ {
-			require.Equal(t, di.QueueWeight[i], di.QueueWeightField[i])
-		}
 
 		client.store.RangeEntry(func(entry *internal.Entry[uint64, uint64]) {
 			require.Equal(t, entry.Weight(), entry.PolicyWeight(), entry.Position())
@@ -138,12 +135,9 @@ func getSetDeleteExpire(t *testing.T, entrypool bool) {
 
 		require.Equal(t, client.Len(), int(di.TotalCount()))
 		require.True(t, di.TotalWeight() <= int64(size+size/10))
+		require.Equal(t, di.WindowWeight, di.WindowWeightField)
 		require.Equal(t, di.ProbationWeight, di.ProbationWeightField)
 		require.Equal(t, di.ProtectedWeight, di.ProtectedWeightField)
-
-		for i := 0; i < len(di.QueueWeight); i++ {
-			require.Equal(t, di.QueueWeight[i], di.QueueWeightField[i])
-		}
 
 		client.store.RangeEntry(func(entry *internal.Entry[uint64, uint64]) {
 			require.Equal(t, entry.Weight(), entry.PolicyWeight(), entry.Position())

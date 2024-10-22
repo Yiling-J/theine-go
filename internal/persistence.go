@@ -10,7 +10,7 @@ import (
 const BlockBufferSize = 4 * 1024 * 1024
 
 type DataBlock[V any] struct {
-	Type          uint8
+	Type          uint8 // 1: meta&timerwheel, 2: window, 3: probation, 4: protected
 	SecondaryType uint8
 	CheckSum      uint64
 	Index         uint64 // helper filed, usage depends on Type/SecondaryType

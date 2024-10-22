@@ -9,6 +9,7 @@ const (
 	REMOVE
 	UPDATE
 	EVICTE
+	WAIT
 )
 
 type ReadBufItem[K comparable, V any] struct {
@@ -22,12 +23,6 @@ type WriteBufItem[K comparable, V any] struct {
 	rechedule  bool
 	fromNVM    bool
 	hash       uint64
-}
-
-type QueueItem[K comparable, V any] struct {
-	entry   *Entry[K, V]
-	hash    uint64
-	fromNVM bool
 }
 
 type MetaData[K comparable, V any] struct {
@@ -44,7 +39,6 @@ type Entry[K comparable, V any] struct {
 	weight       atomic.Int64
 	policyWeight int64
 	expire       atomic.Int64
-	queueIndex   atomic.Int32 // -1: queue to main, -2 new entry, -3: removed, -4: main, >=0: index
 	flag         Flag
 }
 
@@ -64,7 +58,7 @@ func NewEntry[K comparable, V any](key K, value V, cost int64, expire int64) *En
 
 func (e *Entry[K, V]) Next(listType uint8) *Entry[K, V] {
 	switch listType {
-	case LIST_PROBATION, LIST_PROTECTED:
+	case LIST_PROBATION, LIST_PROTECTED, LIST_WINDOW:
 		if p := e.meta.next; !p.flag.IsRoot() {
 			return e.meta.next
 		}
@@ -81,7 +75,7 @@ func (e *Entry[K, V]) Next(listType uint8) *Entry[K, V] {
 
 func (e *Entry[K, V]) Prev(listType uint8) *Entry[K, V] {
 	switch listType {
-	case LIST_PROBATION, LIST_PROTECTED:
+	case LIST_PROBATION, LIST_PROTECTED, LIST_WINDOW:
 		if p := e.meta.prev; !p.flag.IsRoot() {
 			return e.meta.prev
 		}
@@ -98,7 +92,7 @@ func (e *Entry[K, V]) Prev(listType uint8) *Entry[K, V] {
 
 func (e *Entry[K, V]) prev(listType uint8) *Entry[K, V] {
 	switch listType {
-	case LIST_PROBATION, LIST_PROTECTED:
+	case LIST_PROBATION, LIST_PROTECTED, LIST_WINDOW:
 		return e.meta.prev
 	case WHEEL_LIST:
 		return e.meta.wheelPrev
@@ -108,7 +102,7 @@ func (e *Entry[K, V]) prev(listType uint8) *Entry[K, V] {
 
 func (e *Entry[K, V]) next(listType uint8) *Entry[K, V] {
 	switch listType {
-	case LIST_PROBATION, LIST_PROTECTED:
+	case LIST_PROBATION, LIST_PROTECTED, LIST_WINDOW:
 		return e.meta.next
 	case WHEEL_LIST:
 		return e.meta.wheelNext
@@ -118,7 +112,7 @@ func (e *Entry[K, V]) next(listType uint8) *Entry[K, V] {
 
 func (e *Entry[K, V]) setPrev(entry *Entry[K, V], listType uint8) {
 	switch listType {
-	case LIST_PROBATION, LIST_PROTECTED:
+	case LIST_PROBATION, LIST_PROTECTED, LIST_WINDOW:
 		e.meta.prev = entry
 	case WHEEL_LIST:
 		e.meta.wheelPrev = entry
@@ -127,7 +121,7 @@ func (e *Entry[K, V]) setPrev(entry *Entry[K, V], listType uint8) {
 
 func (e *Entry[K, V]) setNext(entry *Entry[K, V], listType uint8) {
 	switch listType {
-	case LIST_PROBATION, LIST_PROTECTED:
+	case LIST_PROBATION, LIST_PROTECTED, LIST_WINDOW:
 		e.meta.next = entry
 	case WHEEL_LIST:
 		e.meta.wheelNext = entry
@@ -177,12 +171,6 @@ func (e *Entry[K, V]) PolicyWeight() int64 {
 }
 
 func (e *Entry[K, V]) Position() string {
-	if e.queueIndex.Load() == -3 {
-		return "REMOVED"
-	}
-	if e.queueIndex.Load() >= 0 {
-		return "QUEUE"
-	}
 	if e.meta.prev != nil {
 		return "MAIN"
 	}

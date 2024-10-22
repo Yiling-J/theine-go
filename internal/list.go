@@ -13,6 +13,7 @@ const (
 	LIST_PROBATION uint8 = 1
 	LIST_PROTECTED uint8 = 2
 	WHEEL_LIST     uint8 = 3
+	LIST_WINDOW    uint8 = 4
 )
 
 // List represents a doubly linked list.
@@ -95,12 +96,17 @@ func (l *List[K, V]) insert(e, at *Entry[K, V]) *Entry[K, V] {
 	var evicted *Entry[K, V]
 	if l.bounded && l.len.Load() >= int64(l.capacity) {
 		evicted = l.PopTail()
+		if evicted == nil {
+			return e
+		}
 	}
 	if l.listType != WHEEL_LIST {
 		if l.listType == LIST_PROTECTED {
 			e.flag.SetProtected(true)
 		} else if l.listType == LIST_PROBATION {
 			e.flag.SetProbation(true)
+		} else if l.listType == LIST_WINDOW {
+			e.flag.SetWindow(true)
 		}
 	}
 
@@ -135,6 +141,7 @@ func (l *List[K, V]) remove(e *Entry[K, V]) {
 	if l.listType != WHEEL_LIST {
 		e.flag.SetProbation(false)
 		e.flag.SetProtected(false)
+		e.flag.SetWindow(false)
 	}
 	if l.bounded {
 		l.len.Add(-e.policyWeight)

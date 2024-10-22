@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/Yiling-J/theine-go"
-	"github.com/Yiling-J/theine-go/internal"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
 )
@@ -24,18 +23,19 @@ func TestCache_MaxsizeZero(t *testing.T) {
 func TestCache_Set(t *testing.T) {
 	client, err := theine.NewBuilder[string, string](1000).Build()
 	require.Nil(t, err)
+	defer client.Close()
 	for i := 0; i < 20000; i++ {
 		key := fmt.Sprintf("key:%d", rand.Intn(100000))
 		client.Set(key, key, 1)
 	}
-	time.Sleep(300 * time.Millisecond)
-	require.True(t, client.Len() < 1000+internal.WriteBufferSize)
-	client.Close()
+	client.Wait()
+	require.Equal(t, 1000, client.Len())
 }
 
 func TestCache_Update(t *testing.T) {
 	client, err := theine.NewBuilder[string, string](1000).Build()
 	require.Nil(t, err)
+	defer client.Close()
 	key := "foo"
 	for _, v := range []string{"a", "b", "c", "d", "e", "e"} {
 		client.Set(key, v, 1)
@@ -48,6 +48,7 @@ func TestCache_Update(t *testing.T) {
 func TestCache_SetParallel(t *testing.T) {
 	client, err := theine.NewBuilder[string, string](1000).Build()
 	require.Nil(t, err)
+	defer client.Close()
 	var wg sync.WaitGroup
 	for i := 1; i <= 12; i++ {
 		wg.Add(1)
@@ -61,14 +62,14 @@ func TestCache_SetParallel(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	time.Sleep(300 * time.Millisecond)
-	require.True(t, client.Len() < 1000+internal.WriteBufferSize)
-	client.Close()
+	client.Wait()
+	require.Equal(t, 1000, client.Len())
 }
 
 func TestCache_GetSetGetDeleteGet(t *testing.T) {
 	client, err := theine.NewBuilder[string, string](50000).Build()
 	require.Nil(t, err)
+	defer client.Close()
 	for i := 0; i < 20000; i++ {
 		key := fmt.Sprintf("key:%d", rand.Intn(3000))
 		_, ok := client.Get(key)
@@ -82,12 +83,12 @@ func TestCache_GetSetGetDeleteGet(t *testing.T) {
 		require.False(t, ok)
 
 	}
-	client.Close()
 }
 
 func TestCache_Delete(t *testing.T) {
 	client, err := theine.NewBuilder[string, string](100).Build()
 	require.Nil(t, err)
+	defer client.Close()
 	client.Set("foo", "foo", 1)
 	v, ok := client.Get("foo")
 	require.True(t, ok)
@@ -103,12 +104,12 @@ func TestCache_Delete(t *testing.T) {
 	client.Delete("foo")
 	_, ok = client.Get("foo")
 	require.False(t, ok)
-	client.Close()
 }
 
 func TestCache_GetSetParallel(t *testing.T) {
 	client, err := theine.NewBuilder[string, string](1000).Build()
 	require.Nil(t, err)
+	defer client.Close()
 	var wg sync.WaitGroup
 	for i := 1; i <= 12; i++ {
 		wg.Add(1)
@@ -126,14 +127,14 @@ func TestCache_GetSetParallel(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	time.Sleep(300 * time.Millisecond)
-	require.True(t, client.Len() < 1000+internal.WriteBufferSize)
-	client.Close()
+	client.Wait()
+	require.Equal(t, 1000, client.Len())
 }
 
 func TestCache_SetWithTTL(t *testing.T) {
 	client, err := theine.NewBuilder[string, string](500).Build()
 	require.Nil(t, err)
+	defer client.Close()
 	client.SetWithTTL("foo", "foo", 1, 3600*time.Second)
 	require.Equal(t, 1, client.Len())
 	time.Sleep(1 * time.Second)
@@ -142,12 +143,12 @@ func TestCache_SetWithTTL(t *testing.T) {
 	time.Sleep(3 * time.Second)
 	_, ok := client.Get("foo")
 	require.False(t, ok)
-	client.Close()
 }
 
 func TestCache_SetWithTTLAutoExpire(t *testing.T) {
 	client, err := theine.NewBuilder[string, string](500).Build()
 	require.Nil(t, err)
+	defer client.Close()
 	for i := 0; i < 500; i++ {
 		key1 := fmt.Sprintf("key:%d", i)
 		client.SetWithTTL(key1, key1, 1, time.Second)
@@ -161,12 +162,12 @@ func TestCache_SetWithTTLAutoExpire(t *testing.T) {
 		_, ok := client.Get(key)
 		require.False(t, ok)
 	}
-	client.Close()
 }
 
 func TestCache_Cost(t *testing.T) {
 	client, err := theine.NewBuilder[string, string](500).Build()
 	require.Nil(t, err)
+	defer client.Close()
 
 	success := client.Set("z", "z", 501)
 	require.False(t, success)
@@ -175,29 +176,28 @@ func TestCache_Cost(t *testing.T) {
 		success = client.Set(key, key, 20)
 		require.True(t, success)
 	}
-	time.Sleep(time.Second)
+	client.Wait()
 	require.True(t, client.Len() <= 25 && client.Len() >= 24)
 	require.True(t, client.EstimatedSize() <= 500 && client.EstimatedSize() >= 480)
-	client.Close()
 
 	// test cost func
 	builder := theine.NewBuilder[string, string](500)
 	builder.Cost(func(v string) int64 {
 		return int64(len(v))
 	})
-	client, err = builder.Build()
+	client2, err := builder.Build()
 	require.Nil(t, err)
-	defer client.Close()
-	success = client.Set("z", strings.Repeat("z", 501), 0)
+	defer client2.Close()
+	success = client2.Set("z", strings.Repeat("z", 501), 0)
 	require.False(t, success)
 	for i := 0; i < 30; i++ {
 		key := fmt.Sprintf("key:%d", i)
-		success = client.Set(key, strings.Repeat("z", 20), 0)
+		success = client2.Set(key, strings.Repeat("z", 20), 0)
 		require.True(t, success)
 	}
-	time.Sleep(time.Second)
-	require.True(t, client.Len() <= 25 && client.Len() >= 24)
-	require.True(t, client.EstimatedSize() <= 500 && client.EstimatedSize() >= 480)
+	client2.Wait()
+	require.True(t, client2.Len() <= 25 && client2.Len() >= 24)
+	require.True(t, client2.EstimatedSize() <= 500 && client2.EstimatedSize() >= 480)
 }
 
 func TestCache_CostUpdate(t *testing.T) {
@@ -209,14 +209,14 @@ func TestCache_CostUpdate(t *testing.T) {
 		success := client.Set(key, key, 20)
 		require.True(t, success)
 	}
-	time.Sleep(time.Second)
+	client.Wait()
 	require.True(t, client.Len() <= 25 && client.Len() >= 24)
 	require.True(t, client.EstimatedSize() <= 500 && client.EstimatedSize() >= 480)
 
 	// update cost
 	success := client.Set("key:15", "", 200)
 	require.True(t, success)
-	time.Sleep(time.Second)
+	client.Wait()
 
 	require.True(
 		t, client.Len() <= 16 && client.Len() >= 15,
@@ -270,7 +270,7 @@ func TestCache_Doorkeeper(t *testing.T) {
 		require.False(t, success)
 	}
 	require.True(t, client.Len() == 0)
-	time.Sleep(time.Second)
+	client.Wait()
 	for i := 0; i < 200; i++ {
 		key := fmt.Sprintf("key:%d", i)
 		success := client.Set(key, key, 1)
@@ -281,41 +281,6 @@ func TestCache_Doorkeeper(t *testing.T) {
 		key := fmt.Sprintf("key:%d:2", i)
 		client.Set(key, key, 1)
 	}
-}
-
-func TestCache_ZeroDequeFrequency(t *testing.T) {
-	client, err := theine.NewBuilder[int, int](100).Build()
-	require.Nil(t, err)
-	defer client.Close()
-	// set and access 200 entries
-	for i := 0; i < 200; i++ {
-		success := client.Set(i, i, 1)
-		require.True(t, success)
-	}
-	for i := 0; i < 200; i++ {
-		client.Get(i)
-	}
-	// set a new entry
-	success := client.Set(999, 999, 1)
-	require.True(t, success)
-	// wait write queue process
-	time.Sleep(time.Second)
-	// 999 is evicted automatically, because tail entry in slru has frequency 1
-	// but 999 frequency is 0
-	// so increase 999 frequency
-	for i := 0; i < 1280; i++ {
-		_, ok := client.Get(999)
-		require.False(t, ok)
-	}
-	time.Sleep(time.Second)
-	// set again, this time the tail entry will be evicted because 999 has higher frequency
-	success = client.Set(999, 999, 1)
-	require.True(t, success)
-	// wait write queue process
-	time.Sleep(time.Second)
-	_, ok := client.Get(999)
-	require.True(t, ok)
-
 }
 
 func TestCache_RemovalListener(t *testing.T) {
@@ -346,14 +311,14 @@ func TestCache_RemovalListener(t *testing.T) {
 	// this will evict one entry: 0
 	success := client.Set(100, 100, 1)
 	require.True(t, success)
-	time.Sleep(100 * time.Millisecond)
+	client.Wait()
 	lock.Lock()
 	require.Equal(t, 1, len(evicted))
 	require.True(t, evicted[0] == 0)
 	lock.Unlock()
 	// manually remove one
 	client.Delete(5)
-	time.Sleep(100 * time.Millisecond)
+	client.Wait()
 	lock.Lock()
 	require.Equal(t, 1, len(removed))
 	require.True(t, removed[5] == 5)
@@ -363,6 +328,7 @@ func TestCache_RemovalListener(t *testing.T) {
 		success := client.SetWithTTL(i+100, i+100, 1, 1*time.Second)
 		require.True(t, success)
 	}
+	client.Wait()
 	time.Sleep(5 * time.Second)
 	lock.Lock()
 	require.True(t, len(expired) > 0)
@@ -405,6 +371,7 @@ func TestCache_Range(t *testing.T) {
 			success := client.SetWithTTL(i, i, 1, time.Second)
 			require.True(t, success)
 		}
+		client.Wait()
 		time.Sleep(2 * time.Second)
 		data = map[int]int{}
 		client.Range(func(key, value int) bool {

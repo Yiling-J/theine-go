@@ -203,9 +203,9 @@ var weightTests = []testCase{
 			{TestEventRemove, 6, 1},
 			{TestEventGet, 4, 1},
 			{TestEventUpdate, 4, 5},
-			{TestEventGet, 3, 20},
+			{TestEventSet, 12, 1},
 		},
-		"11/10:4/5/2/1/0:3",
+		"12/11/10:4/5/3/2/1/0:",
 	},
 	{
 		"window too large",

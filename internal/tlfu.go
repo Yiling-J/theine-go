@@ -98,6 +98,7 @@ func (t *TinyLfu[K, V]) resizeWindow() {
 
 	t.window.capacity += uint(t.amount)
 	t.slru.protected.capacity -= uint(t.amount)
+	// demote first to make sure policy size is right
 	t.demoteFromProtected()
 
 	var remain int
@@ -171,6 +172,7 @@ func (t *TinyLfu[K, V]) Set(entry *Entry[K, V]) {
 	if entry.meta.prev == nil {
 		t.window.PushFront(entry)
 	}
+	t.demoteFromProtected()
 	t.EvictEntries()
 }
 
@@ -180,10 +182,6 @@ func (t *TinyLfu[K, V]) Access(item ReadBufItem[K, V]) {
 		t.climb()
 		t.resizeWindow()
 		t.counter = 0
-	}
-
-	if t.counter&15 == 0 {
-		t.demoteFromProtected()
 	}
 
 	if entry := item.entry; entry != nil {
@@ -196,6 +194,10 @@ func (t *TinyLfu[K, V]) Access(item ReadBufItem[K, V]) {
 			}
 		}
 	}
+	// Access may prompte entry from probation to protected,
+	// cause protected size larger then its capacity,
+	// but we can delay demote until next set
+	// because on Access the total size of cache won't change.
 }
 
 func (t *TinyLfu[K, V]) Remove(entry *Entry[K, V], callback bool) {

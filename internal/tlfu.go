@@ -184,7 +184,7 @@ func (t *TinyLfu[K, V]) Set(entry *Entry[K, V]) {
 
 func (t *TinyLfu[K, V]) Access(item ReadBufItem[K, V]) {
 	t.counter++
-	if t.counter > 10*t.sketch.SampleSize {
+	if t.counter > t.sketch.SampleSize {
 		t.climb()
 		t.resizeWindow()
 		t.counter = 0
@@ -200,7 +200,7 @@ func (t *TinyLfu[K, V]) Access(item ReadBufItem[K, V]) {
 			}
 		}
 	}
-	// Access may prompte entry from probation to protected,
+	// Access may promote entry from probation to protected,
 	// cause protected size larger then its capacity,
 	// but we can delay demote until next set
 	// because on Access the total size of cache won't change.

@@ -15,7 +15,8 @@ type TinyLfu[K comparable, V any] struct {
 	hasher         *Hasher[K]
 	capacity       uint
 	weightedSize   uint
-	counter        uint
+	getCounter     uint // when getCounter reach sketch sample size, do a climb
+	setCounter     uint // when setCounter reach 15, update the policy
 	misses         *UnsignedCounter
 	hits           *UnsignedCounter
 	hitsPrev       uint64
@@ -179,15 +180,19 @@ func (t *TinyLfu[K, V]) Set(entry *Entry[K, V]) {
 	} else {
 		count := t.slru.probation.count + t.slru.protected.count + t.window.count
 		t.sketch.EnsureCapacity(uint(count))
+		if t.setCounter == 15 {
+			t.EvictEntries()
+			t.setCounter = 0
+		}
 	}
 }
 
 func (t *TinyLfu[K, V]) Access(item ReadBufItem[K, V]) {
-	t.counter++
-	if t.counter > t.sketch.SampleSize {
+	t.getCounter++
+	if t.getCounter > t.sketch.SampleSize {
 		t.climb()
 		t.resizeWindow()
-		t.counter = 0
+		t.getCounter = 0
 	}
 
 	if entry := item.entry; entry != nil {

@@ -542,6 +542,17 @@ func (s *Store[K, V]) removeEntry(entry *Entry[K, V], reason RemoveReason) {
 func (s *Store[K, V]) drainRead(buffer []ReadBufItem[K, V]) {
 	s.policyMu.Lock()
 	for _, e := range buffer {
+		// recheck hash if entry pool enabled to avoid race
+		if s.entryPool != nil {
+			hh := s.hasher.hash(e.entry.key)
+			if hh != e.hash {
+				continue
+			}
+		}
+		if e.entry.flag.IsRemoved() {
+			continue
+		}
+
 		s.policy.Access(e)
 	}
 	s.policyMu.Unlock()

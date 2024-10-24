@@ -172,8 +172,14 @@ func (t *TinyLfu[K, V]) Set(entry *Entry[K, V]) {
 	if entry.meta.prev == nil {
 		t.window.PushFront(entry)
 	}
+
 	t.demoteFromProtected()
-	t.EvictEntries()
+	if t.weightedSize > t.capacity {
+		t.EvictEntries()
+	} else {
+		count := t.slru.probation.count + t.slru.protected.count + t.window.count
+		t.sketch.EnsureCapacity(uint(count))
+	}
 }
 
 func (t *TinyLfu[K, V]) Access(item ReadBufItem[K, V]) {

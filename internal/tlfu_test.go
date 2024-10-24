@@ -549,3 +549,20 @@ func TestTlfu_AdaptiveAmountRemain(t *testing.T) {
 	require.Equal(t, "998-998>149-110:109-103>101-80:79-0", result)
 
 }
+
+func TestTlfu_SketchResize(t *testing.T) {
+	hasher := NewHasher[int](nil)
+	tlfu := NewTinyLfu[int, int](10000, hasher)
+
+	for i := 0; i < 10000; i++ {
+		tlfu.Set(&Entry[int, int]{key: i, value: i, policyWeight: 1})
+		require.True(t, len(tlfu.sketch.Table) >= i, fmt.Sprintf("sketch size %d < %d", len(tlfu.sketch.Table), i))
+	}
+
+	size := len(tlfu.sketch.Table)
+	require.Equal(t, 16384, size)
+
+	for i := 10000; i < 20000; i++ {
+		require.Equal(t, size, len(tlfu.sketch.Table))
+	}
+}

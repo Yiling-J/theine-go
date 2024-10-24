@@ -55,6 +55,14 @@ func (l *List[K, V]) display() string {
 	return strings.Join(s, "/")
 }
 
+func (l *List[K, V]) entries() []*Entry[K, V] {
+	var s []*Entry[K, V]
+	for e := l.Front(); e != nil; e = e.Next(l.listType) {
+		s = append(s, e)
+	}
+	return s
+}
+
 func (l *List[K, V]) rangef(fn func(*Entry[K, V])) {
 	for e := l.Front(); e != nil; e = e.Next(l.listType) {
 		fn(e)

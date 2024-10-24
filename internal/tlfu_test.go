@@ -255,6 +255,14 @@ func newTinyLfuSized[K comparable, V any](wsize, msize, psize uint, hasher *Hash
 	return tlfu
 }
 
+func assertLen(t *testing.T, list *List[int, int]) {
+	sum := 0
+	for _, e := range list.entries() {
+		sum += int(e.PolicyWeight())
+	}
+	require.Equal(t, list.Len(), sum)
+}
+
 func TestTlfu_Weight(t *testing.T) {
 	hasher := NewHasher[int](nil)
 	for _, cs := range weightTests {
@@ -300,6 +308,12 @@ func TestTlfu_Weight(t *testing.T) {
 					tlfu.resizeWindow()
 				}
 			}
+
+			assertLen(t, tlfu.window)
+			assertLen(t, tlfu.slru.probation)
+			assertLen(t, tlfu.slru.protected)
+			require.Equal(t, int(tlfu.weightedSize), tlfu.window.Len()+tlfu.slru.len())
+
 			result := strings.Join(
 				[]string{
 					tlfu.window.display(), tlfu.slru.probation.display(),
@@ -397,6 +411,11 @@ func TestTlfu_Adaptive(t *testing.T) {
 				tlfu.climb()
 				tlfu.resizeWindow()
 			}
+
+			assertLen(t, tlfu.window)
+			assertLen(t, tlfu.slru.probation)
+			assertLen(t, tlfu.slru.protected)
+			require.Equal(t, int(tlfu.weightedSize), tlfu.window.Len()+tlfu.slru.len())
 
 			result, total := grouped(tlfu)
 			require.Equal(t, 150, total)

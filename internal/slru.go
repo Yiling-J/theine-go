@@ -47,3 +47,8 @@ func (s *Slru[K, V]) updateCost(entry *Entry[K, V], delta int64) {
 	}
 
 }
+
+func (s *Slru[K, V]) len() int {
+	return s.probation.Len() + s.protected.Len()
+
+}

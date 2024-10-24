@@ -220,25 +220,38 @@ func (t *TinyLfu[K, V]) Remove(entry *Entry[K, V], callback bool) {
 }
 
 func (t *TinyLfu[K, V]) UpdateCost(entry *Entry[K, V], weightChange int64) {
-	if entry.policyWeight > int64(t.capacity) {
-		t.Remove(entry, true)
-		return
-	}
 
+	// entry's policy weigh already updated
+	// so update weightedSize to keep sync
 	if weightChange > 0 {
 		t.weightedSize += uint(weightChange)
 	} else {
 		t.weightedSize -= uint(weightChange)
 	}
 
+	// update window/slru
+	// if entry new weight > max size
+	// evict immediately
 	if entry.flag.IsWindow() {
-		t.window.MoveToFront(entry)
 		t.window.len.Add(weightChange)
+		if entry.policyWeight > int64(t.capacity) {
+			t.Remove(entry, true)
+		} else {
+			t.window.MoveToFront(entry)
+		}
 	} else {
-		t.slru.access(entry)
 		t.slru.updateCost(entry, weightChange)
+		if entry.policyWeight > int64(t.capacity) {
+			t.Remove(entry, true)
+		} else {
+			t.slru.access(entry)
+		}
+
 	}
-	t.EvictEntries()
+
+	if t.weightedSize > t.capacity {
+		t.EvictEntries()
+	}
 }
 
 // move entry from protected to probation

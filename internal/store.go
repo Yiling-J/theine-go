@@ -462,7 +462,9 @@ func (s *Store[K, V]) Len() int {
 }
 
 func (s *Store[K, V]) EstimatedSize() int {
+	s.policyMu.Lock()
 	total := s.policy.slru.protected.Len() + s.policy.slru.probation.Len()
+	s.policyMu.Unlock()
 	return total
 }
 
@@ -914,7 +916,7 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 				}
 				l1 := s.policy.slru.protected
 				l2 := s.policy.slru.probation
-				if l1.len.Load()+l2.len.Load() < int64(s.policy.slru.maxsize) {
+				if l1.len+l2.len < int64(s.policy.slru.maxsize) {
 					entry := pentry.entry()
 					l2.PushBack(entry)
 					s.insertSimple(entry)
@@ -936,7 +938,7 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 					continue
 				}
 				l := s.policy.slru.protected
-				if l.len.Load() < int64(l.capacity) {
+				if l.len < int64(l.capacity) {
 					entry := pentry.entry()
 					l.PushBack(entry)
 					s.insertSimple(entry)

@@ -232,7 +232,7 @@ func (t *TinyLfu[K, V]) UpdateCost(entry *Entry[K, V], weightChange int64) {
 	// if entry new weight > max size
 	// evict immediately
 	if entry.flag.IsWindow() {
-		t.window.len.Add(weightChange)
+		t.window.len += weightChange
 		if entry.policyWeight > int64(t.capacity) {
 			t.Remove(entry, true)
 		} else {

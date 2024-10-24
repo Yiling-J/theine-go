@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"sync/atomic"
 )
 
 const (
@@ -19,9 +18,9 @@ const (
 // List represents a doubly linked list.
 // The zero value for List is an empty list ready to use.
 type List[K comparable, V any] struct {
-	root     Entry[K, V]  // sentinel list element, only &root, root.prev, and root.next are used
-	len      atomic.Int64 // current list length(sum of costs) excluding (this) sentinel element
-	count    int          // count of entries in list
+	root     Entry[K, V] // sentinel list element, only &root, root.prev, and root.next are used
+	len      int64       // current list length(sum of costs) excluding (this) sentinel element
+	count    int         // count of entries in list
 	capacity uint
 	listType uint8 // 1 tinylfu list, 2 timerwheel list
 }
@@ -32,7 +31,6 @@ func NewList[K comparable, V any](size uint, listType uint8) *List[K, V] {
 	l.root.flag.SetRoot(true)
 	l.root.setNext(&l.root, l.listType)
 	l.root.setPrev(&l.root, l.listType)
-	l.len = atomic.Int64{}
 	l.capacity = size
 	return l
 }
@@ -40,12 +38,12 @@ func NewList[K comparable, V any](size uint, listType uint8) *List[K, V] {
 func (l *List[K, V]) Reset() {
 	l.root.setNext(&l.root, l.listType)
 	l.root.setPrev(&l.root, l.listType)
-	l.len.Store(0)
+	l.len = 0
 }
 
 // Len returns the number of elements of list l.
 // The complexity is O(1).
-func (l *List[K, V]) Len() int { return int(l.len.Load()) }
+func (l *List[K, V]) Len() int { return int(l.len) }
 
 func (l *List[K, V]) display() string {
 	var s []string
@@ -111,7 +109,7 @@ func (l *List[K, V]) insert(e, at *Entry[K, V]) {
 	e.setNext(at.next(l.listType), l.listType)
 	e.prev(l.listType).setNext(e, l.listType)
 	e.next(l.listType).setPrev(e, l.listType)
-	l.len.Add(e.policyWeight)
+	l.len += e.policyWeight
 	l.count += 1
 }
 
@@ -136,7 +134,7 @@ func (l *List[K, V]) remove(e *Entry[K, V]) {
 		e.flag.SetProtected(false)
 		e.flag.SetWindow(false)
 	}
-	l.len.Add(-e.policyWeight)
+	l.len += -e.policyWeight
 	l.count -= 1
 }
 

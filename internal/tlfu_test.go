@@ -507,15 +507,15 @@ func TestTlfu_AdaptiveAmountRemain(t *testing.T) {
 	// increase entry 100 weight to 4,
 	entry := em[100]
 	entry.policyWeight += int64(3)
-	tlfu.window.len.Add(3)
+	tlfu.window.len += 3
 	// increase entry 101 weight to 4,
 	entry = em[101]
 	entry.policyWeight += int64(3)
-	tlfu.window.len.Add(3)
+	tlfu.window.len += 3
 	// increase entry 102 weight to 3,
 	entry = em[102]
 	entry.policyWeight += int64(2)
-	tlfu.window.len.Add(2)
+	tlfu.window.len += 2
 
 	// the step is 9, so 100 and 101 will move but 102 can't
 	newHits := int(0.2 * 100)

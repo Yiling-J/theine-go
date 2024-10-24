@@ -41,9 +41,9 @@ func (s *Slru[K, V]) remove(entry *Entry[K, V]) {
 
 func (s *Slru[K, V]) updateCost(entry *Entry[K, V], delta int64) {
 	if entry.flag.IsProbation() {
-		s.probation.len.Add(delta)
+		s.probation.len += delta
 	} else if entry.flag.IsProtected() {
-		s.protected.len.Add(delta)
+		s.protected.len += delta
 	}
 
 }

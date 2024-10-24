@@ -14,7 +14,7 @@ func TestList_PushPop(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		l.PushFront(NewEntry(fmt.Sprintf("%d", i), "", 1, 0))
 	}
-	require.Equal(t, 5, int(l.len.Load()))
+	require.Equal(t, 5, int(l.len))
 	require.Equal(t, "4/3/2/1/0", l.display())
 	require.Equal(t, "0/1/2/3/4", l.displayReverse())
 
@@ -54,13 +54,13 @@ func TestList_CountCost(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		l.PushFront(NewEntry(fmt.Sprintf("%d", i), "", 20, 0))
 	}
-	require.Equal(t, 100, int(l.len.Load()))
+	require.Equal(t, 100, int(l.len))
 	require.Equal(t, 5, l.count)
 	for i := 0; i < 3; i++ {
 		entry := l.PopTail()
 		require.NotNil(t, entry)
 	}
-	require.Equal(t, 40, int(l.len.Load()))
+	require.Equal(t, 40, int(l.len))
 	require.Equal(t, 2, l.count)
 }
 
@@ -71,7 +71,7 @@ func TestList_WheelList(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		l.PushFront(NewEntry(fmt.Sprintf("%d", i), "", 1, 0))
 	}
-	require.Equal(t, 5, int(l.len.Load()))
+	require.Equal(t, 5, int(l.len))
 	require.Equal(t, "4/3/2/1/0", l.display())
 	require.Equal(t, "0/1/2/3/4", l.displayReverse())
 

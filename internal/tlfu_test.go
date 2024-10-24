@@ -328,7 +328,6 @@ func groupNumbers(input []string) string {
 			currentGroup = append(currentGroup, input[i])
 
 		} else {
-			fmt.Println(num)
 			result = append(result, fmt.Sprintf("%s-%s", currentGroup[0], currentGroup[len(currentGroup)-1]))
 			currentGroup = []string{input[i]}
 
@@ -399,26 +398,103 @@ func TestTlfu_Adaptive(t *testing.T) {
 				tlfu.resizeWindow()
 			}
 
-			total := 0
-			l := strings.Split(tlfu.window.display(), "/")
-			total += len(l)
-			windowSeq := groupNumbers(l)
-
-			l = strings.Split(tlfu.slru.probation.display(), "/")
-			total += len(l)
-			probationSeq := groupNumbers(l)
-			l = strings.Split(tlfu.slru.protected.display(), "/")
-			total += len(l)
-			protectedSeq := groupNumbers(l)
+			result, total := grouped(tlfu)
 			require.Equal(t, 150, total)
-
-			result := strings.Join(
-				[]string{
-					windowSeq, probationSeq,
-					protectedSeq}, ":")
-
 			require.Equal(t, cs.expected, result)
 
 		})
 	}
+}
+
+func grouped(tlfu *TinyLfu[int, int]) (string, int) {
+	total := 0
+	l := strings.Split(tlfu.window.display(), "/")
+	total += len(l)
+	windowSeq := groupNumbers(l)
+
+	l = strings.Split(tlfu.slru.probation.display(), "/")
+	total += len(l)
+	probationSeq := groupNumbers(l)
+	l = strings.Split(tlfu.slru.protected.display(), "/")
+	total += len(l)
+	protectedSeq := groupNumbers(l)
+
+	result := strings.Join(
+		[]string{
+			windowSeq, probationSeq,
+			protectedSeq}, ":")
+	return result, total
+}
+
+func TestTlfu_AdaptiveAmountRemain(t *testing.T) {
+	hasher := NewHasher[int](nil)
+	// window size 50, main size 100, protected size 80
+	tlfu := newTinyLfuSized[int, int](50, 100, 80, hasher)
+	tlfu.hr = 0.2
+	tlfu.removeCallback = func(entry *Entry[int, int]) {}
+	em := map[int]*Entry[int, int]{}
+
+	for i := 0; i < 150; i++ {
+		entry := &Entry[int, int]{key: i, value: i, policyWeight: 1}
+		em[i] = entry
+		tlfu.Set(entry)
+	}
+
+	for i := 0; i < 80; i++ {
+		entry := em[i]
+		tlfu.Access(ReadBufItem[int, int]{
+			entry: entry,
+			hash:  tlfu.hasher.hash(i),
+		})
+	}
+
+	require.Equal(t, -9.375, float64(tlfu.step))
+
+	// increase entry 100 weight to 4,
+	entry := em[100]
+	entry.policyWeight += int64(3)
+	tlfu.window.len.Add(3)
+	// increase entry 101 weight to 4,
+	entry = em[101]
+	entry.policyWeight += int64(3)
+	tlfu.window.len.Add(3)
+	// increase entry 102 weight to 3,
+	entry = em[102]
+	entry.policyWeight += int64(2)
+	tlfu.window.len.Add(2)
+
+	// the step is 9, so 100 and 101 will move but 102 can't
+	newHits := int(0.2 * 100)
+	newMisses := 100 - newHits
+	tlfu.hits.Add(uint64(newHits))
+	tlfu.misses.Add(uint64(newMisses))
+	tlfu.climb()
+	tlfu.resizeWindow()
+
+	require.Equal(t, -1, tlfu.amount)
+	require.Equal(t, 42, int(tlfu.window.capacity))
+	require.Equal(t, 88, int(tlfu.slru.protected.capacity))
+
+	result, total := grouped(tlfu)
+	require.Equal(t, 150, total)
+	require.Equal(t, "149-102:101-80:79-0", result)
+
+	// manually add one entry, so window tail(101) changed
+	entry = &Entry[int, int]{key: 998, value: 998, policyWeight: 1}
+	em[998] = entry
+	tlfu.Set(entry)
+
+	result, total = grouped(tlfu)
+	require.Equal(t, 150, total)
+	require.Equal(t, "998-998>149-109:108-103>101-80:79-0", result)
+
+	// apply remaining amount
+	tlfu.resizeWindow()
+	require.Equal(t, 0, tlfu.amount)
+	require.Equal(t, 41, int(tlfu.window.capacity))
+	require.Equal(t, 89, int(tlfu.slru.protected.capacity))
+	result, total = grouped(tlfu)
+	require.Equal(t, 150, total)
+	require.Equal(t, "998-998>149-110:109-103>101-80:79-0", result)
+
 }

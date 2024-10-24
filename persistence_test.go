@@ -107,7 +107,7 @@ func TestPersist_TestChecksumMismatch(t *testing.T) {
 	require.Nil(t, err)
 	// change file content
 	for _, i := range []int64{222} {
-		_, err = f.WriteAt([]byte{1}, i)
+		_, err = f.WriteAt([]byte{1, 0, 1, 1}, i)
 		require.Nil(t, err)
 	}
 	f.Close()

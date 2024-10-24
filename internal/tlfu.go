@@ -111,15 +111,15 @@ func (t *TinyLfu[K, V]) resizeWindow() {
 	var remain int
 	if t.amount > 0 {
 		remain = t.increaseWindow(t.amount)
+		t.amount = remain
 
 	} else if t.amount < 0 {
 		remain = t.decreaseWindow(-t.amount)
+		t.amount = -remain
 	}
 
-	t.amount = remain
-
-	t.window.capacity -= uint(remain)
-	t.slru.protected.capacity += uint(remain)
+	t.window.capacity -= uint(t.amount)
+	t.slru.protected.capacity += uint(t.amount)
 
 }
 

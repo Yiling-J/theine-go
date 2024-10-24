@@ -14,7 +14,7 @@ import (
 func TestSketch_EnsureCapacity(t *testing.T) {
 	sketch := NewCountMinSketch()
 	sketch.EnsureCapacity(1)
-	require.Equal(t, 16, len(sketch.Table))
+	require.Equal(t, 64, len(sketch.Table))
 }
 
 func TestSketch_Basic(t *testing.T) {

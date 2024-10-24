@@ -310,6 +310,7 @@ func TestTlfu_Weight(t *testing.T) {
 				em[i] = entry
 				tlfu.Set(entry)
 			}
+			tlfu.EvictEntries()
 
 			for _, event := range cs.events {
 				switch event.event {
@@ -426,6 +427,7 @@ func TestTlfu_Adaptive(t *testing.T) {
 				em[i] = entry
 				tlfu.Set(entry)
 			}
+			tlfu.EvictEntries()
 
 			for i := 0; i < 80; i++ {
 				entry := em[i]
@@ -490,6 +492,7 @@ func TestTlfu_AdaptiveAmountRemain(t *testing.T) {
 		em[i] = entry
 		tlfu.Set(entry)
 	}
+	tlfu.EvictEntries()
 
 	for i := 0; i < 80; i++ {
 		entry := em[i]

@@ -40,7 +40,7 @@ func (s *CountMinSketchPersist) CountMinSketch() *CountMinSketch {
 
 func NewCountMinSketch() *CountMinSketch {
 	new := &CountMinSketch{mu: NewRBMutex()}
-	new.EnsureCapacity(16)
+	new.EnsureCapacity(64)
 	return new
 }
 

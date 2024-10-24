@@ -180,7 +180,7 @@ func TestStore_GetExpire(t *testing.T) {
 	entry.expire.Store(fakeNow)
 
 	store.shards[i].hashmap[123] = entry
-	store.mlock.Lock()
+	store.policyMu.Lock()
 
 	// already exprired
 	store.timerwheel.clock.SetNowCache(fakeNow + 1)
@@ -197,7 +197,7 @@ func TestStore_GetExpire(t *testing.T) {
 	store.timerwheel.clock.SetNowCache(fakeNow - 1)
 	_, ok = store.Get(123)
 	require.False(t, ok)
-	store.mlock.Unlock()
+	store.policyMu.Unlock()
 
 	// ticker refresh cached now
 	time.Sleep(1200 * time.Millisecond)

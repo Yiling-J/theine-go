@@ -2,15 +2,19 @@ package internal
 
 import (
 	"math"
+
+	"github.com/Yiling-J/theine-go/internal/xruntime"
 )
+
+const ADMIT_HASHDOS_THRESHOLD = 6
 
 type TinyLfu[K comparable, V any] struct {
 	window         *List[K, V]
-	windowSize     uint
 	slru           *Slru[K, V]
 	sketch         *CountMinSketch
 	hasher         *Hasher[K]
-	size           uint
+	capacity       uint
+	weightedSize   uint
 	counter        uint
 	misses         *UnsignedCounter
 	hits           *UnsignedCounter
@@ -18,6 +22,7 @@ type TinyLfu[K comparable, V any] struct {
 	missesPrev     uint64
 	hr             float32
 	step           float32
+	amount         int
 	removeCallback func(entry *Entry[K, V])
 }
 
@@ -28,74 +33,94 @@ func NewTinyLfu[K comparable, V any](size uint, hasher *Hasher[K]) *TinyLfu[K, V
 	}
 	mainSize := size - windowSize
 	tlfu := &TinyLfu[K, V]{
-		size:       size,
-		slru:       NewSlru[K, V](mainSize),
-		sketch:     NewCountMinSketch(),
-		step:       -float32(size) * 0.0625,
-		hasher:     hasher,
-		misses:     NewUnsignedCounter(),
-		hits:       NewUnsignedCounter(),
-		windowSize: windowSize,
-		window:     NewList[K, V](windowSize, LIST_WINDOW),
+		capacity: size,
+		slru:     NewSlru[K, V](mainSize),
+		sketch:   NewCountMinSketch(),
+		step:     -float32(size) * 0.0625,
+		hasher:   hasher,
+		misses:   NewUnsignedCounter(),
+		hits:     NewUnsignedCounter(),
+		window:   NewList[K, V](windowSize, LIST_WINDOW),
 	}
 
 	return tlfu
 }
 
-func (t *TinyLfu[K, V]) resizeWindow() {
-	currentSize := t.window.capacity
+func (t *TinyLfu[K, V]) increaseWindow(amount int) int {
 
-	amount := int(t.windowSize - currentSize)
-
-	if v := int(t.slru.protected.capacity); v >= amount {
-		t.slru.protected.capacity = uint(v - amount)
-	} else {
-		amount = int(t.slru.protected.capacity)
-		t.slru.protected.capacity = 0
-	}
-
-	t.windowSize = t.window.capacity + uint(amount)
-	t.window.capacity = t.windowSize
-
-	t.slru.maxsize = t.size - t.windowSize
-	t.slru.probation.capacity = t.slru.maxsize
-
-	// resize policy
-	for t.window.Len() > int(t.window.capacity) {
-		e := t.window.PopTail()
-		if e == nil {
-			break
+	// try move from protected/probation to window
+	for {
+		probation := true
+		entry := t.slru.probation.Back()
+		if entry == nil || entry.policyWeight > int64(amount) {
+			probation = false
+			entry = t.slru.protected.Back()
 		}
-		ev := t.slru.probation.PushFront(e)
-		if ev != nil {
-			panic("ttt0")
-		}
-	}
-
-	for t.slru.protected.Len() > int(t.slru.protected.capacity) {
-		entry := t.slru.protected.PopTail()
 		if entry == nil {
 			break
 		}
-		evicted := t.slru.probation.PushFront(entry)
-		if evicted != nil {
-			ev := t.window.PushFront(evicted)
-			if ev != nil {
-				panic("ttt1")
-			}
-		}
-	}
 
-	for t.slru.probation.Len()+t.slru.protected.Len() > int(t.slru.maxsize) {
-		evicted := t.slru.probation.PopTail()
-		if evicted == nil {
+		weight := entry.policyWeight
+		if weight > int64(amount) {
 			break
 		}
-		ev := t.window.PushFront(evicted)
-		if ev != nil {
-			panic("ttt2")
+		amount -= int(weight)
+		if probation {
+			t.slru.probation.Remove(entry)
+		} else {
+			t.slru.protected.Remove(entry)
 		}
+		t.window.PushFront(entry)
 	}
+	return amount
+}
+
+func (t *TinyLfu[K, V]) decreaseWindow(amount int) int {
+
+	// try move from window to probation
+	for {
+		entry := t.window.Back()
+		if entry == nil {
+			break
+		}
+		weight := entry.policyWeight
+		if weight > int64(amount) {
+			break
+		}
+		amount -= int(weight)
+		t.window.Remove(entry)
+		t.slru.probation.PushFront(entry)
+	}
+	return amount
+}
+
+func (t *TinyLfu[K, V]) resizeWindow() {
+
+	if t.amount == 0 {
+		// when processing read buffer,
+		// probation entries might be promoted to protected,
+		// and protected might exceed it's cap
+		t.demoteFromProtected()
+		return
+	}
+
+	t.window.capacity += uint(t.amount)
+	t.slru.protected.capacity -= uint(t.amount)
+	t.demoteFromProtected()
+
+	var remain int
+	if t.amount > 0 {
+		remain = t.increaseWindow(t.amount)
+
+	} else if t.amount < 0 {
+		remain = t.decreaseWindow(-t.amount)
+	}
+
+	t.amount = remain
+
+	t.window.capacity -= uint(remain)
+	t.slru.protected.capacity += uint(remain)
+
 }
 
 func (t *TinyLfu[K, V]) climb() {
@@ -108,8 +133,14 @@ func (t *TinyLfu[K, V]) climb() {
 	t.hitsPrev = hits
 	t.missesPrev = misses
 
-	current := float32(hitsInc) / float32(hitsInc+missesInc)
-	delta := current - t.hr
+	var delta float32
+	if hitsInc+missesInc == 0 {
+		delta = 0
+	} else {
+		current := float32(hitsInc) / float32(hitsInc+missesInc)
+		delta = current - t.hr
+		t.hr = current
+	}
 
 	var amount float32
 	if delta >= 0 {
@@ -120,7 +151,7 @@ func (t *TinyLfu[K, V]) climb() {
 
 	nextStepSize := amount * 0.98
 	if math.Abs(float64(delta)) >= 0.05 {
-		nextStepSizeAbs := float32(t.size) * 0.0625
+		nextStepSizeAbs := float32(t.capacity) * 0.0625
 		if amount >= 0 {
 			nextStepSize = nextStepSizeAbs
 		} else {
@@ -129,43 +160,36 @@ func (t *TinyLfu[K, V]) climb() {
 	}
 
 	t.step = nextStepSize
-
-	new := float32(t.windowSize) + amount
-	if new > 0 {
-		t.windowSize = uint(math.Min(float64(new), float64(t.size)*0.8))
-	} else {
-		t.windowSize = 1
+	t.amount = int(amount)
+	// decrease protected, min protected is 0
+	if t.amount > 0 && t.amount > int(t.slru.protected.capacity) {
+		t.amount = int(t.slru.protected.capacity)
 	}
-	t.hr = current
+
+	// decrease window, min window size is 1
+	if t.amount < 0 && -t.amount > int(t.window.capacity-1) {
+		t.amount = -int(t.window.capacity)
+	}
 }
 
-func (t *TinyLfu[K, V]) Set(entry *Entry[K, V]) *Entry[K, V] {
+func (t *TinyLfu[K, V]) Set(entry *Entry[K, V]) {
+
+	t.weightedSize += uint(entry.policyWeight)
+
+	// try finish unfinished climb first
+	if t.amount != 0 && t.counter&15 == 0 {
+		t.resizeWindow()
+	}
 
 	if entry.meta.prev == nil {
-		if victim := t.window.PushFront(entry); victim != nil {
-			if tail := t.slru.victim(); tail != nil {
-				victimFreq := t.sketch.Estimate(t.hasher.hash(victim.key))
-				tailFreq := t.sketch.Estimate(t.hasher.hash(tail.key))
-
-				if victimFreq <= tailFreq {
-					return victim
-				} else {
-					return t.slru.insert(victim)
-				}
-			} else {
-				count := t.slru.probation.count + t.slru.protected.count
-				t.sketch.EnsureCapacity(uint(count))
-				return t.slru.insert(victim)
-			}
-		}
-
+		t.window.PushFront(entry)
 	}
-	return nil
+	t.EvictEntries()
 }
 
 func (t *TinyLfu[K, V]) Access(item ReadBufItem[K, V]) {
 	t.counter++
-	if t.counter > 10*t.size {
+	if t.counter > 10*t.sketch.SampleSize {
 		t.climb()
 		t.resizeWindow()
 		t.counter = 0
@@ -183,44 +207,147 @@ func (t *TinyLfu[K, V]) Access(item ReadBufItem[K, V]) {
 	}
 }
 
-func (t *TinyLfu[K, V]) Remove(entry *Entry[K, V]) {
+func (t *TinyLfu[K, V]) Remove(entry *Entry[K, V], callback bool) {
 	if entry.flag.IsWindow() {
 		t.window.Remove(entry)
 	} else {
 		t.slru.remove(entry)
 	}
+	t.weightedSize -= uint(entry.policyWeight)
+	if callback {
+		t.removeCallback(entry)
+	}
 }
 
 func (t *TinyLfu[K, V]) UpdateCost(entry *Entry[K, V], weightChange int64) {
+	if entry.policyWeight > int64(t.capacity) {
+		t.Remove(entry, true)
+		return
+	}
+
+	if weightChange > 0 {
+		t.weightedSize += uint(weightChange)
+	} else {
+		t.weightedSize -= uint(weightChange)
+	}
+
 	if entry.flag.IsWindow() {
+		t.window.MoveToFront(entry)
 		t.window.len.Add(weightChange)
 	} else {
+		t.slru.access(entry)
 		t.slru.updateCost(entry, weightChange)
+	}
+	t.EvictEntries()
+}
+
+// move entry from protected to probation
+func (t *TinyLfu[K, V]) demoteFromProtected() {
+	for t.slru.protected.Len() > int(t.slru.protected.capacity) {
+		entry := t.slru.protected.PopTail()
+		t.slru.probation.PushFront(entry)
 	}
 }
 
-func (t *TinyLfu[K, V]) EvictEntries() {
-
+func (t *TinyLfu[K, V]) evictFromWindow() *Entry[K, V] {
+	var first *Entry[K, V]
 	for t.window.Len() > int(t.window.capacity) {
-		e := t.window.PopTail()
-		if e == nil {
+		if victim := t.window.PopTail(); victim != nil {
+			if first == nil {
+				first = victim
+			}
+			t.slru.insert(victim)
+		}
+
+	}
+	return first
+}
+
+func (t *TinyLfu[K, V]) admit(candidateKey, victimKey K) bool {
+	victimFreq := t.sketch.Estimate(t.hasher.hash(victimKey))
+	candidateFreq := t.sketch.Estimate(t.hasher.hash(candidateKey))
+	if candidateFreq > victimFreq {
+		return true
+	} else if candidateFreq >= ADMIT_HASHDOS_THRESHOLD {
+		// The maximum frequency is 15 and halved to 7 after a reset to age the history. An attack
+		// exploits that a hot candidate is rejected in favor of a hot victim. The threshold of a warm
+		// candidate reduces the number of random acceptances to minimize the impact on the hit rate.
+		rand := xruntime.Fastrand()
+		return (rand & 127) == 0
+	}
+	return false
+}
+
+// comapre and evict entries until cache size fit.
+// candidate is the first entry evicted from window,
+// if head is null, start from last entry from window.
+func (t *TinyLfu[K, V]) evictFromMain(candidate *Entry[K, V]) {
+
+	victimQueue := LIST_PROBATION
+	candidateQueue := LIST_PROBATION
+	victim := t.slru.probation.Back()
+
+	for t.weightedSize > t.capacity {
+		if candidate == nil && candidateQueue == LIST_PROBATION {
+			candidate = t.window.Back()
+			candidateQueue = LIST_WINDOW
+		}
+
+		if candidate == nil && victim == nil {
+			if victimQueue == LIST_PROBATION {
+				victim = t.slru.protected.Back()
+				victimQueue = LIST_PROTECTED
+				continue
+			} else if victimQueue == LIST_PROTECTED {
+				victim = t.window.Back()
+				victimQueue = LIST_WINDOW
+				continue
+			}
 			break
 		}
-		t.slru.probation.PushFront(e)
+
+		if victim == nil {
+			previous := candidate.PrevPolicy()
+			evict := candidate
+			candidate = previous
+			t.Remove(evict, true)
+			continue
+		} else if candidate == nil {
+			evict := victim
+			victim = victim.PrevPolicy()
+			t.Remove(evict, true)
+			continue
+		}
+
+		if victim == candidate {
+			victim = victim.PrevPolicy()
+			t.Remove(candidate, true)
+			candidate = nil
+			continue
+		}
+
+		if candidate.policyWeight > int64(t.weightedSize) {
+			evict := candidate
+			candidate = candidate.PrevPolicy()
+			t.Remove(evict, true)
+			continue
+		}
+
+		if t.admit(candidate.key, victim.key) {
+			evict := victim
+			victim = victim.PrevPolicy()
+			t.Remove(evict, true)
+			candidate = candidate.PrevPolicy()
+		} else {
+			evict := candidate
+			candidate = candidate.PrevPolicy()
+			t.Remove(evict, true)
+		}
 	}
 
-	for t.slru.probation.Len()+t.slru.protected.Len() > int(t.slru.maxsize) {
-		entry := t.slru.probation.PopTail()
-		if entry == nil {
-			break
-		}
-		t.removeCallback(entry)
-	}
-	for t.slru.probation.Len()+t.slru.protected.Len() > int(t.slru.maxsize) {
-		entry := t.slru.protected.PopTail()
-		if entry == nil {
-			break
-		}
-		t.removeCallback(entry)
-	}
+}
+
+func (t *TinyLfu[K, V]) EvictEntries() {
+	first := t.evictFromWindow()
+	t.evictFromMain(first)
 }

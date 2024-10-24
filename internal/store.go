@@ -495,11 +495,12 @@ func (s *Store[K, V]) removeEntry(entry *Entry[K, V], reason RemoveReason) {
 	}
 
 	if prev := entry.meta.prev; prev != nil {
-		s.policy.Remove(entry)
+		s.policy.Remove(entry, false)
 	}
 	if entry.meta.wheelPrev != nil {
 		s.timerwheel.deschedule(entry)
 	}
+
 	switch reason {
 	case EVICTED, EXPIRED:
 		if reason == EVICTED && !entry.flag.IsFromNVM() && s.secondaryCache != nil {
@@ -585,17 +586,16 @@ func (s *Store[K, V]) sinkWrite(item WriteBufItem[K, V]) {
 
 		s.policy.sketch.Add(item.hash)
 		entry.policyWeight = item.costChange
-		evicted := s.policy.Set(entry)
-		if evicted != nil {
-			s.removeEntry(evicted, EVICTED)
-		}
-		s.policy.EvictEntries()
+		s.policy.Set(entry)
 
 	case REMOVE:
 		s.removeEntry(entry, REMOVED)
 	case EVICTE:
 		s.removeEntry(entry, EVICTED)
 	case UPDATE:
+		// update entry policy weight
+		entry.policyWeight += item.costChange
+
 		if item.rechedule {
 			s.timerwheel.schedule(entry)
 		}
@@ -613,11 +613,8 @@ func (s *Store[K, V]) sinkWrite(item WriteBufItem[K, V]) {
 					return
 				}
 			}
-			// update entry policy weight
-			entry.policyWeight += item.costChange
 			// update policy weight
 			s.policy.UpdateCost(entry, item.costChange)
-			s.policy.EvictEntries()
 		}
 	}
 	item.entry = nil

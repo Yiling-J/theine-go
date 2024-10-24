@@ -23,7 +23,6 @@ type List[K comparable, V any] struct {
 	len      atomic.Int64 // current list length(sum of costs) excluding (this) sentinel element
 	count    int          // count of entries in list
 	capacity uint
-	bounded  bool
 	listType uint8 // 1 tinylfu list, 2 timerwheel list
 }
 
@@ -35,9 +34,6 @@ func NewList[K comparable, V any](size uint, listType uint8) *List[K, V] {
 	l.root.setPrev(&l.root, l.listType)
 	l.len = atomic.Int64{}
 	l.capacity = size
-	if size > 0 {
-		l.bounded = true
-	}
 	return l
 }
 
@@ -91,15 +87,8 @@ func (l *List[K, V]) Back() *Entry[K, V] {
 	return nil
 }
 
-// insert inserts e after at, increments l.len, and evicted entry if capacity exceed
-func (l *List[K, V]) insert(e, at *Entry[K, V]) *Entry[K, V] {
-	var evicted *Entry[K, V]
-	if l.bounded && l.len.Load() >= int64(l.capacity) {
-		evicted = l.PopTail()
-		if evicted == nil {
-			return e
-		}
-	}
+// insert inserts e after at, increments l.len
+func (l *List[K, V]) insert(e, at *Entry[K, V]) {
 	if l.listType != WHEEL_LIST {
 		if l.listType == LIST_PROTECTED {
 			e.flag.SetProtected(true)
@@ -114,22 +103,18 @@ func (l *List[K, V]) insert(e, at *Entry[K, V]) *Entry[K, V] {
 	e.setNext(at.next(l.listType), l.listType)
 	e.prev(l.listType).setNext(e, l.listType)
 	e.next(l.listType).setPrev(e, l.listType)
-	if l.bounded {
-		l.len.Add(e.policyWeight)
-		// l.len += int(e.cost.Load())
-		l.count += 1
-	}
-	return evicted
+	l.len.Add(e.policyWeight)
+	l.count += 1
 }
 
 // PushFront push entry to list head
-func (l *List[K, V]) PushFront(e *Entry[K, V]) *Entry[K, V] {
-	return l.insert(e, &l.root)
+func (l *List[K, V]) PushFront(e *Entry[K, V]) {
+	l.insert(e, &l.root)
 }
 
 // Push push entry to the back of list
-func (l *List[K, V]) PushBack(e *Entry[K, V]) *Entry[K, V] {
-	return l.insert(e, l.root.prev(l.listType))
+func (l *List[K, V]) PushBack(e *Entry[K, V]) {
+	l.insert(e, l.root.prev(l.listType))
 }
 
 // remove removes e from its list, decrements l.len
@@ -143,10 +128,8 @@ func (l *List[K, V]) remove(e *Entry[K, V]) {
 		e.flag.SetProtected(false)
 		e.flag.SetWindow(false)
 	}
-	if l.bounded {
-		l.len.Add(-e.policyWeight)
-		l.count -= 1
-	}
+	l.len.Add(-e.policyWeight)
+	l.count -= 1
 }
 
 // move moves e to next to at.

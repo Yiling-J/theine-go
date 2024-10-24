@@ -2,265 +2,423 @@ package internal
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
-func TestTlfu_Basic(t *testing.T) {
-	hasher := NewHasher[string](nil)
-	tlfu := NewTinyLfu[string, string](1000, hasher)
-	require.Equal(t, 10, int(tlfu.window.capacity))
-	require.Equal(t, 990, int(tlfu.slru.probation.capacity))
-	require.Equal(t, 792, int(tlfu.slru.protected.capacity))
-	require.Equal(t, 0, int(tlfu.slru.probation.Len()))
-	require.Equal(t, 0, int(tlfu.slru.protected.Len()))
+type testEventType uint8
 
-	entries := []*Entry[string, string]{}
-	for i := 0; i < 200; i++ {
-		e := NewEntry(fmt.Sprintf("%d", i), "", 1, 0)
-		evicted := tlfu.Set(e)
-		entries = append(entries, e)
-		require.Nil(t, evicted)
-	}
+const (
+	TestEventGet testEventType = iota
+	TestEventSet
+	TestEventUpdate
+	TestEventFreq
+	TestEventRemove
+	TestEventResizeWindow
+)
 
-	require.Equal(t, 10, int(tlfu.window.Len()))
-	require.Equal(t, 190, int(tlfu.slru.probation.Len()))
-	require.Equal(t, 0, int(tlfu.slru.protected.Len()))
-
-	// probation -> protected
-	tlfu.Access(ReadBufItem[string, string]{entry: entries[11]})
-	require.Equal(t, 189, int(tlfu.slru.probation.Len()))
-	require.Equal(t, 1, int(tlfu.slru.protected.Len()))
-	tlfu.Access(ReadBufItem[string, string]{entry: entries[11]})
-	require.Equal(t, 189, int(tlfu.slru.probation.Len()))
-	require.Equal(t, 1, int(tlfu.slru.protected.Len()))
-
-	for i := 200; i < 1000; i++ {
-		e := NewEntry(fmt.Sprintf("%d", i), "", 1, 0)
-		entries = append(entries, e)
-		evicted := tlfu.Set(e)
-		require.Nil(t, evicted)
-	}
-	// access protected
-	tlfu.Access(ReadBufItem[string, string]{entry: entries[11]})
-	require.Equal(t, 989, int(tlfu.slru.probation.Len()))
-	require.Equal(t, 1, int(tlfu.slru.protected.Len()))
-
-	evicted := tlfu.Set(NewEntry("0a", "", 1, 0))
-	// 990 is the last entry of window
-	require.Equal(t, "990", evicted.key)
-	require.Equal(t, 989, int(tlfu.slru.probation.Len()))
-	require.Equal(t, 1, int(tlfu.slru.protected.Len()))
-
-	victim := tlfu.slru.victim()
-	require.Equal(t, "0", victim.key)
-	// increase winodw last entry frequency
-	// also 991 is move to LRU head, so window tail is 992
-	tlfu.Access(ReadBufItem[string, string]{entry: entries[991]})
-	tlfu.Access(ReadBufItem[string, string]{entry: entries[991]})
-	tlfu.Access(ReadBufItem[string, string]{entry: entries[991]})
-	tlfu.Access(ReadBufItem[string, string]{entry: entries[991]})
-	evicted = tlfu.Set(NewEntry("1a", "", 1, 0))
-	require.Equal(t, "992", evicted.key)
-	require.Equal(t, 989, int(tlfu.slru.probation.Len()))
-
-	entries2 := []*Entry[string, string]{}
-	for i := 0; i < 1000; i++ {
-		e := NewEntry(fmt.Sprintf("%d*", i), "", 1, 0)
-		tlfu.Set(e)
-		entries2 = append(entries2, e)
-	}
-	require.Equal(t, 989, int(tlfu.slru.probation.Len()))
-	require.Equal(t, 1, int(tlfu.slru.protected.Len()))
-
+type testEvent struct {
+	event testEventType
+	key   int
+	value int
 }
 
-func TestTlfu_EvictEntries(t *testing.T) {
-	hasher := NewHasher[string](nil)
-	tlfu := NewTinyLfu[string, string](500, hasher)
-	require.Equal(t, 5, int(tlfu.window.capacity))
-	require.Equal(t, 495, int(tlfu.slru.probation.capacity))
-	require.Equal(t, 396, int(tlfu.slru.protected.capacity))
-	require.Equal(t, 0, int(tlfu.slru.probation.Len()))
-	require.Equal(t, 0, int(tlfu.slru.protected.Len()))
-	em := []*Entry[string, string]{}
-	tlfu.removeCallback = func(entry *Entry[string, string]) {
-		em = append(em, entry)
-	}
-
-	for i := 0; i < 500; i++ {
-		tlfu.Set(NewEntry(fmt.Sprintf("%d:1", i), "", 1, 0))
-	}
-	require.Equal(t, 5, int(tlfu.window.Len()))
-	require.Equal(t, 495, int(tlfu.slru.probation.Len()))
-	require.Equal(t, 0, int(tlfu.slru.protected.Len()))
-	new := NewEntry("l:10", "", 10, 0)
-	tlfu.sketch.Addn(hasher.hash(new.key), 10)
-	tlfu.Set(new)
-	require.Equal(t, 14, int(tlfu.window.Len()))
-	require.Equal(t, 495, int(tlfu.slru.probation.Len()))
-	require.Equal(t, 0, int(tlfu.slru.protected.Len()))
-
-	// 2. window length is 14,
-	// because window only have 5 entries, all will be removed,
-	// evicted ones are send to probation, so probation will
-	// remove 9 entries
-	tlfu.EvictEntries()
-	for _, rm := range em {
-		require.True(t, strings.HasSuffix(rm.key, ":1"))
-	}
-	require.Equal(t, 9, len(em))
-	require.Equal(t, 0, int(tlfu.window.Len()))
-	require.Equal(t, 495, int(tlfu.slru.probation.Len()))
-	require.Equal(t, 0, int(tlfu.slru.protected.Len()))
-	// reset evicted list
-	em = []*Entry[string, string]{}
-
-	// insert l:450 to window, evicted from window to probation,
-	// this will remove 1 entry, probation len is 944 now
-	// remove 449 entries from probation
-	new = NewEntry("l:450", "", 450, 0)
-	tlfu.sketch.Addn(hasher.hash(new.key), 10)
-	tlfu.Set(new)
-	tlfu.EvictEntries()
-	require.Equal(t, 449, len(em))
-	require.Equal(t, 495, int(tlfu.slru.probation.Len()))
-	require.Equal(t, 0, int(tlfu.slru.protected.Len()))
-	// reset evicted list
-	em = []*Entry[string, string]{}
-
-	// insert l:460 to window, evicted from window to probation,
-	// this will remove 1 entry, probation len is 954 now
-	// remove all entries except the new l:460 one
-	new = NewEntry("l:460", "", 460, 0)
-	tlfu.sketch.Addn(hasher.hash(new.key), 10)
-	tlfu.Set(new)
-	tlfu.EvictEntries()
-	require.Equal(t, 36, len(em))
-	require.Equal(t, 460, int(tlfu.slru.probation.Len()))
-	require.Equal(t, 0, int(tlfu.slru.protected.Len()))
-	// reset evicted list
-	em = []*Entry[string, string]{}
-
-	// access
-	tlfu.Access(ReadBufItem[string, string]{entry: new})
-	require.Equal(t, 0, int(tlfu.slru.probation.Len()))
-	require.Equal(t, 460, int(tlfu.slru.protected.Len()))
-	new.weight.Store(600)
-	tlfu.UpdateCost(new, 140)
-	tlfu.EvictEntries()
-	require.Equal(t, 1, len(em))
-	require.Equal(t, 0, int(tlfu.slru.probation.Len()))
-	require.Equal(t, 140, int(tlfu.slru.protected.Len()))
-
+type testCase struct {
+	name     string
+	events   []testEvent
+	expected string
 }
 
-func TestTlfu_ClimbResize(t *testing.T) {
+var weightTests = []testCase{
+	{
+		"window promote",
+		[]testEvent{
+			{TestEventGet, 13, 1},
+		},
+		"13/14/12/11/10:9/8/7/6/5/4/3/2/1/0:",
+	},
+	{
+		"probation promote",
+		[]testEvent{
+			{TestEventGet, 7, 1},
+		},
+		"14/13/12/11/10:9/8/6/5/4/3/2/1/0:7",
+	},
+	{
+		"protect promote",
+		[]testEvent{
+			{TestEventGet, 5, 1},
+			{TestEventGet, 6, 1},
+			{TestEventGet, 7, 1},
+			{TestEventGet, 8, 1},
+			{TestEventGet, 5, 1},
+		},
+		"14/13/12/11/10:9/4/3/2/1/0:5/8/7/6",
+	},
+	{
+		"simple insert",
+		[]testEvent{
+			{TestEventSet, 15, 1},
+		},
+		// 10 is evicted because of frequency
+		"15/14/13/12/11:9/8/7/6/5/4/3/2/1/0:",
+	},
+	{
+		"simple insert, low freq",
+		[]testEvent{
+			{TestEventFreq, 0, 5},
+			{TestEventSet, 15, 1},
+		},
+		// 10 is evicted because of frequency
+		"15/14/13/12/11:9/8/7/6/5/4/3/2/1/0:",
+	},
+	{
+		"simple insert, high freq",
+		[]testEvent{
+			{TestEventFreq, 10, 5},
+			{TestEventSet, 15, 1},
+		},
+		// 0 is evicted because of frequency
+		"15/14/13/12/11:10/9/8/7/6/5/4/3/2/1:",
+	},
+	{
+		"simple insert, high weight",
+		[]testEvent{
+			{TestEventSet, 15, 3},
+		},
+		// after window evict:
+		// 15/14/13:12/11/10/9/8/7/6/5/4/3/2/1/0:
+		// compare 10-0, evict 10,
+		// compare 11-1, evict 11,
+		// compare 12-2, evict 12,
+		// now 15/14/13/9/8/7/6/5/4/3/2/1/0:
+		"15/14/13:9/8/7/6/5/4/3/2/1/0:",
+	},
+	{
+		"simple insert, high weight, high freq",
+		[]testEvent{
+			{TestEventFreq, 10, 5},
+			{TestEventFreq, 11, 5},
+			{TestEventSet, 15, 3},
+		},
+		// after window evict:
+		// 15/14/13:12/11/10/9/8/7/6/5/4/3/2/1/0:
+		// compare 10-0, evict 0,
+		// compare 11-1, evict 1,
+		// compare 12-2, evict 12,
+		// now 15/14/13/9/8/7/6/5/4/3/2/1/0:
+		"15/14/13:11/10/9/8/7/6/5/4/3/2:",
+	},
+	{
+		"simple insert, weight lt window",
+		[]testEvent{
+			{TestEventSet, 15, 8},
+		},
+		// after window evict:
+		// :15/14/13/12/11/10/9/8/7/6/5/4/3/2/1/0:
+		// evict all winodw entries
+		":9/8/7/6/5/4/3/2/1/0:",
+	},
+	{
+		"simple insert, weight lt window, high freq",
+		[]testEvent{
+			{TestEventFreq, 15, 5},
+			{TestEventSet, 15, 8},
+		},
+		// 10-14 evicted,
+		// 0 evicted, 15 remain
+		// candidate is nil, keep evict victim 1
+		// candidate is nil, keep evict victim 2
+		// size fit
+		":15/9/8/7/6/5/4/3:",
+	},
+	{
+		"update weight",
+		[]testEvent{
+			{TestEventUpdate, 13, 7},
+		},
+		":9/8/7/6/5/4/3/2/1/0:",
+	},
+	{
+		"update protected, delay",
+		[]testEvent{
+			{TestEventRemove, 14, 1},
+			{TestEventRemove, 13, 1},
+			{TestEventRemove, 12, 1},
+			{TestEventRemove, 9, 1},
+			{TestEventRemove, 8, 1},
+			{TestEventRemove, 7, 1},
+			{TestEventRemove, 6, 1},
+			{TestEventGet, 4, 1},
+			{TestEventUpdate, 4, 5},
+		},
+		// protected cap exceed, next resize will demote it
+		"11/10:5/3/2/1/0:4",
+	},
+	{
+		"update protected, demote",
+		[]testEvent{
+			{TestEventRemove, 14, 1},
+			{TestEventRemove, 13, 1},
+			{TestEventRemove, 12, 1},
+			{TestEventRemove, 9, 1},
+			{TestEventRemove, 8, 1},
+			{TestEventRemove, 7, 1},
+			{TestEventRemove, 6, 1},
+			{TestEventGet, 4, 1},
+			{TestEventUpdate, 4, 5},
+			{TestEventResizeWindow, 0, 0},
+		},
+		// protected cap exceed, demote
+		"11/10:4/5/3/2/1/0:",
+	},
+	{
+		"window too large",
+		[]testEvent{
+			{TestEventGet, 6, 7},
+			{TestEventFreq, 14, 5},
+			{TestEventUpdate, 14, 16},
+		},
+		// larger than cap will be evicted immediately
+		"13/12/11/10:9/8/7/5/4/3/2/1/0:6",
+	},
+	{
+		"probation too large",
+		[]testEvent{
+			{TestEventGet, 6, 7},
+			{TestEventFreq, 7, 5},
+			{TestEventUpdate, 7, 16},
+		},
+		// larger than cap will be evicted immediately
+		"14/13/12/11/10:9/8/5/4/3/2/1/0:6",
+	},
+	{
+		"protected too large",
+		[]testEvent{
+			{TestEventGet, 6, 7},
+			{TestEventUpdate, 6, 16},
+		},
+		// larger than cap will be evicted immediately
+		"14/13/12/11/10:9/8/7/5/4/3/2/1/0:",
+	},
+	{
+		"window very large",
+		[]testEvent{
+			{TestEventGet, 6, 7},
+			{TestEventFreq, 14, 5},
+			{TestEventUpdate, 14, 13},
+		},
+		":14:6",
+	},
+	{
+		"probation very large",
+		[]testEvent{
+			{TestEventGet, 6, 7},
+			{TestEventFreq, 7, 5},
+			{TestEventUpdate, 7, 13},
+		},
+		// larger than cap will be evicted immediately
+		"::7/6",
+	},
+	{
+		"protected very large",
+		[]testEvent{
+			{TestEventGet, 6, 7},
+			{TestEventUpdate, 6, 14},
+		},
+		// key 6 is in protected and has eight larger than capacity,
+		// so all probation will be evicted
+		"::6",
+	},
+}
+
+func newTinyLfuSized[K comparable, V any](wsize, msize, psize uint, hasher *Hasher[K]) *TinyLfu[K, V] {
+	tlfu := &TinyLfu[K, V]{
+		capacity: wsize + msize,
+		slru: &Slru[K, V]{
+			maxsize: msize,
+			// probation list size is dynamic
+			probation: NewList[K, V](0, LIST_PROBATION),
+			protected: NewList[K, V](psize, LIST_PROTECTED),
+		},
+		sketch: NewCountMinSketch(),
+		step:   -float32(wsize+msize) * 0.0625,
+		hasher: hasher,
+		misses: NewUnsignedCounter(),
+		hits:   NewUnsignedCounter(),
+		window: NewList[K, V](wsize, LIST_WINDOW),
+	}
+
+	return tlfu
+}
+
+func TestTlfu_Weight(t *testing.T) {
 	hasher := NewHasher[int](nil)
-	tlfu := NewTinyLfu[int, int](500, hasher)
-	em := map[int]*Entry[int, int]{}
+	for _, cs := range weightTests {
+		t.Run(cs.name, func(t *testing.T) {
+			// window size 5, main size 10, protected size 5
+			tlfu := newTinyLfuSized[int, int](5, 10, 5, hasher)
+			tlfu.removeCallback = func(entry *Entry[int, int]) {}
+			em := map[int]*Entry[int, int]{}
 
-	for i := 0; i < 500; i++ {
-		e := NewEntry(i, i, 1, 0)
-		em[e.key] = e
-		tlfu.Set(e)
-	}
-	// 495-500 in window, others in probation
-	require.Equal(t, 5, int(tlfu.window.capacity))
-	require.Equal(t, 495, int(tlfu.slru.probation.capacity))
-	require.Equal(t, 396, int(tlfu.slru.protected.capacity))
-	require.Equal(t, 495, int(tlfu.slru.maxsize))
+			// fill tlfu with 15 entries
+			for i := 0; i < 15; i++ {
+				entry := &Entry[int, int]{key: i, value: i, policyWeight: 1}
+				em[i] = entry
+				tlfu.Set(entry)
+			}
 
-	require.Equal(t, 5, tlfu.window.Len())
-	require.Equal(t, 495, tlfu.slru.probation.Len())
-	require.Equal(t, 0, tlfu.slru.protected.Len())
+			for _, event := range cs.events {
+				switch event.event {
+				case TestEventGet:
+					for i := 0; i < event.value; i++ {
+						entry := em[event.key]
+						tlfu.Access(ReadBufItem[int, int]{
+							entry: entry,
+							hash:  tlfu.hasher.hash(event.key),
+						})
+					}
+				case TestEventFreq:
+					tlfu.sketch.Addn(hasher.hash(event.key), event.value)
+				case TestEventSet:
+					entry := &Entry[int, int]{
+						key: event.key, value: event.key,
+						policyWeight: int64(event.value),
+					}
+					tlfu.Set(entry)
+				case TestEventUpdate:
+					entry := em[event.key]
+					entry.policyWeight += int64(event.value)
+					tlfu.UpdateCost(entry, int64(event.value))
+				case TestEventRemove:
+					entry := em[event.key]
+					tlfu.Remove(entry, true)
+				case TestEventResizeWindow:
+					tlfu.resizeWindow()
+				}
+			}
+			result := strings.Join(
+				[]string{
+					tlfu.window.display(), tlfu.slru.probation.display(),
+					tlfu.slru.protected.display()}, ":")
 
-	for i := 0; i < 380; i++ {
-		tlfu.Access(ReadBufItem[int, int]{
-			entry: em[i],
-			hash:  tlfu.hasher.hash(i),
+			require.Equal(t, cs.expected, result)
+
 		})
 	}
 
-	require.Equal(t, 5, tlfu.window.Len())
-	require.Equal(t, 115, tlfu.slru.probation.Len())
-	require.Equal(t, 380, tlfu.slru.protected.Len())
-	require.Equal(t, float32(-31.25), tlfu.step)
+}
 
-	// hr 0 -> 0.2, window size decrease from 5 to 1
-	tlfu.hits.Add(20)
-	tlfu.misses.Add(80)
-	tlfu.climb()
-	require.Equal(t, 1, int(tlfu.windowSize))
-	tlfu.resizeWindow()
-	// cap change
-	require.Equal(t, 1, int(tlfu.window.capacity))
-	require.Equal(t, 499, int(tlfu.slru.probation.capacity))
-	require.Equal(t, 400, int(tlfu.slru.protected.capacity))
-	require.Equal(t, 499, int(tlfu.slru.maxsize))
-	// evicted from window -> insert into probation
-	require.Equal(t, 1, tlfu.window.Len())
-	require.Equal(t, 380, tlfu.slru.protected.Len())
-	require.Equal(t, 119, tlfu.slru.probation.Len())
-
-	// hr 0.2 -> 0.22, window size still 1, resize noop
-	tlfu.hits.Add(22)
-	tlfu.misses.Add(78)
-	tlfu.climb()
-	require.Equal(t, 1, int(tlfu.windowSize))
-	tlfu.resizeWindow()
-	require.Equal(t, 1, int(tlfu.window.capacity))
-	require.Equal(t, 499, int(tlfu.slru.probation.capacity))
-	require.Equal(t, 400, int(tlfu.slru.protected.capacity))
-	require.Equal(t, 499, int(tlfu.slru.maxsize))
-	require.Equal(t, 1, tlfu.window.Len())
-	require.Equal(t, 380, tlfu.slru.protected.Len())
-	require.Equal(t, 119, tlfu.slru.probation.Len())
-
-	// hr 0.22 -> 0.2, window size increase to 31
-	// step alread decay twice: 31*0.98*0.98 = 30
-	tlfu.hits.Add(20)
-	tlfu.misses.Add(80)
-	tlfu.climb()
-	require.Equal(t, 31, int(tlfu.windowSize))
-	tlfu.resizeWindow()
-	// cap change
-	require.Equal(t, 31, int(tlfu.window.capacity))
-	require.Equal(t, 469, int(tlfu.slru.probation.capacity))
-	require.Equal(t, 370, int(tlfu.slru.protected.capacity))
-	require.Equal(t, 469, int(tlfu.slru.maxsize))
-	// evict from protected, insert into probation(1/129/370)
-	// evict from probation, insert into window(31/99/370)
-	require.Equal(t, 31, tlfu.window.Len())
-	require.Equal(t, 370, tlfu.slru.protected.Len())
-	require.Equal(t, 99, tlfu.slru.probation.Len())
-
-	// increase window 10 times
-	step := tlfu.step
-	for i := 1; i < 11; i++ {
-		tlfu.hits.Add(uint64(20 + i))
-		tlfu.misses.Add(uint64(80 - i))
-		tlfu.climb()
-		cr := tlfu.step / step
-		step = tlfu.step
-		require.True(t, cr >= 0.979 && cr <= 0.981)
-		tlfu.resizeWindow()
+func groupNumbers(input []string) string {
+	if len(input) == 0 {
+		return ""
 	}
-	require.Equal(t, 302, int(tlfu.window.capacity))
-	require.Equal(t, 198, int(tlfu.slru.probation.capacity))
-	require.Equal(t, 99, int(tlfu.slru.protected.capacity))
-	require.Equal(t, 198, int(tlfu.slru.maxsize))
-	require.Equal(t, 302, tlfu.window.Len())
-	require.Equal(t, 99, tlfu.slru.protected.Len())
-	require.Equal(t, 99, tlfu.slru.probation.Len())
 
-	// step reset to default
-	tlfu.hits.Add(uint64(20))
-	tlfu.misses.Add(uint64(80))
-	tlfu.climb()
-	tlfu.resizeWindow()
-	require.Equal(t, float32(-31.25), tlfu.step)
+	var result []string
+	var currentGroup []string
+	prev, _ := strconv.Atoi(input[0])
+	currentGroup = append(currentGroup, input[0])
 
+	for i := 1; i < len(input); i++ {
+		num, _ := strconv.Atoi(input[i])
+		if num == prev+1 || num == prev-1 {
+			currentGroup = append(currentGroup, input[i])
+
+		} else {
+			fmt.Println(num)
+			result = append(result, fmt.Sprintf("%s-%s", currentGroup[0], currentGroup[len(currentGroup)-1]))
+			currentGroup = []string{input[i]}
+
+		}
+		prev = num
+	}
+
+	// Append the last group
+	result = append(result, fmt.Sprintf("%s-%s", currentGroup[0], currentGroup[len(currentGroup)-1]))
+
+	return strings.Join(result, ">")
+}
+
+type adaptiveTestEvent struct {
+	hrChanges []float32
+	expected  string
+}
+
+var adaptiveTests = []adaptiveTestEvent{
+	// init, default hr will be 0.2
+	{[]float32{}, "149-100:99-80:79-0"},
+	// same hr, repeat increase/decrease
+	{[]float32{0.2}, "149-109:108-80:79-0"},
+	// hr increase, decrease window
+	{[]float32{0.4}, "149-109:108-80:79-0"},
+	// hr decrease, increase window, decrease protected
+	{[]float32{0.1}, "88-80>149-100:8-0>99-89:79-9"},
+	// increase twice
+	{[]float32{0.4, 0.6}, "149-118:117-80:79-0"},
+	// decrease twice
+	{[]float32{0.1, 0.08}, "88-80>149-109:108-100>8-0>99-89:79-9"},
+	// increase decrease
+	{[]float32{0.4, 0.2}, "88-80>149-109:108-89:79-0"},
+	// decrease increase
+	{[]float32{0.1, 0.2}, "97-80>149-100:17-0>99-98:79-18"},
+}
+
+func TestTlfu_Adaptive(t *testing.T) {
+	hasher := NewHasher[int](nil)
+	for _, cs := range adaptiveTests {
+		t.Run(fmt.Sprintf("%v", cs.hrChanges), func(t *testing.T) {
+			// window size 50, main size 100, protected size 80
+			tlfu := newTinyLfuSized[int, int](50, 100, 80, hasher)
+			tlfu.hr = 0.2
+			tlfu.removeCallback = func(entry *Entry[int, int]) {}
+			em := map[int]*Entry[int, int]{}
+
+			for i := 0; i < 150; i++ {
+				entry := &Entry[int, int]{key: i, value: i, policyWeight: 1}
+				em[i] = entry
+				tlfu.Set(entry)
+			}
+
+			for i := 0; i < 80; i++ {
+				entry := em[i]
+				tlfu.Access(ReadBufItem[int, int]{
+					entry: entry,
+					hash:  tlfu.hasher.hash(i),
+				})
+			}
+
+			for _, hrc := range cs.hrChanges {
+				newHits := int(hrc * 100)
+				newMisses := 100 - newHits
+				tlfu.hits.Add(uint64(newHits))
+				tlfu.misses.Add(uint64(newMisses))
+				tlfu.climb()
+				tlfu.resizeWindow()
+			}
+
+			total := 0
+			l := strings.Split(tlfu.window.display(), "/")
+			total += len(l)
+			windowSeq := groupNumbers(l)
+
+			l = strings.Split(tlfu.slru.probation.display(), "/")
+			total += len(l)
+			probationSeq := groupNumbers(l)
+			l = strings.Split(tlfu.slru.protected.display(), "/")
+			total += len(l)
+			protectedSeq := groupNumbers(l)
+			require.Equal(t, 150, total)
+
+			result := strings.Join(
+				[]string{
+					windowSeq, probationSeq,
+					protectedSeq}, ":")
+
+			require.Equal(t, cs.expected, result)
+
+		})
+	}
 }

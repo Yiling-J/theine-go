@@ -90,6 +90,34 @@ func (e *Entry[K, V]) Prev(listType uint8) *Entry[K, V] {
 	return nil
 }
 
+func (e *Entry[K, V]) PrevPolicy() *Entry[K, V] {
+	if p := e.meta.prev; !p.flag.IsRoot() {
+		return e.meta.prev
+	}
+	return nil
+}
+
+func (e *Entry[K, V]) PrevExpire() *Entry[K, V] {
+	if p := e.meta.wheelPrev; !p.flag.IsRoot() {
+		return e.meta.wheelPrev
+	}
+	return nil
+}
+
+func (e *Entry[K, V]) NextPolicy() *Entry[K, V] {
+	if p := e.meta.next; !p.flag.IsRoot() {
+		return e.meta.next
+	}
+	return nil
+}
+
+func (e *Entry[K, V]) NextExpire() *Entry[K, V] {
+	if p := e.meta.wheelNext; !p.flag.IsRoot() {
+		return e.meta.wheelNext
+	}
+	return nil
+}
+
 func (e *Entry[K, V]) prev(listType uint8) *Entry[K, V] {
 	switch listType {
 	case LIST_PROBATION, LIST_PROTECTED, LIST_WINDOW:

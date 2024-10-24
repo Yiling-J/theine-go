@@ -57,7 +57,7 @@ func TestSketch_ResetFreq(t *testing.T) {
 	sketch := NewCountMinSketch()
 	sketch.EnsureCapacity(1000)
 	for i := 0; i < len(sketch.Table); i++ {
-		sketch.Table[i].Store(^uint64(0))
+		sketch.Table[i] = ^uint64(0)
 	}
 	keyh := xxhash.Sum64String("key1")
 	require.Equal(t, 15, int(sketch.Estimate(keyh)))

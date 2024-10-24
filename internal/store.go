@@ -742,7 +742,7 @@ func (s *Store[K, V]) getReadBufferIdx() int {
 type StoreMeta struct {
 	Version   uint64
 	StartNano int64
-	Sketch    *CountMinSketchPersist
+	Sketch    *CountMinSketch
 }
 
 func (m *StoreMeta) Persist(writer io.Writer, blockEncoder *gob.Encoder) error {
@@ -765,7 +765,7 @@ func (s *Store[K, V]) Persist(version uint64, writer io.Writer) error {
 	meta := &StoreMeta{
 		Version:   version,
 		StartNano: s.timerwheel.clock.Start.UnixNano(),
-		Sketch:    s.policy.sketch.CountMinSketchPersist(),
+		Sketch:    s.policy.sketch,
 	}
 	err := meta.Persist(writer, blockEncoder)
 	if err != nil {
@@ -874,7 +874,7 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 			if m.Version != version {
 				return VersionMismatch
 			}
-			s.policy.sketch = m.Sketch.CountMinSketch()
+			s.policy.sketch = m.Sketch
 			s.timerwheel.clock.SetStart(m.StartNano)
 		case 2: // windlw lru
 			entryDecoder := gob.NewDecoder(reader)

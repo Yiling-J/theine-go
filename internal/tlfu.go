@@ -96,14 +96,6 @@ func (t *TinyLfu[K, V]) decreaseWindow(amount int) int {
 
 func (t *TinyLfu[K, V]) resizeWindow() {
 
-	if t.amount == 0 {
-		// when processing read buffer,
-		// probation entries might be promoted to protected,
-		// and protected might exceed it's cap
-		t.demoteFromProtected()
-		return
-	}
-
 	t.window.capacity += uint(t.amount)
 	t.slru.protected.capacity -= uint(t.amount)
 	t.demoteFromProtected()
@@ -168,18 +160,13 @@ func (t *TinyLfu[K, V]) climb() {
 
 	// decrease window, min window size is 1
 	if t.amount < 0 && -t.amount > int(t.window.capacity-1) {
-		t.amount = -int(t.window.capacity)
+		t.amount = -int(t.window.capacity - 1)
 	}
 }
 
 func (t *TinyLfu[K, V]) Set(entry *Entry[K, V]) {
 
 	t.weightedSize += uint(entry.policyWeight)
-
-	// try finish unfinished climb first
-	if t.amount != 0 && t.counter&15 == 0 {
-		t.resizeWindow()
-	}
 
 	if entry.meta.prev == nil {
 		t.window.PushFront(entry)
@@ -193,6 +180,10 @@ func (t *TinyLfu[K, V]) Access(item ReadBufItem[K, V]) {
 		t.climb()
 		t.resizeWindow()
 		t.counter = 0
+	}
+
+	if t.counter&15 == 0 {
+		t.demoteFromProtected()
 	}
 
 	if entry := item.entry; entry != nil {

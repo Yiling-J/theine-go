@@ -159,7 +159,7 @@ var weightTests = []testCase{
 		"11/10:5/3/2/1/0:4",
 	},
 	{
-		"update protected, demote",
+		"update protected, demote ",
 		[]testEvent{
 			{TestEventRemove, 14, 1},
 			{TestEventRemove, 13, 1},
@@ -174,6 +174,38 @@ var weightTests = []testCase{
 		},
 		// protected cap exceed, demote
 		"11/10:4/5/3/2/1/0:",
+	},
+	{
+		"update protected, demote not run",
+		[]testEvent{
+			{TestEventRemove, 14, 1},
+			{TestEventRemove, 13, 1},
+			{TestEventRemove, 12, 1},
+			{TestEventRemove, 9, 1},
+			{TestEventRemove, 8, 1},
+			{TestEventRemove, 7, 1},
+			{TestEventRemove, 6, 1},
+			{TestEventGet, 4, 1},
+			{TestEventUpdate, 4, 5},
+			{TestEventGet, 4, 1},
+		},
+		"11/10:5/3/2/1/0:4",
+	},
+	{
+		"update protected, demote auto run",
+		[]testEvent{
+			{TestEventRemove, 14, 1},
+			{TestEventRemove, 13, 1},
+			{TestEventRemove, 12, 1},
+			{TestEventRemove, 9, 1},
+			{TestEventRemove, 8, 1},
+			{TestEventRemove, 7, 1},
+			{TestEventRemove, 6, 1},
+			{TestEventGet, 4, 1},
+			{TestEventUpdate, 4, 5},
+			{TestEventGet, 3, 20},
+		},
+		"11/10:4/5/2/1/0:3",
 	},
 	{
 		"window too large",

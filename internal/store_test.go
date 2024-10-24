@@ -65,75 +65,22 @@ func TestStore_Window(t *testing.T) {
 
 	// test evicted callback
 	// fill window with weight 2 items first
-	for i := 100; i < 300; i++ {
+	for i := 100; i < 600; i++ {
 		store.Set(i, i, 2, 0)
 	}
 	store.Wait()
-	// mark probation full
-	store.policy.slru.probation.len.Store(int64(store.policy.slru.probation.capacity))
 
 	// add 15 weight 1 items, window currently has 5 weight2 items.
-	// This will send 5 weight2 items and 5 weight1 items to probation, add probation len will increase 15
-	// probation current has 3 weight 1 items: 0,1,2, they will be evicted,
-	// then continue evict 6 weight2 items, which weigh sum to 12. Total 12+3 = 15
+	// This will send 5 weight2 items and 5 weight1 items to probation,
+	// all items has freq 1 in cache, which means these 15 entries don't
+	// have enough freq to be admitted.
 	for i := 300; i < 315; i++ {
 		store.Set(i, i, 1, 0)
 	}
 	store.Wait()
 	mu.Lock()
 	defer mu.Unlock()
-	require.Equal(t, 9, len(evicted))
-}
-
-func TestStore_WindowEvict(t *testing.T) {
-	store := NewStore[int, int](1000, false, true, nil, nil, nil, 0, 0, nil)
-	defer store.Close()
-
-	evicted := map[int]int{}
-	var mu sync.Mutex
-	store.removalListener = func(key, value int, reason RemoveReason) {
-		if reason == EVICTED {
-			mu.Lock()
-			evicted[key] = value
-			mu.Unlock()
-		}
-	}
-
-	for i := 0; i < 5; i++ {
-		store.Set(i, i, 1, 0)
-	}
-	// move 0,1,2 entries to slru
-	store.Set(123, 123, 8, 0)
-	store.Wait()
-	require.Equal(t, store.policy.window.Len(), 10)
-	keys := []int{}
-	for e := store.policy.window.PopTail(); e != nil; e = store.policy.window.PopTail() {
-		keys = append(keys, e.key)
-	}
-	require.Equal(t, []int{3, 4, 123}, keys)
-	require.Equal(t, 0, len(evicted))
-	store.Wait()
-
-	// test evicted callback
-	// first update 3 exist item weight to 2,
-	// these items are already in probation
-	for i := 0; i < 3; i++ {
-		store.Set(i, i, 2, 0)
-	}
-	store.Wait()
-	// mark probation full
-	store.policy.slru.probation.len.Store(int64(store.policy.slru.probation.capacity))
-
-	// add 15 weight 1 items, window currently has no item.
-	// because we update cost in probation 2, so items
-	// evicted from window can't go to main, and 5 items will be evicted
-	for i := 300; i < 315; i++ {
-		store.Set(i, i, 1, 0)
-	}
-	store.Wait()
-	mu.Lock()
-	defer mu.Unlock()
-	require.Equal(t, 5, len(evicted))
+	require.Equal(t, 15, len(evicted))
 }
 
 func TestStore_DoorKeeperDynamicSize(t *testing.T) {

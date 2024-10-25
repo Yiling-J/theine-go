@@ -77,11 +77,11 @@ func getSet(t *testing.T, entrypool bool) {
 	}
 }
 
-func TestCacheRace_EntryPool_GetSet(t *testing.T) {
+func TestCacheCorrectness_EntryPool_GetSet(t *testing.T) {
 	getSet(t, true)
 
 }
-func TestCacheRace_NoPool_GetSet(t *testing.T) {
+func TestCacheCorrectness_NoPool_GetSet(t *testing.T) {
 	getSet(t, false)
 
 }
@@ -148,10 +148,10 @@ func getSetDeleteExpire(t *testing.T, entrypool bool) {
 	}
 }
 
-func TestCacheRace_EntryPool_GetSetDeleteExpire(t *testing.T) {
+func TestCacheCorrectness_EntryPool_GetSetDeleteExpire(t *testing.T) {
 	getSetDeleteExpire(t, true)
 }
 
-func TestCacheRace_NoPool_GetSetDeleteExpire(t *testing.T) {
+func TestCacheCorrectness_NoPool_GetSetDeleteExpire(t *testing.T) {
 	getSetDeleteExpire(t, false)
 }

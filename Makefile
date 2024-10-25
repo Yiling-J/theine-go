@@ -3,11 +3,11 @@
 test:
 	go test -race -skip=TestCacheRace_ ./...
 
-test-race-pool:
-	go test ./... -run=TestCacheRace_EntryPool -count=1
+test-correct-pool:
+	go test ./... -run=TestCacheCorrectness_EntryPool -count=1
 
-test-race-nopool:
-	go test ./... -run=TestCacheRace_NoPool -count=1 -race
+test-correct-nopool:
+	go test ./... -run=TestCacheCorrectness_NoPool -count=1 -race
 
 testx:
 	go test ./... -v -failfast

@@ -1,7 +1,7 @@
 .PHONY: test test-race-pool test-race-nopool testx lint bench cover
 
 test:
-	go test -race -skip=TestCacheRace_ ./...
+	go test -race -skip=TestCacheCorrectness_ ./...
 
 test-correct-pool:
 	go test ./... -run=TestCacheCorrectness_EntryPool -count=1

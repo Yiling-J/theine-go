@@ -440,8 +440,8 @@ func TestTlfu_Adaptive(t *testing.T) {
 			for _, hrc := range cs.hrChanges {
 				newHits := int(hrc * 100)
 				newMisses := 100 - newHits
-				tlfu.hits.Add(uint64(newHits))
-				tlfu.misses.Add(uint64(newMisses))
+				tlfu.hitsInSample = uint64(newHits)
+				tlfu.missesInSample = uint64(newMisses)
 				tlfu.climb()
 				tlfu.resizeWindow()
 			}
@@ -520,8 +520,8 @@ func TestTlfu_AdaptiveAmountRemain(t *testing.T) {
 	// the step is 9, so 100 and 101 will move but 102 can't
 	newHits := int(0.2 * 100)
 	newMisses := 100 - newHits
-	tlfu.hits.Add(uint64(newHits))
-	tlfu.misses.Add(uint64(newMisses))
+	tlfu.hitsInSample = uint64(newHits)
+	tlfu.missesInSample = uint64(newMisses)
 	tlfu.climb()
 	tlfu.resizeWindow()
 

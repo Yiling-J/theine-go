@@ -15,11 +15,10 @@ type TinyLfu[K comparable, V any] struct {
 	hasher         *Hasher[K]
 	capacity       uint
 	weightedSize   uint
-	counter        uint // when counter reach sketch sample size, do a climb
 	misses         *UnsignedCounter
 	hits           *UnsignedCounter
-	hitsPrev       uint64
-	missesPrev     uint64
+	hitsInSample   uint64
+	missesInSample uint64
 	hr             float32
 	step           float32
 	amount         int
@@ -117,23 +116,17 @@ func (t *TinyLfu[K, V]) resizeWindow() {
 }
 
 func (t *TinyLfu[K, V]) climb() {
-	hits := t.hits.Value()
-	misses := t.misses.Value()
-
-	hitsInc := hits - t.hitsPrev
-	missesInc := misses - t.missesPrev
-
-	t.hitsPrev = hits
-	t.missesPrev = misses
 
 	var delta float32
-	if hitsInc+missesInc == 0 {
+	if t.hitsInSample+t.missesInSample == 0 {
 		delta = 0
 	} else {
-		current := float32(hitsInc) / float32(hitsInc+missesInc)
+		current := float32(t.hitsInSample) / float32(t.hitsInSample+t.missesInSample)
 		delta = current - t.hr
 		t.hr = current
 	}
+	t.hitsInSample = 0
+	t.missesInSample = 0
 
 	var amount float32
 	if delta >= 0 {
@@ -166,10 +159,15 @@ func (t *TinyLfu[K, V]) climb() {
 }
 
 func (t *TinyLfu[K, V]) Set(entry *Entry[K, V]) {
+	if uint(t.hitsInSample)+uint(t.missesInSample) > t.sketch.SampleSize {
+		t.climb()
+		t.resizeWindow()
+	}
 
 	t.weightedSize += uint(entry.policyWeight)
 
 	if entry.meta.prev == nil {
+		t.missesInSample++
 		t.window.PushFront(entry)
 	}
 
@@ -183,14 +181,13 @@ func (t *TinyLfu[K, V]) Set(entry *Entry[K, V]) {
 }
 
 func (t *TinyLfu[K, V]) Access(item ReadBufItem[K, V]) {
-	t.counter++
-	if t.counter > t.sketch.SampleSize {
+	if uint(t.hitsInSample)+uint(t.missesInSample) > t.sketch.SampleSize {
 		t.climb()
 		t.resizeWindow()
-		t.counter = 0
 	}
 
 	if entry := item.entry; entry != nil {
+		t.hitsInSample++
 		t.sketch.Add(item.hash)
 		if entry.meta.prev != nil {
 			if entry.flag.IsWindow() {

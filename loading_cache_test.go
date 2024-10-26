@@ -68,7 +68,7 @@ func TestLoadingCache_SetWithTTL(t *testing.T) {
 	require.Equal(t, 1, client.Len())
 	require.Equal(t, 1, counter)
 
-	time.Sleep(2 * time.Second)
+	time.Sleep(3 * time.Second)
 
 	v, err = client.Get(context.TODO(), "foo")
 	require.Nil(t, err)

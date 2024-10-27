@@ -71,6 +71,19 @@ func TestSketch_ResetFreq(t *testing.T) {
 
 }
 
+func TestSketch_Small(t *testing.T) {
+	sketch := NewCountMinSketch()
+	sketch.EnsureCapacity(512)
+	hasher := NewHasher[uint64](nil)
+	for i := 0; i < 605; i++ {
+		fmt.Printf("add %d:", i)
+		h := hasher.hash(uint64(i))
+		sketch.Add(h)
+		require.Equal(t, 1, int(sketch.Estimate(h)), i)
+
+	}
+}
+
 func TestSketch_ResetAddition(t *testing.T) {
 	sketch := NewCountMinSketch()
 	sketch.EnsureCapacity(100)

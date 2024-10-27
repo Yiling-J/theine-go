@@ -154,16 +154,11 @@ func (s *CountMinSketch) EnsureCapacity(size uint) {
 }
 
 func spread(h uint64) uint64 {
-	h ^= h >> 17
-	h *= 0xed5ad4bb
-	h ^= h >> 11
-	h *= 0xac4c1b51
-	h ^= h >> 15
 	return h
 }
 
 func rehash(h uint64) uint64 {
-	h *= 0x31848bab
-	h ^= h >> 14
+	h *= 0x94d049bb133111eb
+	h ^= h >> 31
 	return h
 }

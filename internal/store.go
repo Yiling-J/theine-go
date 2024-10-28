@@ -380,7 +380,6 @@ func (s *Store[K, V]) setShard(shard *Shard[K, V], hash uint64, key K, value V, 
 	entry.expire.Store(expire)
 	entry.weight.Store(cost)
 	entry.policyWeight = 0
-	entry.flag = Flag{}
 	s.setEntry(hash, shard, cost, entry, nvmClean)
 	return shard, entry, true
 
@@ -474,9 +473,10 @@ func (s *Store[K, V]) index(key K) (uint64, int) {
 }
 
 func (s *Store[K, V]) postDelete(entry *Entry[K, V]) {
-	var zero V
-	entry.value = zero
 	if s.entryPool != nil {
+		var zero V
+		entry.value = zero
+		entry.flag = Flag{}
 		s.entryPool.Put(entry)
 	}
 }
@@ -512,12 +512,15 @@ func (s *Store[K, V]) removeEntry(entry *Entry[K, V], reason RemoveReason) {
 			}
 
 			if rn <= s.probability {
-				s.secondaryCacheBuf <- SecondaryCacheItem[K, V]{
+				select {
+				case s.secondaryCacheBuf <- SecondaryCacheItem[K, V]{
 					entry:  entry,
 					reason: reason,
 					shard:  shard,
+				}:
+					return
+				default:
 				}
-				return
 			}
 		}
 		shard.mu.Lock()
@@ -606,6 +609,14 @@ func (s *Store[K, V]) sinkWrite(item WriteBufItem[K, V]) {
 	case EVICTE:
 		s.removeEntry(entry, EVICTED)
 	case UPDATE:
+		// recheck hash if entry pool enabled to avoid race
+		if s.entryPool != nil {
+			hh := s.hasher.hash(entry.key)
+			if hh != item.hash {
+				return
+			}
+		}
+
 		// update entry policy weight
 		entry.policyWeight += item.costChange
 
@@ -619,13 +630,6 @@ func (s *Store[K, V]) sinkWrite(item WriteBufItem[K, V]) {
 		}
 
 		if item.costChange != 0 {
-			// recheck hash if entry pool enabled to avoid race
-			if s.entryPool != nil {
-				hh := s.hasher.hash(entry.key)
-				if hh != item.hash {
-					return
-				}
-			}
 			// update policy weight
 			s.policy.UpdateCost(entry, item.costChange)
 		}
@@ -836,10 +840,12 @@ func (s *Store[K, V]) processSecondary() {
 			if item.reason == EVICTED {
 				item.shard.mu.Lock()
 				deleted := item.shard.delete(item.entry)
-				if deleted {
-					s.postDelete(item.entry)
-				}
 				item.shard.mu.Unlock()
+				if deleted {
+					s.policyMu.Lock()
+					s.postDelete(item.entry)
+					s.policyMu.Unlock()
+				}
 			}
 		} else {
 			item.shard.mu.RUnlock(tk)

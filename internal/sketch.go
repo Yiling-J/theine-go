@@ -42,7 +42,7 @@ func (s *CountMinSketch) inc(index uint, offset uint) bool {
 }
 
 func (s *CountMinSketch) Add(h uint64) bool {
-	blockHash := spread(h)
+	blockHash := h
 	block := (blockHash & uint64(s.BlockMask)) << 3
 	counterHash := rehash(h)
 	index0, offset0 := s.indexOf(counterHash, block, 0)
@@ -67,7 +67,7 @@ func (s *CountMinSketch) Add(h uint64) bool {
 
 // used in test
 func (s *CountMinSketch) Addn(h uint64, n int) {
-	hn := spread(h)
+	hn := h
 	block := (hn & uint64(s.BlockMask)) << 3
 	hc := rehash(h)
 	index0, offset0 := s.indexOf(hc, block, 0)
@@ -129,8 +129,7 @@ func min(a, b uint) uint {
 }
 
 func (s *CountMinSketch) Estimate(h uint64) uint {
-	hn := spread(h)
-	block := (hn & uint64(s.BlockMask)) << 3
+	block := (h & uint64(s.BlockMask)) << 3
 	hc := rehash(h)
 	m := min(s.count(hc, block, 0), 100)
 	m = min(s.count(hc, block, 1), m)
@@ -151,10 +150,6 @@ func (s *CountMinSketch) EnsureCapacity(size uint) {
 	s.SampleSize = 10 * newSize
 	s.BlockMask = uint((len(s.Table) >> 3) - 1)
 	s.Additions = 0
-}
-
-func spread(h uint64) uint64 {
-	return h
 }
 
 func rehash(h uint64) uint64 {

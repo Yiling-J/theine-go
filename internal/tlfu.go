@@ -6,7 +6,11 @@ import (
 	"github.com/Yiling-J/theine-go/internal/xruntime"
 )
 
-const ADMIT_HASHDOS_THRESHOLD = 6
+const (
+	ADMIT_HASHDOS_THRESHOLD      = 6
+	HILL_CLIMBER_STEP_DECAY_RATE = 0.98
+	HILL_CLIMBER_STEP_PERCENT    = 0.0625
+)
 
 type TinyLfu[K comparable, V any] struct {
 	window         *List[K, V]
@@ -135,9 +139,9 @@ func (t *TinyLfu[K, V]) climb() {
 		amount = -t.step
 	}
 
-	nextStepSize := amount * 0.98
+	nextStepSize := amount * HILL_CLIMBER_STEP_DECAY_RATE
 	if math.Abs(float64(delta)) >= 0.05 {
-		nextStepSizeAbs := float32(t.capacity) * 0.0625
+		nextStepSizeAbs := float32(t.capacity) * HILL_CLIMBER_STEP_PERCENT
 		if amount >= 0 {
 			nextStepSize = nextStepSizeAbs
 		} else {

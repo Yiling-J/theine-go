@@ -129,3 +129,37 @@ func BenchmarkSketch(b *testing.B) {
 		sketch.Estimate(nums[i%100000])
 	}
 }
+
+func TestSketch_HeavyHitters(t *testing.T) {
+	sketch := NewCountMinSketch()
+	hasher := NewHasher[uint64](nil)
+	sketch.EnsureCapacity(512)
+	for i := 100; i < 100000; i++ {
+		h := hasher.hash(uint64(i))
+		sketch.Add(h)
+	}
+	for i := 0; i < 10; i += 2 {
+		for j := 0; j < i; j++ {
+			h := hasher.hash(uint64(i))
+			sketch.Add(h)
+		}
+	}
+
+	// A perfect popularity count yields an array [0, 0, 2, 0, 4, 0, 6, 0, 8, 0]
+	popularity := make([]int, 10)
+	for i := 0; i < 10; i++ {
+		h := hasher.hash(uint64(i))
+		popularity[i] = int(sketch.Estimate(h))
+	}
+	for i := 0; i < len(popularity); i++ {
+		if i == 0 || i == 1 || i == 3 || i == 5 || i == 7 || i == 9 {
+			require.LessOrEqual(t, popularity[i], popularity[2])
+		} else if i == 2 {
+			require.LessOrEqual(t, popularity[2], popularity[4])
+		} else if i == 4 {
+			require.LessOrEqual(t, popularity[4], popularity[6])
+		} else if i == 6 {
+			require.LessOrEqual(t, popularity[6], popularity[8])
+		}
+	}
+}

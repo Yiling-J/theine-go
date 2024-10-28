@@ -463,7 +463,7 @@ func (s *Store[K, V]) Len() int {
 
 func (s *Store[K, V]) EstimatedSize() int {
 	s.policyMu.Lock()
-	total := s.policy.slru.protected.Len() + s.policy.slru.probation.Len()
+	total := s.policy.window.Len() + s.policy.slru.protected.Len() + s.policy.slru.probation.Len()
 	s.policyMu.Unlock()
 	return total
 }

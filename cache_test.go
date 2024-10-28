@@ -246,7 +246,7 @@ func TestCache_EstimatedSize(t *testing.T) {
 	})
 	wg.Go(func() error {
 		defer cfn()
-		for i := 0; i < 1000000; i++ {
+		for i := 0; i < 1200; i++ {
 			if i%2 == 0 {
 				client.Set(i, 1, 1)
 			} else {
@@ -256,6 +256,8 @@ func TestCache_EstimatedSize(t *testing.T) {
 		return nil
 	})
 	require.Nil(t, wg.Wait())
+	client.Wait()
+	require.Equal(t, 500, client.EstimatedSize())
 }
 
 func TestCache_Doorkeeper(t *testing.T) {

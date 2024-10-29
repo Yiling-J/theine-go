@@ -779,6 +779,13 @@ func (m *StoreMeta) Persist(writer io.Writer, blockEncoder *gob.Encoder) error {
 func (s *Store[K, V]) Persist(version uint64, writer io.Writer) error {
 	blockEncoder := gob.NewEncoder(writer)
 	s.policyMu.Lock()
+	defer s.policyMu.Unlock()
+
+	for _, s := range s.shards {
+		token := s.mu.RLock()
+		defer s.mu.RUnlock(token)
+	}
+
 	meta := &StoreMeta{
 		Version:   version,
 		StartNano: s.timerwheel.clock.Start.UnixNano(),
@@ -802,7 +809,6 @@ func (s *Store[K, V]) Persist(version uint64, writer io.Writer) error {
 	if err != nil {
 		return err
 	}
-	s.policyMu.Unlock()
 
 	// write end block
 	block := NewBlock[int](255, bytes.NewBuffer(make([]byte, 0)), blockEncoder)
@@ -914,6 +920,7 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 					entry := pentry.entry()
 					s.policy.window.PushBack(entry)
 					s.insertSimple(entry)
+					s.policy.weightedSize += uint(entry.policyWeight)
 				}
 			}
 		case 3: // main-probation
@@ -937,6 +944,7 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 					entry := pentry.entry()
 					l2.PushBack(entry)
 					s.insertSimple(entry)
+					s.policy.weightedSize += uint(entry.policyWeight)
 				}
 			}
 		case 4: // main protected
@@ -959,6 +967,7 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 					entry := pentry.entry()
 					l.PushBack(entry)
 					s.insertSimple(entry)
+					s.policy.weightedSize += uint(entry.policyWeight)
 				}
 			}
 

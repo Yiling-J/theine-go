@@ -255,4 +255,10 @@ func TestStorePersistence_Readonly(t *testing.T) {
 	require.True(t, ok)
 	require.NotEqual(t, oldv, newv)
 
+	for i := 0; i < 5000; i++ {
+		new.Get(i)
+		new.Set(i, 123, 1, 0)
+	}
+	new.Wait()
+
 }

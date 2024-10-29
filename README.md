@@ -41,11 +41,11 @@ Loading cache uses [singleflight](https://pkg.go.dev/golang.org/x/sync/singlefli
 
 **Entry Pool**
 
-Theine stores `*Entry` as the value in the hashmap, where each entry contains key, value, and metadata related to the policy. Before v0.6.0, Theine used a `sync pool` to automatically reuse evicted entries. This approach was beneficial for scenarios with heavy writes and values were stored directly (not as pointers), as it significantly reduced memory allocations. However, in most cases, a cache miss requires fetching data from a slower source and then writing it back to the cache, which naturally slows down the process and is somewhat at odds with scenarios involving heavy writes.
+Theine stores `*Entry` as the value in the hashmap, where each entry contains key, value, and metadata related to the policy. Before v0.6.0, Theine used a `sync pool` to automatically reuse evicted entries. This approach was beneficial for scenarios with heavy concurrent writes. If your system is already optimized for allocation, it should significantly reduce memory allocations. However, if cache writes are rare and GC is triggered often by other parts of your system, the sync pool becomes nearly useless.
 
-And sync pool had a potential drawback: **race conditions within the policy**. Theine sends events to the policy asynchronously via channels/buffers, and there was a small chance that an event could be applied to the wrong entry if the entry was evicted and then reused by the pool. As a result, the policy might end up with incorrect cost/frequency data. Despite this, read, update, and delete operations on entry values were protected by a mutex, ensuring data consistency.
+And sync pool had a potential drawback: **race conditions within the policy**. Theine sends events to the policy asynchronously via channels/buffers, so there was a small chance that an event could be applied to the wrong entry if the entry was evicted and then reused by the pool.
 
-To mitigate this, Theine rechecks the key when updating the policy, but this behavior might be flagged by the race detector. Starting from v0.6.0, Theine introduced a new option called `UseEntryPool`, which defaults to `false`. If you are dealing with heavy writes and want to minimize allocations, and you can tolerate a slight risk of policy inconsistency, you can enable this option.
+To mitigate this, Theine rechecks the key first when updating the policy, but this behavior might be flagged by the race detector. Starting from v0.6.0, Theine introduced a new option called `UseEntryPool`, which defaults to `false`. If you are dealing with heavy concurrent writes and minimize allocations is crucial, you can enable this option.
 
 **API Details**
 
@@ -301,6 +301,12 @@ BenchmarkCache/zipf_ristretto_reads=0%,writes=100%-32            112 B/op       
 **oltp**
 
 ![hit ratios](benchmarks/results/oltp.png)
+**wiki CDN**
+
+![hit ratios](benchmarks/results/wikicdn.png)
+**Twitter Cache**
+
+![hit ratios](benchmarks/results/twitter-c52s10.png)
 
 
 ## Secondary Cache(Experimental)

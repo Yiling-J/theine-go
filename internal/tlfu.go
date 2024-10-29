@@ -223,11 +223,7 @@ func (t *TinyLfu[K, V]) UpdateCost(entry *Entry[K, V], weightChange int64) {
 
 	// entry's policy weigh already updated
 	// so update weightedSize to keep sync
-	if weightChange > 0 {
-		t.weightedSize += uint(weightChange)
-	} else {
-		t.weightedSize -= uint(weightChange)
-	}
+	t.weightedSize += uint(weightChange)
 
 	// update window/slru
 	// if entry new weight > max size

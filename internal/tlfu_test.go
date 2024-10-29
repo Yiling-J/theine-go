@@ -578,3 +578,24 @@ func TestTlfu_SketchResize(t *testing.T) {
 		require.Equal(t, size, len(tlfu.sketch.Table))
 	}
 }
+
+func TestTlfu_UpdateCost(t *testing.T) {
+	hasher := NewHasher[int](nil)
+	tlfu := NewTinyLfu[int, int](100, hasher)
+	e1 := &Entry[int, int]{key: 1, value: 1, policyWeight: 1}
+	e2 := &Entry[int, int]{key: 2, value: 1, policyWeight: 2}
+	e3 := &Entry[int, int]{key: 3, value: 1, policyWeight: 3}
+
+	tlfu.Set(e1)
+	tlfu.Set(e2)
+	tlfu.Set(e3)
+	require.Equal(t, 6, int(tlfu.weightedSize))
+
+	e1.policyWeight = 3
+	e2.policyWeight = 2
+	e3.policyWeight = 1
+	tlfu.UpdateCost(e1, 2)
+	tlfu.UpdateCost(e2, 0)
+	tlfu.UpdateCost(e3, -2)
+	require.Equal(t, 6, int(tlfu.weightedSize))
+}

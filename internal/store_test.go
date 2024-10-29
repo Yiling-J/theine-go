@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestStore_QueueExpire(t *testing.T) {
+func TestStore_WindowExpire(t *testing.T) {
 	store := NewStore[int, int](5000, false, true, nil, nil, nil, 0, 0, nil)
 	defer store.Close()
 
@@ -21,17 +21,10 @@ func TestStore_QueueExpire(t *testing.T) {
 			mu.Unlock()
 		}
 	}
-	expire := store.timerwheel.clock.ExpireNano(200 * time.Millisecond)
 	for i := 0; i < 50; i++ {
-		entry := &Entry[int, int]{key: i}
-		entry.expire.Store(expire)
-		entry.weight.Store(1)
-		entry.queueIndex.Store(-2)
-		store.shards[0].mu.Lock()
-		store.setEntry(123, store.shards[0], 1, entry, false)
-		_, index := store.index(i)
-		store.shards[index].hashmap[i] = entry
+		store.Set(i, i, 1, 200*time.Millisecond)
 	}
+	store.Wait()
 	mu.Lock()
 	require.True(t, len(expired) == 0)
 	mu.Unlock()
@@ -41,8 +34,8 @@ func TestStore_QueueExpire(t *testing.T) {
 	mu.Unlock()
 }
 
-func TestStore_ProcessQueue(t *testing.T) {
-	store := NewStore[int, int](20000, false, true, nil, nil, nil, 0, 0, nil)
+func TestStore_Window(t *testing.T) {
+	store := NewStore[int, int](1000, false, true, nil, nil, nil, 0, 0, nil)
 	defer store.Close()
 
 	evicted := map[int]int{}
@@ -54,88 +47,57 @@ func TestStore_ProcessQueue(t *testing.T) {
 			mu.Unlock()
 		}
 	}
-	h, _ := store.index(123)
-	qindex := h & uint64(RoundedParallelism-1)
-	for _, q := range store.queue.qs {
-		q.size = 10
-	}
 
 	for i := 0; i < 5; i++ {
-		entry := &Entry[int, int]{key: i}
-		entry.weight.Store(1)
-		entry.queueIndex.Store(-2)
-		store.shards[0].mu.Lock()
-		store.setEntry(h, store.shards[0], 1, entry, false)
-		_, index := store.index(i)
-		store.shards[index].hashmap[i] = entry
+		store.Set(i, i, 1, 0)
 	}
-
 	// move 0,1,2 entries to slru
 	store.Set(123, 123, 8, 0)
-	require.Equal(t, store.queue.qs[qindex].deque.Len(), 3)
+	store.Wait()
+	require.Equal(t, store.policy.window.Len(), 10)
 	keys := []int{}
-	for store.queue.qs[qindex].deque.Len() != 0 {
-		e := store.queue.qs[qindex].deque.PopBack()
-		keys = append(keys, e.entry.key)
+	for e := store.policy.window.PopTail(); e != nil; e = store.policy.window.PopTail() {
+		keys = append(keys, e.key)
 	}
 	require.Equal(t, []int{3, 4, 123}, keys)
 	require.Equal(t, 0, len(evicted))
-	time.Sleep(1 * time.Second)
 	store.Wait()
+}
+func TestStore_WindowEvict(t *testing.T) {
+	store := NewStore[int, int](1000, false, true, nil, nil, nil, 0, 0, nil)
+	store.policy.sketch.EnsureCapacity(1000)
+	defer store.Close()
 
-	// test evicted callback, cost less than threshold will be evicted immediately
-	store.policy.threshold.Store(100)
-	for i := 10; i < 15; i++ {
-		entry := &Entry[int, int]{key: i}
-		entry.weight.Store(1)
-		entry.queueIndex.Store(-2)
-		_, index := store.index(i)
-		store.shards[index].mu.Lock()
-		store.shards[index].hashmap[i] = entry
-		store.shards[index].mu.Unlock()
-
-		store.shards[0].mu.Lock()
-		store.setEntry(h, store.shards[0], 1, entry, false)
+	evicted := map[int]int{}
+	var mu sync.Mutex
+	store.removalListener = func(key, value int, reason RemoveReason) {
+		if reason == EVICTED {
+			mu.Lock()
+			evicted[key] = value
+			mu.Unlock()
+		}
 	}
+	require.Equal(t, int(store.policy.window.capacity), 10)
 
+	// test evicted callback
+	// fill window with weight 2 items first
+	for i := 0; i < 500; i++ {
+		store.Set(i, i, 2, 0)
+	}
+	store.Wait()
+	require.Equal(t, 0, len(evicted))
+
+	// add 15 weight 1 items, window currently has 5 weight2 items.
+	// This will send 5 weight2 items and 5 weight1 items to probation,
+	// all items has freq 1 in cache, which means these 15 entries don't
+	// have enough freq to be admitted.
+	for i := 700; i < 715; i++ {
+		store.Set(i, i, 1, 0)
+	}
+	store.Wait()
 	mu.Lock()
 	defer mu.Unlock()
-	require.Equal(t, 5, len(evicted))
-}
-
-func TestStore_RemoveQueue(t *testing.T) {
-	store := NewStore[int, int](20000, false, true, nil, nil, nil, 0, 0, nil)
-	defer store.Close()
-	h, index := store.index(123)
-	qindex := h & uint64(RoundedParallelism-1)
-	q := store.queue.qs[qindex]
-
-	shard := store.shards[index]
-	store.Set(123, 123, 8, 0)
-	entry := shard.hashmap[123]
-	// this will send key 123 to policy because deque is full
-	q.size = 10
-	q.len = 10
-	entryNew := &Entry[int, int]{key: 1}
-	entryNew.weight.Store(1)
-	entryNew.queueIndex.Store(-2)
-	store.queue.Push(h, entryNew, 1, false)
-	shard.hashmap[1] = entryNew
-	// delete key
-	store.Delete(123)
-
-	time.Sleep(1 * time.Second)
-	store.writeChan <- WriteBufItem[int, int]{}
-	time.Sleep(1 * time.Second)
-
-	// because 123 is removed already, it should not be on any LRU list
-	store.mlock.Lock()
-	require.True(t, entry.flag.IsRemoved())
-	require.Nil(t, entry.meta.prev)
-	require.Nil(t, entry.meta.next)
-	store.mlock.Unlock()
-	_, ok := store.Get(123)
-	require.False(t, ok)
+	require.Equal(t, 10, len(evicted))
 }
 
 func TestStore_DoorKeeperDynamicSize(t *testing.T) {
@@ -164,8 +126,8 @@ func TestStore_PolicyCounter(t *testing.T) {
 		store.Get(10000)
 	}
 
-	require.Equal(t, uint64(1600), store.policy.hits.Value())
-	require.Equal(t, uint64(1600), store.policy.misses.Value())
+	require.Equal(t, uint64(1600), store.policy.hits.Value(), int(store.policy.hits.Value()))
+	require.Equal(t, uint64(1600), store.policy.misses.Value(), int(store.policy.misses.Value()))
 }
 
 func TestStore_GetExpire(t *testing.T) {
@@ -179,11 +141,10 @@ func TestStore_GetExpire(t *testing.T) {
 		key:   123,
 		value: 123,
 	}
-	entry.queueIndex.Store(-2)
 	entry.expire.Store(fakeNow)
 
 	store.shards[i].hashmap[123] = entry
-	store.mlock.Lock()
+	store.policyMu.Lock()
 
 	// already exprired
 	store.timerwheel.clock.SetNowCache(fakeNow + 1)
@@ -200,10 +161,43 @@ func TestStore_GetExpire(t *testing.T) {
 	store.timerwheel.clock.SetNowCache(fakeNow - 1)
 	_, ok = store.Get(123)
 	require.False(t, ok)
-	store.mlock.Unlock()
+	store.policyMu.Unlock()
 
 	// ticker refresh cached now
 	time.Sleep(1200 * time.Millisecond)
 	cachedNow := store.timerwheel.clock.NowNanoCached()
 	require.True(t, cachedNow > testNow)
+}
+
+func TestStore_SinkWritePolicyWeight(t *testing.T) {
+	store := NewStore[int, int](10000, false, true, nil, nil, nil, 0, 0, nil)
+	defer store.Close()
+
+	entry := &Entry[int, int]{key: 1, value: 1}
+	h := store.hasher.hash(1)
+
+	// wright change 5 -> 1 -> 8
+	store.sinkWrite(WriteBufItem[int, int]{
+		entry:      entry,
+		costChange: -4,
+		code:       UPDATE,
+		hash:       h,
+	})
+
+	store.sinkWrite(WriteBufItem[int, int]{
+		entry:      entry,
+		costChange: 5,
+		code:       NEW,
+		hash:       h,
+	})
+
+	store.sinkWrite(WriteBufItem[int, int]{
+		entry:      entry,
+		costChange: 7,
+		code:       UPDATE,
+		hash:       h,
+	})
+
+	require.Equal(t, 8, int(store.policy.weightedSize))
+
 }

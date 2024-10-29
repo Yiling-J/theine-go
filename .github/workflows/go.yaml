@@ -44,8 +44,8 @@ jobs:
       - name: Upload coverage to codecov.io
         uses: codecov/codecov-action@v3
 
-  test-race-nopool:
-    name: test-race-nopool
+  test-correctness-nopool:
+    name: test-correctness-nopool
     strategy:
       matrix:
         go: ["1.23.x"]
@@ -59,10 +59,10 @@ jobs:
       - uses: actions/checkout@v2
 
       - name: Test
-        run: go test ./... -run=TestCacheRace_NoPool -count=1 -race
+        run: go test ./... -run=TestCacheCorrectness_NoPool -count=1 -race
 
-  test-race-pool:
-    name: test-race-pool
+  test-correctness-pool:
+    name: test-correctness-pool
     strategy:
       matrix:
         go: ["1.23.x"]
@@ -76,7 +76,7 @@ jobs:
       - uses: actions/checkout@v2
 
       - name: Test
-        run: go test ./... -run=TestCacheRace_EntryPool -count=1
+        run: go test ./... -run=TestCacheCorrectness_EntryPool -count=1
 
   test-os:
     name: test-os

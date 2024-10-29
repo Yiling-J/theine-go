@@ -9,6 +9,7 @@ package internal
 // Bit 4: Indicates if this entry is removed from main(SLRU).
 // Bit 5: Indicates if this entry is from NVM.
 // Bit 6: Indicates if this entry is deleted by API.
+// Bit 7: Indicates if this entry is window.
 type Flag struct {
 	Flags int8
 }
@@ -34,6 +35,14 @@ func (f *Flag) SetProtected(isProtected bool) {
 		f.Flags |= (1 << 2) // Set bit 3 (protected)
 	} else {
 		f.Flags &^= (1 << 2) // Clear bit 3 (protected)
+	}
+}
+
+func (f *Flag) SetWindow(isWindow bool) {
+	if isWindow {
+		f.Flags |= (1 << 6) // Set bit 7 (window)
+	} else {
+		f.Flags &^= (1 << 6) // Clear bit 7 (window)
 	}
 }
 
@@ -83,4 +92,8 @@ func (f *Flag) IsFromNVM() bool {
 
 func (f *Flag) IsDeleted() bool {
 	return (f.Flags & (1 << 5)) != 0
+}
+
+func (f *Flag) IsWindow() bool {
+	return (f.Flags & (1 << 6)) != 0
 }

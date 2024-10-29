@@ -14,7 +14,7 @@ import (
 func TestSketch_EnsureCapacity(t *testing.T) {
 	sketch := NewCountMinSketch()
 	sketch.EnsureCapacity(1)
-	require.Equal(t, 16, len(sketch.Table))
+	require.Equal(t, 64, len(sketch.Table))
 }
 
 func TestSketch_Basic(t *testing.T) {
@@ -57,7 +57,7 @@ func TestSketch_ResetFreq(t *testing.T) {
 	sketch := NewCountMinSketch()
 	sketch.EnsureCapacity(1000)
 	for i := 0; i < len(sketch.Table); i++ {
-		sketch.Table[i].Store(^uint64(0))
+		sketch.Table[i] = ^uint64(0)
 	}
 	keyh := xxhash.Sum64String("key1")
 	require.Equal(t, 15, int(sketch.Estimate(keyh)))
@@ -69,6 +69,19 @@ func TestSketch_ResetFreq(t *testing.T) {
 		}
 	}
 
+}
+
+func TestSketch_Small(t *testing.T) {
+	sketch := NewCountMinSketch()
+	sketch.EnsureCapacity(512)
+	hasher := NewHasher[uint64](nil)
+	for i := 0; i < 605; i++ {
+		fmt.Printf("add %d:", i)
+		h := hasher.hash(uint64(i))
+		sketch.Add(h)
+		require.Equal(t, 1, int(sketch.Estimate(h)), i)
+
+	}
 }
 
 func TestSketch_ResetAddition(t *testing.T) {
@@ -114,5 +127,39 @@ func BenchmarkSketch(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		sketch.Estimate(nums[i%100000])
+	}
+}
+
+func TestSketch_HeavyHitters(t *testing.T) {
+	sketch := NewCountMinSketch()
+	hasher := NewHasher[uint64](nil)
+	sketch.EnsureCapacity(512)
+	for i := 100; i < 100000; i++ {
+		h := hasher.hash(uint64(i))
+		sketch.Add(h)
+	}
+	for i := 0; i < 10; i += 2 {
+		for j := 0; j < i; j++ {
+			h := hasher.hash(uint64(i))
+			sketch.Add(h)
+		}
+	}
+
+	// A perfect popularity count yields an array [0, 0, 2, 0, 4, 0, 6, 0, 8, 0]
+	popularity := make([]int, 10)
+	for i := 0; i < 10; i++ {
+		h := hasher.hash(uint64(i))
+		popularity[i] = int(sketch.Estimate(h))
+	}
+	for i := 0; i < len(popularity); i++ {
+		if i == 0 || i == 1 || i == 3 || i == 5 || i == 7 || i == 9 {
+			require.LessOrEqual(t, popularity[i], popularity[2])
+		} else if i == 2 {
+			require.LessOrEqual(t, popularity[2], popularity[4])
+		} else if i == 4 {
+			require.LessOrEqual(t, popularity[4], popularity[6])
+		} else if i == 6 {
+			require.LessOrEqual(t, popularity[6], popularity[8])
+		}
 	}
 }

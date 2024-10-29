@@ -12,13 +12,15 @@ import (
 
 func TestStorePersistence_Simple(t *testing.T) {
 	store := NewStore[int, int](1000, false, true, nil, nil, nil, 0, 0, nil)
-	for _, q := range store.queue.qs {
-		q.size = 0
-	}
 	for i := 0; i < 20; i++ {
 		_ = store.Set(i, i, 1, 0)
 	}
-	time.Sleep(200 * time.Millisecond)
+	// fill window and move 10-19 to main probation
+	for i := 20; i < 30; i++ {
+		_ = store.Set(i, i, 1, 0)
+	}
+
+	store.Wait()
 	for i := 0; i < 10; i++ {
 		_, _ = store.Get(i)
 	}
@@ -26,7 +28,8 @@ func TestStorePersistence_Simple(t *testing.T) {
 	for _, buf := range store.stripedBuffer {
 		store.drainRead(buf.items())
 	}
-	// now 0-9 in protected and 10-19 in probation
+	// now 20-29 in window, 0-9 in protected and 10-19 in probation
+	require.Equal(t, 10, store.policy.window.Len())
 	require.Equal(t, 10, store.policy.slru.protected.Len())
 	require.Equal(t, 10, store.policy.slru.probation.Len())
 	require.ElementsMatch(t,
@@ -38,27 +41,6 @@ func TestStorePersistence_Simple(t *testing.T) {
 		strings.Split(store.policy.slru.probation.display(), "/"),
 	)
 
-	for _, q := range store.queue.qs {
-		q.size = 10
-	}
-
-	// add 5 entries to one queue
-	for i := 20; i < 25; i++ {
-		entry := &Entry[int, int]{
-			key:   i,
-			value: i,
-		}
-		store.policy.sketch.Addn(store.hasher.hash(entry.key), 10)
-		entry.weight.Store(1)
-		store.shards[0].mu.Lock()
-		entry.queueIndex.Store(-2)
-		store.setEntry(123, store.shards[0], 1, entry, false)
-		_, index := store.index(i)
-		store.shards[index].mu.Lock()
-		store.shards[index].hashmap[i] = entry
-		store.shards[index].mu.Unlock()
-
-	}
 	// update sketch
 	for i := 0; i < 10; i++ {
 		_, _ = store.Get(5)
@@ -77,10 +59,6 @@ func TestStorePersistence_Simple(t *testing.T) {
 	f.Close()
 
 	new := NewStore[int, int](1000, false, true, nil, nil, nil, 0, 0, nil)
-	// manually set deque size of shard
-	for _, q := range new.queue.qs {
-		q.size = 10
-	}
 	f, err = os.Open("stest")
 	require.Nil(t, err)
 	err = new.Recover(0, f)
@@ -91,10 +69,11 @@ func TestStorePersistence_Simple(t *testing.T) {
 		m[key] = value
 		return true
 	})
-	require.Equal(t, 25, len(m))
+	require.Equal(t, 30, len(m))
 	for k, v := range m {
 		require.Equal(t, k, v)
 	}
+	require.Equal(t, 10, new.policy.window.Len())
 	require.Equal(t, 10, new.policy.slru.protected.Len())
 	require.Equal(t, 10, new.policy.slru.probation.Len())
 
@@ -170,10 +149,9 @@ func TestStorePersistence_Resize(t *testing.T) {
 	for _, buf := range store.stripedBuffer {
 		store.drainRead(buf.items())
 	}
-	qsize := store.queue.count * store.queue.qs[0].size
-	// now 0-499 in protected and 500-999 in probation
+	// now 0-499 in protected and 500-989 in probation, 990-999 in window
 	require.Equal(t, 500, store.policy.slru.protected.Len())
-	require.Equal(t, 500-qsize, store.policy.slru.probation.Len())
+	require.Equal(t, 490, store.policy.slru.probation.Len())
 
 	f, err := os.Create("stest")
 	defer os.Remove("stest")
@@ -188,8 +166,8 @@ func TestStorePersistence_Resize(t *testing.T) {
 	err = new.Recover(0, f)
 	require.Nil(t, err)
 	f.Close()
-	// new cache protected size is 80, should contains latest 80 entries of original protected
-	require.Equal(t, 80, new.policy.slru.protected.Len())
+	// new cache protected size is 79, should contains latest 80 entries of original protected
+	require.Equal(t, 79, new.policy.slru.protected.Len())
 	// new cache probation size is 20, should contains latest 20 entries of original probation
 	require.Equal(t, 20, new.policy.slru.probation.Len())
 

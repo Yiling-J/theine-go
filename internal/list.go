@@ -6,23 +6,22 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"sync/atomic"
 )
 
 const (
 	LIST_PROBATION uint8 = 1
 	LIST_PROTECTED uint8 = 2
 	WHEEL_LIST     uint8 = 3
+	LIST_WINDOW    uint8 = 4
 )
 
 // List represents a doubly linked list.
 // The zero value for List is an empty list ready to use.
 type List[K comparable, V any] struct {
-	root     Entry[K, V]  // sentinel list element, only &root, root.prev, and root.next are used
-	len      atomic.Int64 // current list length(sum of costs) excluding (this) sentinel element
-	count    int          // count of entries in list
+	root     Entry[K, V] // sentinel list element, only &root, root.prev, and root.next are used
+	len      int64       // current list length(sum of costs) excluding (this) sentinel element
+	count    int         // count of entries in list
 	capacity uint
-	bounded  bool
 	listType uint8 // 1 tinylfu list, 2 timerwheel list
 }
 
@@ -32,23 +31,19 @@ func NewList[K comparable, V any](size uint, listType uint8) *List[K, V] {
 	l.root.flag.SetRoot(true)
 	l.root.setNext(&l.root, l.listType)
 	l.root.setPrev(&l.root, l.listType)
-	l.len = atomic.Int64{}
 	l.capacity = size
-	if size > 0 {
-		l.bounded = true
-	}
 	return l
 }
 
 func (l *List[K, V]) Reset() {
 	l.root.setNext(&l.root, l.listType)
 	l.root.setPrev(&l.root, l.listType)
-	l.len.Store(0)
+	l.len = 0
 }
 
 // Len returns the number of elements of list l.
 // The complexity is O(1).
-func (l *List[K, V]) Len() int { return int(l.len.Load()) }
+func (l *List[K, V]) Len() int { return int(l.len) }
 
 func (l *List[K, V]) display() string {
 	var s []string
@@ -56,6 +51,14 @@ func (l *List[K, V]) display() string {
 		s = append(s, fmt.Sprintf("%v", e.key))
 	}
 	return strings.Join(s, "/")
+}
+
+func (l *List[K, V]) entries() []*Entry[K, V] {
+	var s []*Entry[K, V]
+	for e := l.Front(); e != nil; e = e.Next(l.listType) {
+		s = append(s, e)
+	}
+	return s
 }
 
 func (l *List[K, V]) rangef(fn func(*Entry[K, V])) {
@@ -90,17 +93,15 @@ func (l *List[K, V]) Back() *Entry[K, V] {
 	return nil
 }
 
-// insert inserts e after at, increments l.len, and evicted entry if capacity exceed
-func (l *List[K, V]) insert(e, at *Entry[K, V]) *Entry[K, V] {
-	var evicted *Entry[K, V]
-	if l.bounded && l.len.Load() >= int64(l.capacity) {
-		evicted = l.PopTail()
-	}
+// insert inserts e after at, increments l.len
+func (l *List[K, V]) insert(e, at *Entry[K, V]) {
 	if l.listType != WHEEL_LIST {
 		if l.listType == LIST_PROTECTED {
 			e.flag.SetProtected(true)
 		} else if l.listType == LIST_PROBATION {
 			e.flag.SetProbation(true)
+		} else if l.listType == LIST_WINDOW {
+			e.flag.SetWindow(true)
 		}
 	}
 
@@ -108,22 +109,18 @@ func (l *List[K, V]) insert(e, at *Entry[K, V]) *Entry[K, V] {
 	e.setNext(at.next(l.listType), l.listType)
 	e.prev(l.listType).setNext(e, l.listType)
 	e.next(l.listType).setPrev(e, l.listType)
-	if l.bounded {
-		l.len.Add(e.policyWeight)
-		// l.len += int(e.cost.Load())
-		l.count += 1
-	}
-	return evicted
+	l.len += e.policyWeight
+	l.count += 1
 }
 
 // PushFront push entry to list head
-func (l *List[K, V]) PushFront(e *Entry[K, V]) *Entry[K, V] {
-	return l.insert(e, &l.root)
+func (l *List[K, V]) PushFront(e *Entry[K, V]) {
+	l.insert(e, &l.root)
 }
 
 // Push push entry to the back of list
-func (l *List[K, V]) PushBack(e *Entry[K, V]) *Entry[K, V] {
-	return l.insert(e, l.root.prev(l.listType))
+func (l *List[K, V]) PushBack(e *Entry[K, V]) {
+	l.insert(e, l.root.prev(l.listType))
 }
 
 // remove removes e from its list, decrements l.len
@@ -135,11 +132,10 @@ func (l *List[K, V]) remove(e *Entry[K, V]) {
 	if l.listType != WHEEL_LIST {
 		e.flag.SetProbation(false)
 		e.flag.SetProtected(false)
+		e.flag.SetWindow(false)
 	}
-	if l.bounded {
-		l.len.Add(-e.policyWeight)
-		l.count -= 1
-	}
+	l.len += -e.policyWeight
+	l.count -= 1
 }
 
 // move moves e to next to at.

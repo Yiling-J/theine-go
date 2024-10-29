@@ -100,6 +100,11 @@ func (c *Cache[K, V]) Stats() Stats {
 	return c.store.Stats()
 }
 
+// Wait write buffer sync to policy.
+func (c *Cache[K, V]) Wait() {
+	c.store.Wait()
+}
+
 type LoadingCache[K comparable, V any] struct {
 	store *internal.LoadingStore[K, V]
 }
@@ -155,6 +160,11 @@ func (c *LoadingCache[K, V]) LoadCache(version uint64, reader io.Reader) error {
 // Get cache stats.
 func (c *LoadingCache[K, V]) Stats() Stats {
 	return c.store.Stats()
+}
+
+// Wait write buffer sync to policy.
+func (c *LoadingCache[K, V]) Wait() {
+	c.store.Wait()
 }
 
 // Close closes all goroutines created by cache.

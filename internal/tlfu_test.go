@@ -396,19 +396,28 @@ type adaptiveTestEvent struct {
 var adaptiveTests = []adaptiveTestEvent{
 	// init, default hr will be 0.2
 	{[]float32{}, "149-100:99-80:79-0"},
-	// same hr, repeat increase/decrease
+
+	// same hr, window size decrease(repeat default), 100-108 move to probation front
 	{[]float32{0.2}, "149-109:108-80:79-0"},
-	// hr increase, decrease window
+
+	// hr increase, decrease window, 100-108 move to probation front
 	{[]float32{0.4}, "149-109:108-80:79-0"},
+
 	// hr decrease, increase window, decrease protected
+	// move 0-8 from protected to probation front,
+	// move 80-88 from probation tail to window front
 	{[]float32{0.1}, "88-80>149-100:8-0>99-89:79-9"},
-	// increase twice
+
+	// increase twice (decrease/decrease window)
 	{[]float32{0.4, 0.6}, "149-118:117-80:79-0"},
-	// decrease twice
+
+	// decrease twice (increase/decrease window)
 	{[]float32{0.1, 0.08}, "88-80>149-109:108-100>8-0>99-89:79-9"},
-	// increase decrease
+
+	// increase decrease (decrease/increase window)
 	{[]float32{0.4, 0.2}, "88-80>149-109:108-89:79-0"},
-	// decrease increase
+
+	// decrease increase (increase/increase window)
 	{[]float32{0.1, 0.2}, "97-80>149-100:17-0>99-98:79-18"},
 }
 

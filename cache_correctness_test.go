@@ -65,6 +65,8 @@ func getSet(t *testing.T, entrypool bool) {
 
 		require.Equal(t, client.Len(), int(di.TotalCount()))
 		require.True(t, di.TotalWeight() <= int64(size+size/10))
+		require.True(t, di.TotalWeight() >= int64(size-15))
+		require.Equal(t, di.TotalWeight(), di.WeightedSize)
 		require.Equal(t, di.WindowWeight, di.WindowWeightField)
 		require.Equal(t, di.ProbationWeight, di.ProbationWeightField)
 		require.Equal(t, di.ProtectedWeight, di.ProtectedWeightField)
@@ -135,6 +137,7 @@ func getSetDeleteExpire(t *testing.T, entrypool bool) {
 
 		require.Equal(t, client.Len(), int(di.TotalCount()))
 		require.True(t, di.TotalWeight() <= int64(size+size/10))
+		require.Equal(t, di.TotalWeight(), di.WeightedSize)
 		require.Equal(t, di.WindowWeight, di.WindowWeightField)
 		require.Equal(t, di.ProbationWeight, di.ProbationWeightField)
 		require.Equal(t, di.ProtectedWeight, di.ProtectedWeightField)

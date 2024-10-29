@@ -199,8 +199,15 @@ func (e *Entry[K, V]) PolicyWeight() int64 {
 }
 
 func (e *Entry[K, V]) Position() string {
-	if e.meta.prev != nil {
-		return "MAIN"
+	switch {
+	case e.flag.IsWindow():
+		return "WINDOW"
+	case e.flag.IsProbation():
+		return "PROBATION"
+	case e.flag.IsProtected():
+		return "PROTECTED"
+	case e.flag.IsRemoved():
+		return "REMOVED"
 	}
 	return "UNKNOWN"
 }

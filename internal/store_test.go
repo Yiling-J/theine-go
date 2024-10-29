@@ -168,3 +168,36 @@ func TestStore_GetExpire(t *testing.T) {
 	cachedNow := store.timerwheel.clock.NowNanoCached()
 	require.True(t, cachedNow > testNow)
 }
+
+func TestStore_SinkWritePolicyWeight(t *testing.T) {
+	store := NewStore[int, int](10000, false, true, nil, nil, nil, 0, 0, nil)
+	defer store.Close()
+
+	entry := &Entry[int, int]{key: 1, value: 1}
+	h := store.hasher.hash(1)
+
+	// wright change 5 -> 1 -> 8
+	store.sinkWrite(WriteBufItem[int, int]{
+		entry:      entry,
+		costChange: -4,
+		code:       UPDATE,
+		hash:       h,
+	})
+
+	store.sinkWrite(WriteBufItem[int, int]{
+		entry:      entry,
+		costChange: 5,
+		code:       NEW,
+		hash:       h,
+	})
+
+	store.sinkWrite(WriteBufItem[int, int]{
+		entry:      entry,
+		costChange: 7,
+		code:       UPDATE,
+		hash:       h,
+	})
+
+	require.Equal(t, 8, int(store.policy.weightedSize))
+
+}

@@ -601,7 +601,7 @@ func (s *Store[K, V]) sinkWrite(item WriteBufItem[K, V]) {
 		}
 
 		s.policy.sketch.Add(item.hash)
-		entry.policyWeight = item.costChange
+		entry.policyWeight += item.costChange
 		s.policy.Set(entry)
 
 	case REMOVE:
@@ -968,6 +968,7 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 }
 
 type debugInfo struct {
+	WeightedSize         int64
 	WindowWeight         int64
 	WindowWeightField    int64
 	WindowCount          int64
@@ -981,6 +982,7 @@ type debugInfo struct {
 
 func (i debugInfo) String() string {
 	final := ""
+	final += fmt.Sprintf("policy weighted size %d\n", i.WeightedSize)
 	final += fmt.Sprintf("total items in window list %d\n", i.WindowCount)
 	final += fmt.Sprintf("sum of weight of window list %v\n", i.WindowWeight)
 	final += fmt.Sprintf("total items in probation list %d\n", i.ProbationCount)
@@ -1027,6 +1029,7 @@ func (s *Store[K, V]) DebugInfo() debugInfo {
 	})
 
 	return debugInfo{
+		WeightedSize:         int64(s.policy.weightedSize),
 		WindowWeight:         windowSum,
 		WindowWeightField:    int64(s.policy.window.Len()),
 		WindowCount:          windowCount,

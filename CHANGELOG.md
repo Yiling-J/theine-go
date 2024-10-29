@@ -1,3 +1,11 @@
+## 0.6.0 (2024-10-29)
+
+### API Changes:
+- Added a new option, `UseEntryPool`, to the builder, which defaults to false. Enabling this option will reuse evicted entries through a sync pool. The sync pool was used by default before v0.6.0 and could not be turned off; but it only benefits systems optimized for allocation and those with heavy concurrent writes. See the README for more details.
+
+### Enhancements:
+- Theine now uses a single LRU window as the "W" part of W-TinyLFU, adaptively changing its size based on hit ratio. This approach is consistent with Caffeine and should improve hit ratios across various workloads.
+
 ## 0.5.0 (2024-10-10)
 
 ### API Changes:

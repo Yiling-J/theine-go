@@ -62,25 +62,42 @@ func TestStore_Window(t *testing.T) {
 	require.Equal(t, []int{3, 4, 123}, keys)
 	require.Equal(t, 0, len(evicted))
 	store.Wait()
+}
+func TestStore_WindowEvict(t *testing.T) {
+	store := NewStore[int, int](1000, false, true, nil, nil, nil, 0, 0, nil)
+	store.policy.sketch.EnsureCapacity(1000)
+	defer store.Close()
+
+	evicted := map[int]int{}
+	var mu sync.Mutex
+	store.removalListener = func(key, value int, reason RemoveReason) {
+		if reason == EVICTED {
+			mu.Lock()
+			evicted[key] = value
+			mu.Unlock()
+		}
+	}
+	require.Equal(t, int(store.policy.window.capacity), 10)
 
 	// test evicted callback
 	// fill window with weight 2 items first
-	for i := 100; i < 600; i++ {
+	for i := 0; i < 500; i++ {
 		store.Set(i, i, 2, 0)
 	}
 	store.Wait()
+	require.Equal(t, 0, len(evicted))
 
 	// add 15 weight 1 items, window currently has 5 weight2 items.
 	// This will send 5 weight2 items and 5 weight1 items to probation,
 	// all items has freq 1 in cache, which means these 15 entries don't
 	// have enough freq to be admitted.
-	for i := 300; i < 315; i++ {
+	for i := 700; i < 715; i++ {
 		store.Set(i, i, 1, 0)
 	}
 	store.Wait()
 	mu.Lock()
 	defer mu.Unlock()
-	require.Equal(t, 15, len(evicted))
+	require.Equal(t, 10, len(evicted))
 }
 
 func TestStore_DoorKeeperDynamicSize(t *testing.T) {

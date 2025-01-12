@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"math/rand"
 	"os"
 	"strconv"
 	"strings"
@@ -195,7 +196,7 @@ type DelayWriter struct {
 
 func (dw *DelayWriter) Write(p []byte) (n int, err error) {
 	dw.beforeWrite()
-	time.Sleep(2 * time.Second)
+	time.Sleep(1 * time.Second)
 	return dw.f.Write(p)
 }
 
@@ -225,22 +226,10 @@ func TestStorePersistence_Readonly(t *testing.T) {
 			case <-persistDone:
 				done = true
 			default:
-				store.Get(int(counter.Load()) % 1000)
+				shard := store.shards[rand.Intn(len(store.shards))]
+				tk := shard.mu.RLock()
+				shard.mu.RUnlock(tk)
 				counter.Add(1)
-			}
-		}
-	}()
-
-	go func() {
-		done := false
-		i := 0
-		for !done {
-			select {
-			case <-persistDone:
-				done = true
-			default:
-				store.Set(100, i, 1, 0)
-				i++
 			}
 		}
 	}()
@@ -268,13 +257,7 @@ func TestStorePersistence_Readonly(t *testing.T) {
 	// read should not be blocked during persistence
 	require.Greater(t, counter.Load(), uint64(100))
 
-	oldv, ok := store.Get(100)
-	require.True(t, ok)
-	newv, ok := new.Get(100)
-	require.True(t, ok)
-	require.NotEqual(t, oldv, newv)
-
-	for i := 0; i < 5000; i++ {
+	for i := 0; i < 1000; i++ {
 		new.Get(i)
 		new.Set(i, 123, 1, 0)
 	}

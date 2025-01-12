@@ -188,6 +188,17 @@ func TestStorePersistence_Resize(t *testing.T) {
 
 }
 
+type DelayWriter struct {
+	f           *os.File
+	beforeWrite func()
+}
+
+func (dw *DelayWriter) Write(p []byte) (n int, err error) {
+	dw.beforeWrite()
+	time.Sleep(2 * time.Second)
+	return dw.f.Write(p)
+}
+
 func TestStorePersistence_Readonly(t *testing.T) {
 	store := NewStore[int, int](1000, false, true, nil, nil, nil, 0, 0, nil)
 	for i := 0; i < 1000; i++ {
@@ -204,8 +215,11 @@ func TestStorePersistence_Readonly(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, 100, v)
 
+	startCounter := make(chan bool)
+	started := false
 	go func() {
 		done := false
+		<-startCounter
 		for !done {
 			select {
 			case <-persistDone:
@@ -234,8 +248,12 @@ func TestStorePersistence_Readonly(t *testing.T) {
 	f, err := os.Create("stest")
 	defer os.Remove("stest")
 	require.Nil(t, err)
-	start := counter.Load()
-	err = store.Persist(0, f)
+	err = store.Persist(0, &DelayWriter{f: f, beforeWrite: func() {
+		if !started {
+			close(startCounter)
+			started = true
+		}
+	}})
 	require.Nil(t, err)
 	f.Close()
 	persistDone <- true
@@ -247,7 +265,8 @@ func TestStorePersistence_Readonly(t *testing.T) {
 	require.Nil(t, err)
 	f.Close()
 
-	require.True(t, counter.Load()-start > 10)
+	// read should not be blocked during persistence
+	require.Greater(t, counter.Load(), uint64(100))
 
 	oldv, ok := store.Get(100)
 	require.True(t, ok)

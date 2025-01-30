@@ -51,6 +51,7 @@ type Shard[K comparable, V any] struct {
 	vgroup    *Group[K, V] // used in secondary cache
 	counter   uint
 	mu        *RBMutex
+	closed    bool
 }
 
 func NewShard[K comparable, V any](doorkeeper bool) *Shard[K, V] {
@@ -67,6 +68,9 @@ func NewShard[K comparable, V any](doorkeeper bool) *Shard[K, V] {
 }
 
 func (s *Shard[K, V]) set(key K, entry *Entry[K, V]) {
+	if s.closed {
+		return
+	}
 	s.hashmap[key] = entry
 	if s.dookeeper != nil {
 		ds := 20 * len(s.hashmap)
@@ -77,11 +81,17 @@ func (s *Shard[K, V]) set(key K, entry *Entry[K, V]) {
 }
 
 func (s *Shard[K, V]) get(key K) (entry *Entry[K, V], ok bool) {
+	if s.closed {
+		return nil, false
+	}
 	entry, ok = s.hashmap[key]
 	return
 }
 
 func (s *Shard[K, V]) delete(entry *Entry[K, V]) bool {
+	if s.closed {
+		return false
+	}
 	var deleted bool
 	exist, ok := s.hashmap[entry.key]
 	if ok && exist == entry {
@@ -389,6 +399,10 @@ func (s *Store[K, V]) setInternal(key K, value V, cost int64, expire int64, nvmC
 	h, index := s.index(key)
 	shard := s.shards[index]
 	shard.mu.Lock()
+	if shard.closed {
+		shard.mu.Unlock()
+		return nil, nil, false
+	}
 
 	return s.setShard(shard, h, key, value, cost, expire, nvmClean)
 
@@ -738,18 +752,25 @@ func (s *Store[K, V]) Stats() Stats {
 	return newStats(s.policy.hits.Value(), s.policy.misses.Value())
 }
 
+// Close waits for all current read and write operations to complete,
+// then clears the hashmap and shuts down the maintenance goroutine.
+// After the cache is closed, Get will always return (nil, false),
+// and Set will have no effect.
 func (s *Store[K, V]) Close() {
-
 	for _, s := range s.shards {
-		tk := s.mu.RLock()
-		s.hashmap = nil
-		s.mu.RUnlock(tk)
+		s.mu.Lock()
+		s.closed = true
+		s.hashmap = map[K]*Entry[K, V]{}
 	}
+	s.Wait()
+	for _, s := range s.shards {
+		s.mu.Unlock()
+	}
+	close(s.writeChan)
 	s.policyMu.Lock()
 	s.closed = true
 	s.cancel()
 	s.policyMu.Unlock()
-	close(s.writeChan)
 }
 
 func (s *Store[K, V]) getReadBufferIdx() int {
@@ -859,7 +880,7 @@ func (s *Store[K, V]) processSecondary() {
 	}
 }
 
-// wait write chan, used in test
+// Wait blocks until the write channel is drained.
 func (s *Store[K, V]) Wait() {
 	s.writeChan <- WriteBufItem[K, V]{code: WAIT}
 	<-s.waitChan

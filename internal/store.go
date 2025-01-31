@@ -765,10 +765,10 @@ func (s *Store[K, V]) Close() {
 		shard.hashmap = map[K]*Entry[K, V]{}
 	}
 	s.Wait()
+	close(s.writeChan)
 	for _, s := range s.shards {
 		s.mu.Unlock()
 	}
-	close(s.writeChan)
 	s.policyMu.Lock()
 	s.closed = true
 	s.cancel()

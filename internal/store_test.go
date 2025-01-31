@@ -1,7 +1,9 @@
 package internal
 
 import (
+	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -200,4 +202,93 @@ func TestStore_SinkWritePolicyWeight(t *testing.T) {
 
 	require.Equal(t, 8, int(store.policy.weightedSize))
 
+}
+
+func TestStore_CloseRace(t *testing.T) {
+	store := NewStore[int, int](1000, false, true, nil, nil, nil, 0, 0, nil)
+
+	var wg sync.WaitGroup
+	var closed atomic.Bool
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(i int) {
+			counter := i * 5
+			countdown := -1
+			defer wg.Done()
+			for {
+				// continue get/set 20 times after cache closed
+				if countdown == 0 {
+					return
+				}
+				if closed.Load() && countdown == -1 {
+					countdown = 20
+				}
+				store.Get(counter)
+				store.Set(100, 100, 1, 0)
+				counter += i
+				if countdown > 0 {
+					countdown -= 1
+				}
+			}
+		}(i)
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		store.Close()
+		closed.Store(true)
+	}()
+	wg.Wait()
+
+	_ = store.Set(100, 100, 1, 0)
+	v, ok := store.Get(100)
+	require.False(t, ok)
+	require.Equal(t, 0, v)
+}
+
+func TestStore_CloseRaceLoadingCache(t *testing.T) {
+	store := NewStore[int, int](1000, false, true, nil, nil, nil, 0, 0, nil)
+	loadingStore := NewLoadingStore(store)
+	loadingStore.loader = func(ctx context.Context, key int) (Loaded[int], error) {
+		return Loaded[int]{Value: 100, Cost: 1}, nil
+	}
+	ctx := context.TODO()
+
+	var wg sync.WaitGroup
+	var closed atomic.Bool
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(i int) {
+			counter := i * 5
+			countdown := -1
+			defer wg.Done()
+			for {
+				// continue get/set 20 times after cache closed
+				if countdown == 0 {
+					return
+				}
+				if closed.Load() && countdown == -1 {
+					countdown = 20
+				}
+				_, err := loadingStore.Get(ctx, counter)
+				if countdown > 0 {
+					require.Equal(t, ErrCacheClosed, err)
+				}
+				counter += i
+				if countdown > 0 {
+					countdown -= 1
+				}
+			}
+		}(i)
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		loadingStore.Close()
+		closed.Store(true)
+	}()
+	wg.Wait()
+
+	_, err := loadingStore.Get(ctx, 100)
+	require.Equal(t, ErrCacheClosed, err)
 }

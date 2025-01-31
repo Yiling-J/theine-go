@@ -28,6 +28,7 @@ const (
 
 var (
 	VersionMismatch    = errors.New("version mismatch")
+	ErrCacheClosed     = errors.New("cache is closed")
 	RoundedParallelism int
 	ShardCount         int
 	StripedBufferSize  int
@@ -756,6 +757,7 @@ func (s *Store[K, V]) Stats() Stats {
 // then clears the hashmap and shuts down the maintenance goroutine.
 // After the cache is closed, Get will always return (nil, false),
 // and Set will have no effect.
+// For loading cache, Get will return ErrCacheClosed after closing.
 func (s *Store[K, V]) Close() {
 	for _, s := range s.shards {
 		s.mu.Lock()
@@ -1102,6 +1104,10 @@ func (s *LoadingStore[K, V]) Get(ctx context.Context, key K) (V, error) {
 		loaded, err, _ := shard.group.Do(key, func() (Loaded[V], error) {
 			// load and store should be atomic
 			shard.mu.Lock()
+			if shard.closed {
+				shard.mu.Unlock()
+				return Loaded[V]{}, ErrCacheClosed
+			}
 
 			// first try get from secondary cache
 			if s.secondaryCache != nil {

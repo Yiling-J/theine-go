@@ -759,10 +759,10 @@ func (s *Store[K, V]) Stats() Stats {
 // and Set will have no effect.
 // For loading cache, Get will return ErrCacheClosed after closing.
 func (s *Store[K, V]) Close() {
-	for _, s := range s.shards {
-		s.mu.Lock()
-		s.closed = true
-		s.hashmap = map[K]*Entry[K, V]{}
+	for _, shard := range s.shards {
+		shard.mu.Lock()
+		shard.closed = true
+		shard.hashmap = map[K]*Entry[K, V]{}
 	}
 	s.Wait()
 	for _, s := range s.shards {

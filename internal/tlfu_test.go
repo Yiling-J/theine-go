@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Yiling-J/theine-go/internal/hasher"
 	"github.com/stretchr/testify/require"
 )
 
@@ -267,7 +268,7 @@ var weightTests = []testCase{
 	},
 }
 
-func newTinyLfuSized[K comparable, V any](wsize, msize, psize uint, hasher *Hasher[K]) *TinyLfu[K, V] {
+func newTinyLfuSized[K comparable, V any](wsize, msize, psize uint, hasher *hasher.Hasher[K]) *TinyLfu[K, V] {
 	tlfu := &TinyLfu[K, V]{
 		capacity: wsize + msize,
 		slru: &Slru[K, V]{
@@ -296,7 +297,7 @@ func assertLen(t *testing.T, list *List[int, int]) {
 }
 
 func TestTlfu_Weight(t *testing.T) {
-	hasher := NewHasher[int](nil)
+	hasher := hasher.NewHasher[int](nil)
 	for _, cs := range weightTests {
 		t.Run(cs.name, func(t *testing.T) {
 			// window size 5, main size 10, protected size 5
@@ -319,11 +320,11 @@ func TestTlfu_Weight(t *testing.T) {
 						entry := em[event.key]
 						tlfu.Access(ReadBufItem[int, int]{
 							entry: entry,
-							hash:  tlfu.hasher.hash(event.key),
+							hash:  tlfu.hasher.Hash(event.key),
 						})
 					}
 				case TestEventFreq:
-					tlfu.sketch.Addn(hasher.hash(event.key), event.value)
+					tlfu.sketch.Addn(hasher.Hash(event.key), event.value)
 				case TestEventSet:
 					entry := &Entry[int, int]{
 						key: event.key, value: event.key,
@@ -422,7 +423,7 @@ var adaptiveTests = []adaptiveTestEvent{
 }
 
 func TestTlfu_Adaptive(t *testing.T) {
-	hasher := NewHasher[int](nil)
+	hasher := hasher.NewHasher[int](nil)
 	for _, cs := range adaptiveTests {
 		t.Run(fmt.Sprintf("%v", cs.hrChanges), func(t *testing.T) {
 			// window size 50, main size 100, protected size 80
@@ -442,7 +443,7 @@ func TestTlfu_Adaptive(t *testing.T) {
 				entry := em[i]
 				tlfu.Access(ReadBufItem[int, int]{
 					entry: entry,
-					hash:  tlfu.hasher.hash(i),
+					hash:  tlfu.hasher.Hash(i),
 				})
 			}
 
@@ -489,7 +490,7 @@ func grouped(tlfu *TinyLfu[int, int]) (string, int) {
 }
 
 func TestTlfu_AdaptiveAmountRemain(t *testing.T) {
-	hasher := NewHasher[int](nil)
+	hasher := hasher.NewHasher[int](nil)
 	// window size 50, main size 100, protected size 80
 	tlfu := newTinyLfuSized[int, int](50, 100, 80, hasher)
 	tlfu.hr = 0.2
@@ -507,7 +508,7 @@ func TestTlfu_AdaptiveAmountRemain(t *testing.T) {
 		entry := em[i]
 		tlfu.Access(ReadBufItem[int, int]{
 			entry: entry,
-			hash:  tlfu.hasher.hash(i),
+			hash:  tlfu.hasher.Hash(i),
 		})
 	}
 
@@ -563,7 +564,7 @@ func TestTlfu_AdaptiveAmountRemain(t *testing.T) {
 }
 
 func TestTlfu_SketchResize(t *testing.T) {
-	hasher := NewHasher[int](nil)
+	hasher := hasher.NewHasher[int](nil)
 	tlfu := NewTinyLfu[int, int](10000, hasher)
 
 	for i := 0; i < 10000; i++ {
@@ -580,7 +581,7 @@ func TestTlfu_SketchResize(t *testing.T) {
 }
 
 func TestTlfu_UpdateCost(t *testing.T) {
-	hasher := NewHasher[int](nil)
+	hasher := hasher.NewHasher[int](nil)
 	tlfu := NewTinyLfu[int, int](100, hasher)
 	e1 := &Entry[int, int]{key: 1, value: 1, policyWeight: 1}
 	e2 := &Entry[int, int]{key: 2, value: 1, policyWeight: 2}

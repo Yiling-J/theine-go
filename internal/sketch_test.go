@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/Yiling-J/theine-go/internal/hasher"
 	"github.com/cespare/xxhash/v2"
 	"github.com/stretchr/testify/require"
 	"github.com/zeebo/xxh3"
@@ -74,10 +75,10 @@ func TestSketch_ResetFreq(t *testing.T) {
 func TestSketch_Small(t *testing.T) {
 	sketch := NewCountMinSketch()
 	sketch.EnsureCapacity(512)
-	hasher := NewHasher[uint64](nil)
+	hasher := hasher.NewHasher[uint64](nil)
 	for i := 0; i < 605; i++ {
 		fmt.Printf("add %d:", i)
-		h := hasher.hash(uint64(i))
+		h := hasher.Hash(uint64(i))
 		sketch.Add(h)
 		require.Equal(t, 1, int(sketch.Estimate(h)), i)
 
@@ -132,15 +133,15 @@ func BenchmarkSketch(b *testing.B) {
 
 func TestSketch_HeavyHitters(t *testing.T) {
 	sketch := NewCountMinSketch()
-	hasher := NewHasher[uint64](nil)
+	hasher := hasher.NewHasher[uint64](nil)
 	sketch.EnsureCapacity(512)
 	for i := 100; i < 100000; i++ {
-		h := hasher.hash(uint64(i))
+		h := hasher.Hash(uint64(i))
 		sketch.Add(h)
 	}
 	for i := 0; i < 10; i += 2 {
 		for j := 0; j < i; j++ {
-			h := hasher.hash(uint64(i))
+			h := hasher.Hash(uint64(i))
 			sketch.Add(h)
 		}
 	}
@@ -148,7 +149,7 @@ func TestSketch_HeavyHitters(t *testing.T) {
 	// A perfect popularity count yields an array [0, 0, 2, 0, 4, 0, 6, 0, 8, 0]
 	popularity := make([]int, 10)
 	for i := 0; i < 10; i++ {
-		h := hasher.hash(uint64(i))
+		h := hasher.Hash(uint64(i))
 		popularity[i] = int(sketch.Estimate(h))
 	}
 	for i := 0; i < len(popularity); i++ {

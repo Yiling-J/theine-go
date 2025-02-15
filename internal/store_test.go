@@ -176,7 +176,7 @@ func TestStore_SinkWritePolicyWeight(t *testing.T) {
 	defer store.Close()
 
 	entry := &Entry[int, int]{key: 1, value: 1}
-	h := store.hasher.hash(1)
+	h := store.hasher.Hash(1)
 
 	// wright change 5 -> 1 -> 8
 	store.sinkWrite(WriteBufItem[int, int]{

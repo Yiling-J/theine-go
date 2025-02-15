@@ -3,6 +3,7 @@ package internal
 import (
 	"math"
 
+	"github.com/Yiling-J/theine-go/internal/hasher"
 	"github.com/Yiling-J/theine-go/internal/xruntime"
 )
 
@@ -16,7 +17,7 @@ type TinyLfu[K comparable, V any] struct {
 	window         *List[K, V]
 	slru           *Slru[K, V]
 	sketch         *CountMinSketch
-	hasher         *Hasher[K]
+	hasher         *hasher.Hasher[K]
 	capacity       uint
 	weightedSize   uint
 	misses         *UnsignedCounter
@@ -29,7 +30,7 @@ type TinyLfu[K comparable, V any] struct {
 	removeCallback func(entry *Entry[K, V])
 }
 
-func NewTinyLfu[K comparable, V any](size uint, hasher *Hasher[K]) *TinyLfu[K, V] {
+func NewTinyLfu[K comparable, V any](size uint, hasher *hasher.Hasher[K]) *TinyLfu[K, V] {
 	windowSize := uint(float32(size) * 0.01)
 	if windowSize < 1 {
 		windowSize = 1
@@ -273,8 +274,8 @@ func (t *TinyLfu[K, V]) evictFromWindow() *Entry[K, V] {
 }
 
 func (t *TinyLfu[K, V]) admit(candidateKey, victimKey K) bool {
-	victimFreq := t.sketch.Estimate(t.hasher.hash(victimKey))
-	candidateFreq := t.sketch.Estimate(t.hasher.hash(candidateKey))
+	victimFreq := t.sketch.Estimate(t.hasher.Hash(victimKey))
+	candidateFreq := t.sketch.Estimate(t.hasher.Hash(candidateKey))
 	if candidateFreq > victimFreq {
 		return true
 	} else if candidateFreq >= ADMIT_HASHDOS_THRESHOLD {

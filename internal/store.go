@@ -15,6 +15,7 @@ import (
 	"github.com/zeebo/xxh3"
 
 	"github.com/Yiling-J/theine-go/internal/bf"
+	"github.com/Yiling-J/theine-go/internal/hasher"
 	"github.com/Yiling-J/theine-go/internal/xruntime"
 )
 
@@ -110,7 +111,7 @@ type Store[K comparable, V any] struct {
 	entryPool         *sync.Pool
 	writeChan         chan WriteBufItem[K, V]
 	writeBuffer       []WriteBufItem[K, V]
-	hasher            *Hasher[K]
+	hasher            *hasher.Hasher[K]
 	removalListener   func(key K, value V, reason RemoveReason)
 	removalCallback   func(kv dequeKV[K, V], reason RemoveReason) error
 	kvBuilder         func(entry *Entry[K, V]) dequeKV[K, V]
@@ -140,7 +141,7 @@ func NewStore[K comparable, V any](
 	maxsize int64, doorkeeper bool, entryPool bool, listener func(key K, value V, reason RemoveReason),
 	cost func(v V) int64, secondaryCache SecondaryCache[K, V], workers int, probability float32, stringKeyFunc func(k K) string,
 ) *Store[K, V] {
-	hasher := NewHasher(stringKeyFunc)
+	hasher := hasher.NewHasher(stringKeyFunc)
 	shardCount := 1
 	for shardCount < runtime.GOMAXPROCS(0)*2 {
 		shardCount *= 2
@@ -483,7 +484,7 @@ func (s *Store[K, V]) EstimatedSize() int {
 }
 
 func (s *Store[K, V]) index(key K) (uint64, int) {
-	base := s.hasher.hash(key)
+	base := s.hasher.Hash(key)
 	return base, int(base & uint64(s.shardCount-1))
 }
 
@@ -562,7 +563,7 @@ func (s *Store[K, V]) drainRead(buffer []ReadBufItem[K, V]) {
 	for _, e := range buffer {
 		// recheck hash if entry pool enabled to avoid race
 		if s.entryPool != nil {
-			hh := s.hasher.hash(e.entry.key)
+			hh := s.hasher.Hash(e.entry.key)
 			if hh != e.hash {
 				continue
 			}
@@ -626,7 +627,7 @@ func (s *Store[K, V]) sinkWrite(item WriteBufItem[K, V]) {
 	case UPDATE:
 		// recheck hash if entry pool enabled to avoid race
 		if s.entryPool != nil {
-			hh := s.hasher.hash(entry.key)
+			hh := s.hasher.Hash(entry.key)
 			if hh != item.hash {
 				return
 			}
@@ -924,7 +925,7 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 			}
 			s.policy.sketch = m.Sketch
 			s.timerwheel.clock.SetStart(m.StartNano)
-		case 2: // windlw lru
+		case 2: // window lru
 			entryDecoder := gob.NewDecoder(reader)
 			for {
 				pentry := &Pentry[K, V]{}

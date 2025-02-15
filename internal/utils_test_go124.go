@@ -1,5 +1,5 @@
-//go:build !go1.24
-// +build !go1.24
+//go:build go1.24
+// +build go1.24
 
 package internal
 
@@ -35,7 +35,7 @@ func TestStructStringKey(t *testing.T) {
 		if h1 == 0 {
 			h1 = hasher1.Hash(foo)
 		} else {
-			require.NotEqual(t, h1, hasher1.Hash(foo))
+			require.Equal(t, h1, hasher1.Hash(foo))
 		}
 	}
 	for i := 0; i < 10; i++ {

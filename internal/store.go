@@ -699,25 +699,29 @@ func (s *Store[K, V]) maintenance() {
 
 	// continuously receive the first item from the buffered channel.
 	// avoid a busy loop while still processing data in batches.
-	for first := range s.writeChan {
-		s.writeBuffer = append(s.writeBuffer, first)
-	loop:
-		for i := 0; i < WriteBufferSize-1; i++ {
-			select {
-			case item, ok := <-s.writeChan:
-				if !ok {
-					return
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case first := <-s.writeChan:
+			s.writeBuffer = append(s.writeBuffer, first)
+		loop:
+			for i := 0; i < WriteBufferSize-1; i++ {
+				select {
+				case item, ok := <-s.writeChan:
+					if !ok {
+						return
+					}
+					s.writeBuffer = append(s.writeBuffer, item)
+				default:
+					break loop
 				}
-				s.writeBuffer = append(s.writeBuffer, item)
-			default:
-				break loop
 			}
+
+			s.policyMu.Lock()
+			s.drainWrite()
+			s.policyMu.Unlock()
 		}
-
-		s.policyMu.Lock()
-		s.drainWrite()
-		s.policyMu.Unlock()
-
 	}
 }
 
@@ -764,11 +768,7 @@ func (s *Store[K, V]) Close() {
 		shard.mu.Lock()
 		shard.closed = true
 		shard.hashmap = map[K]*Entry[K, V]{}
-	}
-	s.Wait()
-	close(s.writeChan)
-	for _, s := range s.shards {
-		s.mu.Unlock()
+		shard.mu.Unlock()
 	}
 	s.policyMu.Lock()
 	s.closed = true

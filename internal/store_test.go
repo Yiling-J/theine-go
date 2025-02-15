@@ -244,6 +244,7 @@ func TestStore_CloseRace(t *testing.T) {
 	v, ok := store.Get(100)
 	require.False(t, ok)
 	require.Equal(t, 0, v)
+	require.NotNil(t, store.ctx.Err())
 }
 
 func TestStore_CloseRaceLoadingCache(t *testing.T) {
@@ -291,4 +292,5 @@ func TestStore_CloseRaceLoadingCache(t *testing.T) {
 
 	_, err := loadingStore.Get(ctx, 100)
 	require.Equal(t, ErrCacheClosed, err)
+	require.NotNil(t, store.ctx.Err())
 }

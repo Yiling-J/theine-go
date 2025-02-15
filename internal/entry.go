@@ -174,7 +174,7 @@ type Pentry[K comparable, V any] struct {
 	Weight       int64
 	PolicyWeight int64
 	Expire       int64
-	Frequency    int32
+	Frequency    int
 	Flag         Flag
 }
 

@@ -783,7 +783,7 @@ func (s *Store[K, V]) getReadBufferIdx() int {
 type StoreMeta struct {
 	Version   uint64
 	StartNano int64
-	Sketch    *CountMinSketch
+	Total     int
 }
 
 func (m *StoreMeta) Persist(writer io.Writer, blockEncoder *gob.Encoder) error {
@@ -805,31 +805,33 @@ func (s *Store[K, V]) Persist(version uint64, writer io.Writer) error {
 	s.policyMu.Lock()
 	defer s.policyMu.Unlock()
 
+	var total int
 	for _, s := range s.shards {
 		token := s.mu.RLock()
+		total += s.len()
 		defer s.mu.RUnlock(token)
 	}
 
 	meta := &StoreMeta{
 		Version:   version,
 		StartNano: s.timerwheel.clock.Start.UnixNano(),
-		Sketch:    s.policy.sketch,
+		Total:     total,
 	}
 	err := meta.Persist(writer, blockEncoder)
 	if err != nil {
 		return err
 	}
-	err = s.policy.window.Persist(writer, blockEncoder, 2)
+	err = s.policy.window.Persist(writer, blockEncoder, s.policy.sketch, s.hasher, 2)
 	if err != nil {
 		return err
 	}
 	// write protected first, so if cache size changed
 	// when restore, protected entries write to new cache first
-	err = s.policy.slru.protected.Persist(writer, blockEncoder, 4)
+	err = s.policy.slru.protected.Persist(writer, blockEncoder, s.policy.sketch, s.hasher, 4)
 	if err != nil {
 		return err
 	}
-	err = s.policy.slru.probation.Persist(writer, blockEncoder, 3)
+	err = s.policy.slru.probation.Persist(writer, blockEncoder, s.policy.sketch, s.hasher, 3)
 	if err != nil {
 		return err
 	}
@@ -923,8 +925,8 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 			if m.Version != version {
 				return VersionMismatch
 			}
-			s.policy.sketch = m.Sketch
 			s.timerwheel.clock.SetStart(m.StartNano)
+			s.policy.sketch.EnsureCapacity(uint(m.Total))
 		case 2: // window lru
 			entryDecoder := gob.NewDecoder(reader)
 			for {
@@ -944,6 +946,9 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 					entry := pentry.entry()
 					s.policy.window.PushBack(entry)
 					s.insertSimple(entry)
+					if pentry.Frequency > 0 {
+						s.policy.sketch.Addn(s.hasher.Hash(entry.key), pentry.Frequency)
+					}
 					s.policy.weightedSize += uint(entry.policyWeight)
 				}
 			}
@@ -968,6 +973,9 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 					entry := pentry.entry()
 					l2.PushBack(entry)
 					s.insertSimple(entry)
+					if pentry.Frequency > 0 {
+						s.policy.sketch.Addn(s.hasher.Hash(entry.key), pentry.Frequency)
+					}
 					s.policy.weightedSize += uint(entry.policyWeight)
 				}
 			}
@@ -991,6 +999,9 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 					entry := pentry.entry()
 					l.PushBack(entry)
 					s.insertSimple(entry)
+					if pentry.Frequency > 0 {
+						s.policy.sketch.Addn(s.hasher.Hash(entry.key), pentry.Frequency)
+					}
 					s.policy.weightedSize += uint(entry.policyWeight)
 				}
 			}

@@ -65,7 +65,7 @@ func (s *CountMinSketch) Add(h uint64) bool {
 	return false
 }
 
-// used in test
+// used in test and persistence restore
 func (s *CountMinSketch) Addn(h uint64, n int) {
 	hn := h
 	block := (hn & uint64(s.BlockMask)) << 3
@@ -76,13 +76,11 @@ func (s *CountMinSketch) Addn(h uint64, n int) {
 	index3, offset3 := s.indexOf(hc, block, 3)
 
 	for i := 0; i < n; i++ {
-
 		s.inc(index0, offset0)
 		s.inc(index1, offset1)
 		s.inc(index2, offset2)
 		s.inc(index3, offset3)
 	}
-
 }
 
 func (s *CountMinSketch) reset() {

@@ -87,7 +87,7 @@ func TestStorePersistence_Simple(t *testing.T) {
 	)
 	require.Equal(t, "19/18/17/16/15/14/13/12/11/10", new.policy.slru.probation.display())
 
-	count = new.policy.sketch.Estimate(store.hasher.Hash(5))
+	count = new.policy.sketch.Estimate(new.hasher.Hash(5))
 	require.True(t, count > 5)
 
 }
@@ -174,6 +174,10 @@ func TestStorePersistence_Resize(t *testing.T) {
 	require.Equal(t, 79, new.policy.slru.protected.Len())
 	// new cache probation size is 20, should contains latest 20 entries of original probation
 	require.Equal(t, 20, new.policy.slru.probation.Len())
+	// The original map size is 1000, so the sketch table size is 1024.
+	// The new store size is smaller (100), but since the sketch is a memory-efficient data structure,
+	// increasing its size should be safe.
+	require.Equal(t, 1024, len(new.policy.sketch.Table))
 
 	for _, i := range strings.Split(new.policy.slru.protected.display(), "/") {
 		in, err := strconv.Atoi(i)

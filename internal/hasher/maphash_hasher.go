@@ -9,8 +9,8 @@ import (
 
 type Hasher[K comparable] struct {
 	seed  maphash.Seed
-	kstr  bool           // Deprecated
-	kfunc func(K) string // Deprecated
+	kstr  bool
+	kfunc func(K) string
 }
 
 func NewHasher[K comparable](stringKeyFunc func(K) string) *Hasher[K] {

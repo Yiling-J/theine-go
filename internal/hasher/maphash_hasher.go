@@ -9,13 +9,12 @@ import (
 
 type Hasher[K comparable] struct {
 	seed  maphash.Seed
-	kstr  bool
 	kfunc func(K) string
 }
 
 func NewHasher[K comparable](stringKeyFunc func(K) string) *Hasher[K] {
 	// TODO: stringKeyFunc was used prior to Go 1.24 when Comparable was unavailable.
-	// With the introduction of Comparable, special handling for string keys is no longer necessary.
+	// With the introduction of Comparable, special handling for struct with string field key is no longer necessary.
 	return &Hasher[K]{kfunc: stringKeyFunc, seed: maphash.MakeSeed()}
 }
 

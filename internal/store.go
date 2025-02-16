@@ -15,6 +15,7 @@ import (
 	"github.com/zeebo/xxh3"
 
 	"github.com/Yiling-J/theine-go/internal/bf"
+	"github.com/Yiling-J/theine-go/internal/hasher"
 	"github.com/Yiling-J/theine-go/internal/xruntime"
 )
 
@@ -110,7 +111,7 @@ type Store[K comparable, V any] struct {
 	entryPool         *sync.Pool
 	writeChan         chan WriteBufItem[K, V]
 	writeBuffer       []WriteBufItem[K, V]
-	hasher            *Hasher[K]
+	hasher            *hasher.Hasher[K]
 	removalListener   func(key K, value V, reason RemoveReason)
 	removalCallback   func(kv dequeKV[K, V], reason RemoveReason) error
 	kvBuilder         func(entry *Entry[K, V]) dequeKV[K, V]
@@ -140,7 +141,7 @@ func NewStore[K comparable, V any](
 	maxsize int64, doorkeeper bool, entryPool bool, listener func(key K, value V, reason RemoveReason),
 	cost func(v V) int64, secondaryCache SecondaryCache[K, V], workers int, probability float32, stringKeyFunc func(k K) string,
 ) *Store[K, V] {
-	hasher := NewHasher(stringKeyFunc)
+	hasher := hasher.NewHasher(stringKeyFunc)
 	shardCount := 1
 	for shardCount < runtime.GOMAXPROCS(0)*2 {
 		shardCount *= 2
@@ -483,7 +484,7 @@ func (s *Store[K, V]) EstimatedSize() int {
 }
 
 func (s *Store[K, V]) index(key K) (uint64, int) {
-	base := s.hasher.hash(key)
+	base := s.hasher.Hash(key)
 	return base, int(base & uint64(s.shardCount-1))
 }
 
@@ -562,7 +563,7 @@ func (s *Store[K, V]) drainRead(buffer []ReadBufItem[K, V]) {
 	for _, e := range buffer {
 		// recheck hash if entry pool enabled to avoid race
 		if s.entryPool != nil {
-			hh := s.hasher.hash(e.entry.key)
+			hh := s.hasher.Hash(e.entry.key)
 			if hh != e.hash {
 				continue
 			}
@@ -626,7 +627,7 @@ func (s *Store[K, V]) sinkWrite(item WriteBufItem[K, V]) {
 	case UPDATE:
 		// recheck hash if entry pool enabled to avoid race
 		if s.entryPool != nil {
-			hh := s.hasher.hash(entry.key)
+			hh := s.hasher.Hash(entry.key)
 			if hh != item.hash {
 				return
 			}
@@ -698,25 +699,29 @@ func (s *Store[K, V]) maintenance() {
 
 	// continuously receive the first item from the buffered channel.
 	// avoid a busy loop while still processing data in batches.
-	for first := range s.writeChan {
-		s.writeBuffer = append(s.writeBuffer, first)
-	loop:
-		for i := 0; i < WriteBufferSize-1; i++ {
-			select {
-			case item, ok := <-s.writeChan:
-				if !ok {
-					return
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case first := <-s.writeChan:
+			s.writeBuffer = append(s.writeBuffer, first)
+		loop:
+			for i := 0; i < WriteBufferSize-1; i++ {
+				select {
+				case item, ok := <-s.writeChan:
+					if !ok {
+						return
+					}
+					s.writeBuffer = append(s.writeBuffer, item)
+				default:
+					break loop
 				}
-				s.writeBuffer = append(s.writeBuffer, item)
-			default:
-				break loop
 			}
+
+			s.policyMu.Lock()
+			s.drainWrite()
+			s.policyMu.Unlock()
 		}
-
-		s.policyMu.Lock()
-		s.drainWrite()
-		s.policyMu.Unlock()
-
 	}
 }
 
@@ -763,11 +768,7 @@ func (s *Store[K, V]) Close() {
 		shard.mu.Lock()
 		shard.closed = true
 		shard.hashmap = map[K]*Entry[K, V]{}
-	}
-	s.Wait()
-	close(s.writeChan)
-	for _, s := range s.shards {
-		s.mu.Unlock()
+		shard.mu.Unlock()
 	}
 	s.policyMu.Lock()
 	s.closed = true
@@ -782,7 +783,7 @@ func (s *Store[K, V]) getReadBufferIdx() int {
 type StoreMeta struct {
 	Version   uint64
 	StartNano int64
-	Sketch    *CountMinSketch
+	Total     int
 }
 
 func (m *StoreMeta) Persist(writer io.Writer, blockEncoder *gob.Encoder) error {
@@ -804,31 +805,33 @@ func (s *Store[K, V]) Persist(version uint64, writer io.Writer) error {
 	s.policyMu.Lock()
 	defer s.policyMu.Unlock()
 
+	var total int
 	for _, s := range s.shards {
 		token := s.mu.RLock()
+		total += s.len()
 		defer s.mu.RUnlock(token)
 	}
 
 	meta := &StoreMeta{
 		Version:   version,
 		StartNano: s.timerwheel.clock.Start.UnixNano(),
-		Sketch:    s.policy.sketch,
+		Total:     total,
 	}
 	err := meta.Persist(writer, blockEncoder)
 	if err != nil {
 		return err
 	}
-	err = s.policy.window.Persist(writer, blockEncoder, 2)
+	err = s.policy.window.Persist(writer, blockEncoder, s.policy.sketch, s.hasher, 2)
 	if err != nil {
 		return err
 	}
 	// write protected first, so if cache size changed
 	// when restore, protected entries write to new cache first
-	err = s.policy.slru.protected.Persist(writer, blockEncoder, 4)
+	err = s.policy.slru.protected.Persist(writer, blockEncoder, s.policy.sketch, s.hasher, 4)
 	if err != nil {
 		return err
 	}
-	err = s.policy.slru.probation.Persist(writer, blockEncoder, 3)
+	err = s.policy.slru.probation.Persist(writer, blockEncoder, s.policy.sketch, s.hasher, 3)
 	if err != nil {
 		return err
 	}
@@ -922,9 +925,9 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 			if m.Version != version {
 				return VersionMismatch
 			}
-			s.policy.sketch = m.Sketch
 			s.timerwheel.clock.SetStart(m.StartNano)
-		case 2: // windlw lru
+			s.policy.sketch.EnsureCapacity(uint(m.Total))
+		case 2: // window lru
 			entryDecoder := gob.NewDecoder(reader)
 			for {
 				pentry := &Pentry[K, V]{}
@@ -943,6 +946,9 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 					entry := pentry.entry()
 					s.policy.window.PushBack(entry)
 					s.insertSimple(entry)
+					if pentry.Frequency > 0 {
+						s.policy.sketch.Addn(s.hasher.Hash(entry.key), pentry.Frequency)
+					}
 					s.policy.weightedSize += uint(entry.policyWeight)
 				}
 			}
@@ -967,6 +973,9 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 					entry := pentry.entry()
 					l2.PushBack(entry)
 					s.insertSimple(entry)
+					if pentry.Frequency > 0 {
+						s.policy.sketch.Addn(s.hasher.Hash(entry.key), pentry.Frequency)
+					}
 					s.policy.weightedSize += uint(entry.policyWeight)
 				}
 			}
@@ -990,6 +999,9 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 					entry := pentry.entry()
 					l.PushBack(entry)
 					s.insertSimple(entry)
+					if pentry.Frequency > 0 {
+						s.policy.sketch.Addn(s.hasher.Hash(entry.key), pentry.Frequency)
+					}
 					s.policy.weightedSize += uint(entry.policyWeight)
 				}
 			}

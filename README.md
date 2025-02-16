@@ -184,6 +184,8 @@ if err == theine.VersionMismatch {
 }
 ```
 
+Theine does not guarantee that caches from previous versions will be compatible after an upgrade, so it is highly recommended not to use the old persistence file when upgrading Theine.
+
 #### Details
 When persisting cache, Theine roughly do:
 - Store version number.

@@ -176,7 +176,7 @@ func TestStore_SinkWritePolicyWeight(t *testing.T) {
 	defer store.Close()
 
 	entry := &Entry[int, int]{key: 1, value: 1}
-	h := store.hasher.hash(1)
+	h := store.hasher.Hash(1)
 
 	// wright change 5 -> 1 -> 8
 	store.sinkWrite(WriteBufItem[int, int]{
@@ -244,6 +244,7 @@ func TestStore_CloseRace(t *testing.T) {
 	v, ok := store.Get(100)
 	require.False(t, ok)
 	require.Equal(t, 0, v)
+	require.NotNil(t, store.ctx.Err())
 }
 
 func TestStore_CloseRaceLoadingCache(t *testing.T) {
@@ -291,4 +292,5 @@ func TestStore_CloseRaceLoadingCache(t *testing.T) {
 
 	_, err := loadingStore.Get(ctx, 100)
 	require.Equal(t, ErrCacheClosed, err)
+	require.NotNil(t, store.ctx.Err())
 }

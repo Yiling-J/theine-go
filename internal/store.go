@@ -49,11 +49,17 @@ func init() {
 type Shard[K comparable, V any] struct {
 	hashmap   map[K]*Entry[K, V]
 	dookeeper *bf.Bloomfilter
-	group     *Group[K, Loaded[V]]
-	vgroup    *Group[K, V] // used in secondary cache
-	counter   uint
-	mu        *RBMutex
-	closed    bool
+	// singleflight group used in loading cache, avoid load same key multiple times concurrently
+	group *Group[K, Loaded[V]]
+	// singleflight group used in secondary cache, avoid get same key from secondary cache multiple times concurrently
+	vgroup *Group[K, V]
+	// used to reset dookeeper
+	counter uint
+	// A read/write mutex that locks the shard when accessing the shard's hashmap.
+	// This mutex is only used for read, write, and delete operations on the shard's hashmap,
+	// as well as for shard close operations. Sending an entry to the policy and policy updating do not hold this lock.
+	mu     *RBMutex
+	closed bool
 }
 
 func NewShard[K comparable, V any](doorkeeper bool) *Shard[K, V] {
@@ -229,8 +235,14 @@ func NewStore[K comparable, V any](options *StoreOptions[K, V]) *Store[K, V] {
 	return s
 }
 
-func (s *Store[K, V]) getFromShard(key K, hash uint64, shard *Shard[K, V]) (V, bool) {
+type shardEntry[K comparable, V any] struct {
+	entry *Entry[K, V]
+	value V
+}
+
+func (s *Store[K, V]) getFromShard(key K, hash uint64, shard *Shard[K, V]) (*shardEntry[K, V], bool) {
 	tk := shard.mu.RLock()
+	defer shard.mu.RUnlock(tk)
 	entry, ok := shard.get(key)
 	var value V
 	if ok {
@@ -260,20 +272,28 @@ func (s *Store[K, V]) getFromShard(key K, hash uint64, shard *Shard[K, V]) (V, b
 			value = entry.value
 		}
 	}
-	shard.mu.RUnlock(tk)
+	return &shardEntry[K, V]{
+		entry: entry,
+		value: value,
+	}, ok
+}
 
+func (s *Store[K, V]) Get(key K) (V, bool) {
+	h, index := s.index(key)
+	shard := s.shards[index]
+	shardEntry, ok := s.getFromShard(key, h, shard)
 	if ok {
 		s.policy.hits.Add(1)
 	} else {
 		s.policy.misses.Add(1)
-		return value, false
+		return shardEntry.value, false
 	}
 
 	idx := s.getReadBufferIdx()
 	var send ReadBufItem[K, V]
-	send.hash = hash
+	send.hash = h
 	if ok {
-		send.entry = entry
+		send.entry = shardEntry.entry
 	}
 
 	pb := s.stripedBuffer[idx].Add(send)
@@ -281,24 +301,18 @@ func (s *Store[K, V]) getFromShard(key K, hash uint64, shard *Shard[K, V]) (V, b
 		s.drainRead(pb.Returned)
 		s.stripedBuffer[idx].Free()
 	}
-	return value, ok
+	return shardEntry.value, ok
 }
 
-func (s *Store[K, V]) Get(key K) (V, bool) {
+func (s *Store[K, V]) GetWithSecodary(key K) (V, bool, error) {
 	h, index := s.index(key)
 	shard := s.shards[index]
-	return s.getFromShard(key, h, shard)
-}
-
-func (s *Store[K, V]) GetWithSecodary(key K) (value V, ok bool, err error) {
-	h, index := s.index(key)
-	shard := s.shards[index]
-	value, ok = s.getFromShard(key, h, shard)
+	shardEntry, ok := s.getFromShard(key, h, shard)
 	if ok {
-		return value, true, nil
+		return shardEntry.value, true, nil
 	}
 
-	value, err, _ = shard.vgroup.Do(key, func() (v V, err error) {
+	value, err, _ := shard.vgroup.Do(key, func() (v V, err error) {
 		// load and store should be atomic
 		shard.mu.Lock()
 		v, cost, expire, ok, err := s.secondaryCache.Get(key)
@@ -1121,7 +1135,7 @@ func (s *LoadingStore[K, V]) Loader(loader func(ctx context.Context, key K) (Loa
 func (s *LoadingStore[K, V]) Get(ctx context.Context, key K) (V, error) {
 	h, index := s.index(key)
 	shard := s.shards[index]
-	v, ok := s.getFromShard(key, h, shard)
+	shardEntry, ok := s.getFromShard(key, h, shard)
 	if !ok {
 		loaded, err, _ := shard.group.Do(key, func() (Loaded[V], error) {
 			// load and store should be atomic
@@ -1163,7 +1177,7 @@ func (s *LoadingStore[K, V]) Get(ctx context.Context, key K) (V, error) {
 		})
 		return loaded.Value, err
 	}
-	return v, nil
+	return shardEntry.value, nil
 }
 
 type NotFound struct{}

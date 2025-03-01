@@ -58,7 +58,6 @@ func TestCache_SetParallel(t *testing.T) {
 				key := fmt.Sprintf("key:%d", rand.Intn(100000))
 				client.Set(key, key, 1)
 			}
-
 		}()
 	}
 	wg.Wait()
@@ -83,7 +82,6 @@ func TestCache_GetSetGetDeleteGet(t *testing.T) {
 				client.Delete(key)
 				_, ok = client.Get(key)
 				require.False(t, ok)
-
 			}
 		})
 	}

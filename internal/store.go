@@ -652,7 +652,6 @@ func (s *Store[K, V]) sinkWrite(item WriteBufItem[K, V]) {
 	case NEW:
 		entry.flag.SetRemoved(false)
 		if expire := entry.expire.Load(); expire != 0 {
-
 			if expire <= s.timerwheel.clock.NowNano() {
 				s.removeEntry(entry, EXPIRED)
 				return
@@ -699,7 +698,6 @@ func (s *Store[K, V]) sinkWrite(item WriteBufItem[K, V]) {
 }
 
 func (s *Store[K, V]) drainWrite() {
-
 	var wait bool
 	for _, item := range s.writeBuffer {
 		if item.code == WAIT {
@@ -713,11 +711,9 @@ func (s *Store[K, V]) drainWrite() {
 	if wait {
 		s.waitChan <- true
 	}
-
 }
 
 func (s *Store[K, V]) maintenance() {
-
 	go func() {
 		s.policyMu.Lock()
 		s.maintenanceTicker = time.NewTicker(time.Second)
@@ -1050,7 +1046,6 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 					s.policy.weightedSize += uint(entry.policyWeight)
 				}
 			}
-
 		}
 	}
 	return nil
@@ -1095,7 +1090,6 @@ func (i debugInfo) TotalWeight() int64 {
 
 // used for test, only
 func (s *Store[K, V]) DebugInfo() debugInfo {
-
 	var windowSum int64
 	var windowCount int64
 	s.policy.window.rangef(func(e *Entry[K, V]) {
@@ -1129,7 +1123,6 @@ func (s *Store[K, V]) DebugInfo() debugInfo {
 		ProtectedWeightField: int64(s.policy.slru.protected.Len()),
 		ProtectedCount:       protectedCount,
 	}
-
 }
 
 type Loaded[V any] struct {

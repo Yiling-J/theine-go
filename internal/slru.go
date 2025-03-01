@@ -20,14 +20,12 @@ func (s *Slru[K, V]) insert(entry *Entry[K, V]) {
 }
 
 func (s *Slru[K, V]) access(entry *Entry[K, V]) {
-
 	if entry.flag.IsProbation() {
 		s.probation.remove(entry)
 		s.protected.PushFront(entry)
 	} else if entry.flag.IsProtected() {
 		s.protected.MoveToFront(entry)
 	}
-
 }
 
 func (s *Slru[K, V]) remove(entry *Entry[K, V]) {
@@ -36,7 +34,6 @@ func (s *Slru[K, V]) remove(entry *Entry[K, V]) {
 	} else if entry.flag.IsProtected() {
 		s.protected.remove(entry)
 	}
-
 }
 
 func (s *Slru[K, V]) updateCost(entry *Entry[K, V], delta int64) {
@@ -45,10 +42,8 @@ func (s *Slru[K, V]) updateCost(entry *Entry[K, V], delta int64) {
 	} else if entry.flag.IsProtected() {
 		s.protected.len += delta
 	}
-
 }
 
 func (s *Slru[K, V]) len() int {
 	return s.probation.Len() + s.protected.Len()
-
 }

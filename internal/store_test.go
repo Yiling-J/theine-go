@@ -201,7 +201,6 @@ func TestStore_SinkWritePolicyWeight(t *testing.T) {
 	})
 
 	require.Equal(t, 8, int(store.policy.weightedSize))
-
 }
 
 func TestStore_CloseRace(t *testing.T) {

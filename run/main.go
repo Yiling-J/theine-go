@@ -107,5 +107,4 @@ func main() {
 	wg.Wait()
 	client.Close()
 	// mgr.Stop()
-
 }

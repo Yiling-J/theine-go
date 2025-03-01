@@ -159,7 +159,6 @@ func TestLoadingCache_Simple(t *testing.T) {
 	require.Equal(t, 9999, value)
 	success = client.SetWithTTL(9999, 9999, 1, 5*time.Second)
 	require.True(t, success)
-
 }
 
 func TestLoadingCache_LoadError(t *testing.T) {

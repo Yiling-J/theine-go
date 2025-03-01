@@ -102,7 +102,6 @@ func (b *Builder[K, V]) Loading(
 	loader func(ctx context.Context, key K) (Loaded[V], error),
 ) *LoadingBuilder[K, V] {
 	if loader != nil {
-
 		b.options.Loader = func(ctx context.Context, key K) (internal.Loaded[V], error) {
 			v, err := loader(ctx, key)
 			return internal.Loaded[V]{Value: v.Value, Cost: v.Cost, TTL: v.TTL}, err
@@ -235,5 +234,4 @@ func (b *HybridLoadingBuilder[K, V]) Build() (*HybridLoadingCache[K, V], error) 
 		return internal.Loaded[V]{Value: v.Value, Cost: v.Cost, TTL: v.TTL}, err
 	})
 	return &HybridLoadingCache[K, V]{store: loadingStore}, nil
-
 }

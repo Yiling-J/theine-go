@@ -32,7 +32,6 @@ func TestClock_ExpireNano(t *testing.T) {
 	overflowTTL := time.Duration(math.MaxInt64)
 	expireNano = c.ExpireNano(overflowTTL)
 	require.Equal(t, int64(math.MaxInt64), expireNano)
-
 }
 
 func TestClock_RefreshNowCache(t *testing.T) {

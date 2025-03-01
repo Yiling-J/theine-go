@@ -48,7 +48,6 @@ func TestSketch_Basic(t *testing.T) {
 		}
 		require.True(t, es1 >= 5)
 		require.True(t, es2 >= 3)
-
 	}
 	require.True(t, failed < 40, failed)
 }
@@ -68,7 +67,6 @@ func TestSketch_ResetFreq(t *testing.T) {
 			require.Equal(t, c, 7)
 		}
 	}
-
 }
 
 func TestSketch_Small(t *testing.T) {
@@ -79,7 +77,6 @@ func TestSketch_Small(t *testing.T) {
 		h := hasher.Hash(uint64(i))
 		sketch.Add(h)
 		require.Less(t, int(sketch.Estimate(h)), 3)
-
 	}
 }
 
@@ -112,7 +109,6 @@ func TestSketch_ResetAddition(t *testing.T) {
 	require.Equal(t, es1/2, es1h)
 	require.Equal(t, es2/2, es2h)
 	require.Equal(t, additions-(es1-es1h)-(es2-es2h), additionsNew)
-
 }
 
 func BenchmarkSketch(b *testing.B) {

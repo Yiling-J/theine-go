@@ -354,10 +354,8 @@ func TestTlfu_Weight(t *testing.T) {
 					tlfu.slru.protected.display()}, ":")
 
 			require.Equal(t, cs.expected, result)
-
 		})
 	}
-
 }
 
 func groupNumbers(input []string) string {
@@ -374,11 +372,9 @@ func groupNumbers(input []string) string {
 		num, _ := strconv.Atoi(input[i])
 		if num == prev+1 || num == prev-1 {
 			currentGroup = append(currentGroup, input[i])
-
 		} else {
 			result = append(result, fmt.Sprintf("%s-%s", currentGroup[0], currentGroup[len(currentGroup)-1]))
 			currentGroup = []string{input[i]}
-
 		}
 		prev = num
 	}
@@ -464,7 +460,6 @@ func TestTlfu_Adaptive(t *testing.T) {
 			result, total := grouped(tlfu)
 			require.Equal(t, 150, total)
 			require.Equal(t, cs.expected, result)
-
 		})
 	}
 }
@@ -560,7 +555,6 @@ func TestTlfu_AdaptiveAmountRemain(t *testing.T) {
 	result, total = grouped(tlfu)
 	require.Equal(t, 150, total)
 	require.Equal(t, "998-998>149-110:109-103>101-80:79-0", result)
-
 }
 
 func TestTlfu_SketchResize(t *testing.T) {

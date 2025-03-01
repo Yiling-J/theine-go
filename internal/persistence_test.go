@@ -89,7 +89,6 @@ func TestStorePersistence_Simple(t *testing.T) {
 
 	count = new.policy.sketch.Estimate(new.hasher.Hash(5))
 	require.True(t, count > 5)
-
 }
 
 func TestStorePersistence_TTL(t *testing.T) {
@@ -190,7 +189,6 @@ func TestStorePersistence_Resize(t *testing.T) {
 		require.Nil(t, err)
 		require.True(t, in >= 500 && in < 1000)
 	}
-
 }
 
 type DelayWriter struct {
@@ -266,5 +264,4 @@ func TestStorePersistence_Readonly(t *testing.T) {
 		new.Set(i, 123, 1, 0)
 	}
 	new.Wait()
-
 }

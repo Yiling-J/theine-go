@@ -6,7 +6,6 @@ import (
 )
 
 func BenchmarkPolicy_Read(b *testing.B) {
-
 	store := NewStore[uint64, bool](&StoreOptions[uint64, bool]{MaxSize: 100000})
 	r := rand.New(rand.NewSource(0))
 	z := rand.NewZipf(r, 1.4, 9.0, 100000)
@@ -38,11 +37,9 @@ func BenchmarkPolicy_Read(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		store.policy.Access(ritems[i&65535])
 	}
-
 }
 
 func BenchmarkPolicy_Write(b *testing.B) {
-
 	store := NewStore[uint64, bool](&StoreOptions[uint64, bool]{MaxSize: 100000})
 
 	b.ResetTimer()
@@ -59,5 +56,4 @@ func BenchmarkPolicy_Write(b *testing.B) {
 			code:       NEW,
 		})
 	}
-
 }

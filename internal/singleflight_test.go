@@ -36,7 +36,7 @@ func TestDoErr(t *testing.T) {
 	v, err, _ := g.Do("key", func() (string, error) {
 		return "", someErr
 	})
-	if err != someErr {
+	if !errors.Is(err, someErr) {
 		t.Errorf("Do error = %v; want someErr %v", err, someErr)
 	}
 	if v != "" {

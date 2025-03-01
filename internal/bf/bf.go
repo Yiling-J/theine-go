@@ -23,7 +23,7 @@ func New(falsePositiveRate float64) *Bloomfilter {
 func NewWithSize(size uint32) *Bloomfilter {
 	d := &Bloomfilter{}
 	bits := size * 8
-	m := nextPowerOfTwo(uint32(bits))
+	m := nextPowerOfTwo(bits)
 	d.M = m
 	d.Filter = newbv(m)
 	return d

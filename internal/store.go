@@ -973,7 +973,7 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 			for {
 				pentry := &Pentry[K, V]{}
 				err := entryDecoder.Decode(pentry)
-				if err == io.EOF {
+				if errors.Is(err, io.EOF) {
 					break
 				}
 				if err != nil {
@@ -998,7 +998,7 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 			for {
 				pentry := &Pentry[K, V]{}
 				err := entryDecoder.Decode(pentry)
-				if err == io.EOF {
+				if errors.Is(err, io.EOF) {
 					break
 				}
 				if err != nil {
@@ -1025,7 +1025,7 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 			for {
 				pentry := &Pentry[K, V]{}
 				err := entryDecoder.Decode(pentry)
-				if err == io.EOF {
+				if errors.Is(err, io.EOF) {
 					break
 				}
 				if err != nil {

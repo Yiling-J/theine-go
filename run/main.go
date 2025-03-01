@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	// #nosec G108
 	_ "net/http/pprof"
 
 	"github.com/Yiling-J/theine-go"
@@ -53,6 +54,7 @@ func NewV128(val uint64) v128 {
 
 func main() {
 	go func() {
+		// #nosec G114
 		log.Println(http.ListenAndServe("localhost:6060", nil))
 	}()
 

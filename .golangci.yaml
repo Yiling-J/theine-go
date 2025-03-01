@@ -44,4 +44,7 @@ issues:
   exclude-rules:
     - linters:
       - gosec
-      text: '404'
+      text: 404
+    - linters:
+        - gosec
+      text: G115

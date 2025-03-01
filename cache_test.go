@@ -67,21 +67,25 @@ func TestCache_SetParallel(t *testing.T) {
 }
 
 func TestCache_GetSetGetDeleteGet(t *testing.T) {
-	client, err := theine.NewBuilder[string, string](50000).Build()
-	require.Nil(t, err)
-	defer client.Close()
-	for i := 0; i < 20000; i++ {
-		key := fmt.Sprintf("key:%d", rand.Intn(3000))
-		_, ok := client.Get(key)
-		require.False(t, ok)
-		client.Set(key, key, 1)
-		v, ok := client.Get(key)
-		require.True(t, ok)
-		require.Equal(t, key, v)
-		client.Delete(key)
-		_, ok = client.Get(key)
-		require.False(t, ok)
+	for _, entryPool := range []bool{false, true} {
+		t.Run(fmt.Sprintf("entrypool enable %v", entryPool), func(t *testing.T) {
+			client, err := theine.NewBuilder[string, string](50000).Build()
+			require.Nil(t, err)
+			defer client.Close()
+			for i := 0; i < 20000; i++ {
+				key := fmt.Sprintf("key:%d", rand.Intn(3000))
+				_, ok := client.Get(key)
+				require.False(t, ok)
+				client.Set(key, key, 1)
+				v, ok := client.Get(key)
+				require.True(t, ok)
+				require.Equal(t, key, v)
+				client.Delete(key)
+				_, ok = client.Get(key)
+				require.False(t, ok)
 
+			}
+		})
 	}
 }
 

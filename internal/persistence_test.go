@@ -13,7 +13,7 @@ import (
 )
 
 func TestStorePersistence_Simple(t *testing.T) {
-	store := NewStore[int, int](1000, false, true, nil, nil, nil, 0, 0, nil)
+	store := NewStore[int, int](&StoreOptions[int, int]{MaxSize: 1000})
 	for i := 0; i < 20; i++ {
 		_ = store.Set(i, i, 1, 0)
 	}
@@ -61,7 +61,7 @@ func TestStorePersistence_Simple(t *testing.T) {
 	require.Nil(t, err)
 	f.Close()
 
-	new := NewStore[int, int](1000, false, true, nil, nil, nil, 0, 0, nil)
+	new := NewStore[int, int](&StoreOptions[int, int]{MaxSize: 1000})
 	f, err = os.Open("stest")
 	require.Nil(t, err)
 	err = new.Recover(0, f)
@@ -93,7 +93,7 @@ func TestStorePersistence_Simple(t *testing.T) {
 }
 
 func TestStorePersistence_TTL(t *testing.T) {
-	store := NewStore[int, int](1000, false, true, nil, nil, nil, 0, 0, nil)
+	store := NewStore[int, int](&StoreOptions[int, int]{MaxSize: 1000})
 	for i := 0; i < 10; i++ {
 		_ = store.Set(i, i, 1, 2*time.Second)
 	}
@@ -113,7 +113,7 @@ func TestStorePersistence_TTL(t *testing.T) {
 	f.Close()
 	// expire 20-29
 	time.Sleep(time.Second)
-	new := NewStore[int, int](1000, false, true, nil, nil, nil, 0, 0, nil)
+	new := NewStore[int, int](&StoreOptions[int, int]{MaxSize: 1000})
 	f, err = os.Open("stest")
 	require.Nil(t, err)
 	err = new.Recover(0, f)
@@ -142,7 +142,7 @@ func TestStorePersistence_TTL(t *testing.T) {
 }
 
 func TestStorePersistence_Resize(t *testing.T) {
-	store := NewStore[int, int](1000, false, true, nil, nil, nil, 0, 0, nil)
+	store := NewStore[int, int](&StoreOptions[int, int]{MaxSize: 1000})
 	for i := 0; i < 1000; i++ {
 		_ = store.Set(i, i, 1, 0)
 	}
@@ -164,7 +164,7 @@ func TestStorePersistence_Resize(t *testing.T) {
 	require.Nil(t, err)
 	f.Close()
 
-	new := NewStore[int, int](100, false, true, nil, nil, nil, 0, 0, nil)
+	new := NewStore[int, int](&StoreOptions[int, int]{MaxSize: 100})
 	f, err = os.Open("stest")
 	require.Nil(t, err)
 	err = new.Recover(0, f)
@@ -205,7 +205,7 @@ func (dw *DelayWriter) Write(p []byte) (n int, err error) {
 }
 
 func TestStorePersistence_Readonly(t *testing.T) {
-	store := NewStore[int, int](1000, false, true, nil, nil, nil, 0, 0, nil)
+	store := NewStore[int, int](&StoreOptions[int, int]{MaxSize: 1000})
 	for i := 0; i < 1000; i++ {
 		_ = store.Set(i, i, 1, 0)
 	}
@@ -251,7 +251,7 @@ func TestStorePersistence_Readonly(t *testing.T) {
 	f.Close()
 	persistDone <- true
 
-	new := NewStore[int, int](1000, false, true, nil, nil, nil, 0, 0, nil)
+	new := NewStore[int, int](&StoreOptions[int, int]{MaxSize: 1000})
 	f, err = os.Open("stest")
 	require.Nil(t, err)
 	err = new.Recover(0, f)

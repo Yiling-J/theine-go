@@ -136,12 +136,22 @@ type Store[K comparable, V any] struct {
 	waitChan          chan bool
 }
 
+type StoreOptions[K comparable, V any] struct {
+	MaxSize        int64                                               // max size of the cache store
+	Doorkeeper     bool                                                // use doorkeeper or not
+	EntryPool      bool                                                // enable entry pool or not, entry pool is a sync pool and can reduce memory allocations under heavy write loads
+	Listener       func(key K, value V, reason RemoveReason)           // entry evicted callback function
+	Cost           func(v V) int64                                     // entry cost function, default is 1
+	SecondaryCache SecondaryCache[K, V]                                // the SecondaryCache instance to use
+	Workers        int                                                 // count of SecondaryCache sync workers
+	Probability    float32                                             // SecondaryCache acceptance probability
+	StringKeyFunc  func(k K) string                                    // a function to handle struct with string hash bug before Go 1.24
+	Loader         func(ctx context.Context, key K) (Loaded[V], error) // load function used in loading cache
+}
+
 // New returns a new data struct with the specified capacity
-func NewStore[K comparable, V any](
-	maxsize int64, doorkeeper bool, entryPool bool, listener func(key K, value V, reason RemoveReason),
-	cost func(v V) int64, secondaryCache SecondaryCache[K, V], workers int, probability float32, stringKeyFunc func(k K) string,
-) *Store[K, V] {
-	hasher := hasher.NewHasher(stringKeyFunc)
+func NewStore[K comparable, V any](options *StoreOptions[K, V]) *Store[K, V] {
+	hasher := hasher.NewHasher(options.StringKeyFunc)
 	shardCount := 1
 	for shardCount < runtime.GOMAXPROCS(0)*2 {
 		shardCount *= 2
@@ -154,8 +164,8 @@ func NewStore[K comparable, V any](
 	}
 
 	costfn := func(v V) int64 { return 1 }
-	if cost != nil {
-		costfn = cost
+	if options.Cost != nil {
+		costfn = options.Cost
 	}
 
 	stripedBuffer := make([]*Buffer[K, V], 0, StripedBufferSize)
@@ -164,28 +174,28 @@ func NewStore[K comparable, V any](
 	}
 
 	s := &Store[K, V]{
-		cap:           uint(maxsize),
+		cap:           uint(options.MaxSize),
 		hasher:        hasher,
-		policy:        NewTinyLfu[K, V](uint(maxsize), hasher),
+		policy:        NewTinyLfu[K, V](uint(options.MaxSize), hasher),
 		stripedBuffer: stripedBuffer,
 		mask:          uint32(StripedBufferSize - 1),
 		writeChan:     make(chan WriteBufItem[K, V], WriteChanSize),
 		writeBuffer:   make([]WriteBufItem[K, V], 0, WriteBufferSize),
 		shardCount:    uint(shardCount),
-		doorkeeper:    doorkeeper,
+		doorkeeper:    options.Doorkeeper,
 		kvBuilder: func(entry *Entry[K, V]) dequeKV[K, V] {
 			return dequeKV[K, V]{
 				k: entry.key,
 				v: entry.value,
 			}
 		},
-		removalListener: listener,
+		removalListener: options.Listener,
 		cost:            costfn,
-		secondaryCache:  secondaryCache,
-		probability:     probability,
+		secondaryCache:  options.SecondaryCache,
+		probability:     options.Probability,
 		waitChan:        make(chan bool),
 	}
-	if entryPool {
+	if options.EntryPool {
 		s.entryPool = &sync.Pool{New: func() any { return &Entry[K, V]{} }}
 	}
 
@@ -198,20 +208,20 @@ func NewStore[K comparable, V any](
 
 	s.shards = make([]*Shard[K, V], 0, s.shardCount)
 	for i := 0; i < int(s.shardCount); i++ {
-		s.shards = append(s.shards, NewShard[K, V](doorkeeper))
+		s.shards = append(s.shards, NewShard[K, V](options.Doorkeeper))
 	}
 	s.policy.removeCallback = func(entry *Entry[K, V]) {
 		s.removeEntry(entry, EVICTED)
 	}
 
 	s.ctx, s.cancel = context.WithCancel(context.Background())
-	s.timerwheel = NewTimerWheel[K, V](uint(maxsize))
+	s.timerwheel = NewTimerWheel[K, V](uint(options.MaxSize))
 	s.timerwheel.clock.RefreshNowCache()
 
 	go s.maintenance()
 	if s.secondaryCache != nil {
 		s.secondaryCacheBuf = make(chan SecondaryCacheItem[K, V], 256)
-		for i := 0; i < workers; i++ {
+		for i := 0; i < options.Workers; i++ {
 			go s.processSecondary()
 		}
 		s.rg = rand.New(rand.New(rand.NewSource(0)))

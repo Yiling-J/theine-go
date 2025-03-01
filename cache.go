@@ -17,20 +17,7 @@ var VersionMismatch = internal.VersionMismatch
 type RemoveReason = internal.RemoveReason
 type DataBlock = internal.DataBlock[any]
 type Stats = internal.Stats
-
-type Loaded[V any] struct {
-	Value V
-	Cost  int64
-	TTL   time.Duration
-}
-
-func (l *Loaded[V]) internal() internal.Loaded[V] {
-	return internal.Loaded[V]{
-		Value: l.Value,
-		Cost:  l.Cost,
-		TTL:   l.TTL,
-	}
-}
+type Loaded[V any] internal.Loaded[V]
 
 const (
 	REMOVED = internal.REMOVED

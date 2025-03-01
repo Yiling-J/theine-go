@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/Yiling-J/theine-go/internal/hasher"
-	"github.com/cespare/xxhash/v2"
 	"github.com/stretchr/testify/require"
 	"github.com/zeebo/xxh3"
 )
@@ -27,14 +26,14 @@ func TestSketch_Basic(t *testing.T) {
 	failed := 0
 	for i := 0; i < 10000; i++ {
 		key := fmt.Sprintf("key:%d", i)
-		keyh := xxhash.Sum64String(key)
+		keyh := xxh3.HashStringSeed(key, 1234)
 		sketch.Add(keyh)
 		sketch.Add(keyh)
 		sketch.Add(keyh)
 		sketch.Add(keyh)
 		sketch.Add(keyh)
 		key = fmt.Sprintf("key:%d:b", i)
-		keyh2 := xxhash.Sum64String(key)
+		keyh2 := xxh3.HashStringSeed(key, 1234)
 		sketch.Add(keyh2)
 		sketch.Add(keyh2)
 		sketch.Add(keyh2)
@@ -51,7 +50,7 @@ func TestSketch_Basic(t *testing.T) {
 		require.True(t, es2 >= 3)
 
 	}
-	require.True(t, failed < 40)
+	require.True(t, failed < 40, failed)
 }
 
 func TestSketch_ResetFreq(t *testing.T) {
@@ -60,7 +59,7 @@ func TestSketch_ResetFreq(t *testing.T) {
 	for i := 0; i < len(sketch.Table); i++ {
 		sketch.Table[i] = ^uint64(0)
 	}
-	keyh := xxhash.Sum64String("key1")
+	keyh := xxh3.HashString("key1")
 	require.Equal(t, 15, int(sketch.Estimate(keyh)))
 	sketch.reset()
 	require.Equal(t, 7, int(sketch.Estimate(keyh)))
@@ -92,13 +91,13 @@ func TestSketch_ResetAddition(t *testing.T) {
 	// override sampleSize so test won't reset
 	sketch.SampleSize = 5120
 
-	keyh := xxhash.Sum64String("k1")
+	keyh := xxh3.HashString("k1")
 	sketch.Add(keyh)
 	sketch.Add(keyh)
 	sketch.Add(keyh)
 	sketch.Add(keyh)
 	sketch.Add(keyh)
-	keyh2 := xxhash.Sum64String("k1b")
+	keyh2 := xxh3.HashString("k1b")
 	sketch.Add(keyh2)
 	sketch.Add(keyh2)
 	sketch.Add(keyh2)

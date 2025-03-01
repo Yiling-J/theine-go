@@ -47,7 +47,7 @@ jobs:
     name: test-correctness-nopool
     strategy:
       matrix:
-        go: ["1.23.x"]
+        go: ["1.23.x", "1.24.x"]
     runs-on: ubuntu-latest
     steps:
       - name: Setup Go
@@ -64,7 +64,7 @@ jobs:
     name: test-correctness-pool
     strategy:
       matrix:
-        go: ["1.23.x"]
+        go: ["1.23.x", "1.24.x"]
     runs-on: ubuntu-latest
     steps:
       - name: Setup Go

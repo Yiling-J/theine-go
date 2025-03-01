@@ -334,7 +334,8 @@ func (s *Store[K, V]) GetWithSecodary(key K) (V, bool, error) {
 		}
 
 		// insert to cache
-		_, _, _ = s.setShard(shard, h, key, v, cost, expire, true)
+		result := s.setShard(shard, h, key, v, cost, expire, true)
+		s.toPolicy(result, shard, h, cost, expire, true)
 		return v, err
 	})
 
@@ -348,41 +349,54 @@ func (s *Store[K, V]) GetWithSecodary(key K) (V, bool, error) {
 	return value, true, nil
 }
 
-func (s *Store[K, V]) setEntry(hash uint64, shard *Shard[K, V], cost int64, entry *Entry[K, V], fromNVM bool) {
-	shard.set(entry.key, entry)
-	shard.mu.Unlock()
+func (s *Store[K, V]) policyNewEntry(hash uint64, shard *Shard[K, V], cost int64, entry *Entry[K, V], fromNVM bool) {
 	s.writeChan <- WriteBufItem[K, V]{
 		code: NEW, entry: entry, hash: hash, fromNVM: fromNVM, costChange: cost,
 	}
-
 }
 
-func (s *Store[K, V]) setShard(shard *Shard[K, V], hash uint64, key K, value V, cost int64, expire int64, nvmClean bool) (*Shard[K, V], *Entry[K, V], bool) {
+func (s *Store[K, V]) policyUpdateEntry(entry *Entry[K, V], hash uint64, cost, old, expire int64) {
+	// create/update events order might change due to race,
+	// send cost change in event and apply them to entry policy weight
+	// so different order still works.
+	costChange := cost - old
+
+	var reschedule bool
+	if expire > 0 {
+		old := entry.expire.Swap(expire)
+		if old != expire {
+			reschedule = true
+		}
+	}
+
+	s.writeChan <- WriteBufItem[K, V]{
+		entry: entry, code: UPDATE, costChange: costChange, rechedule: reschedule,
+		hash: hash,
+	}
+}
+
+type setShardResult[K comparable, V any] struct {
+	entry   *Entry[K, V]
+	oldCost int64 // the old entry cost when updating entry
+	exists  bool
+}
+
+func (s *Store[K, V]) setShard(shard *Shard[K, V], hash uint64, key K, value V, cost int64, expire int64, nvmClean bool) *setShardResult[K, V] {
+	result := &setShardResult[K, V]{}
+	shard.mu.Lock()
+	defer shard.mu.Unlock()
+	if shard.closed {
+		return result
+	}
 	exist, ok := shard.get(key)
+	result.entry = exist
+	result.exists = ok
 
 	if ok {
 		exist.value = value
 		old := exist.weight.Swap(cost)
-
-		// create/update events order might change due to race,
-		// send cost change in event and apply them to entry policy weight
-		// so different order still works.
-		costChange := cost - old
-		shard.mu.Unlock()
-
-		var reschedule bool
-		if expire > 0 {
-			old := exist.expire.Swap(expire)
-			if old != expire {
-				reschedule = true
-			}
-		}
-
-		s.writeChan <- WriteBufItem[K, V]{
-			entry: exist, code: UPDATE, costChange: costChange, rechedule: reschedule,
-			hash: hash,
-		}
-		return shard, exist, true
+		result.oldCost = old
+		return result
 	}
 
 	if s.doorkeeper {
@@ -393,8 +407,7 @@ func (s *Store[K, V]) setShard(shard *Shard[K, V], hash uint64, key K, value V, 
 		hit := shard.dookeeper.Insert(hash)
 		if !hit {
 			shard.counter += 1
-			shard.mu.Unlock()
-			return shard, nil, false
+			return result
 		}
 	}
 	var entry *Entry[K, V]
@@ -416,22 +429,30 @@ func (s *Store[K, V]) setShard(shard *Shard[K, V], hash uint64, key K, value V, 
 	entry.expire.Store(expire)
 	entry.weight.Store(cost)
 	entry.policyWeight = 0
-	s.setEntry(hash, shard, cost, entry, nvmClean)
-	return shard, entry, true
+	shard.set(entry.key, entry)
+	result.entry = entry
+	result.exists = false
+	return result
+}
 
+func (s *Store[K, V]) toPolicy(result *setShardResult[K, V], shard *Shard[K, V], hash uint64, cost, expire int64, nvmClean bool) {
+	// shard closed or rejected by doorkeeper
+	if result.entry == nil {
+		return
+	}
+	if result.exists {
+		s.policyUpdateEntry(result.entry, hash, cost, result.oldCost, expire)
+	} else {
+		s.policyNewEntry(hash, shard, cost, result.entry, nvmClean)
+	}
 }
 
 func (s *Store[K, V]) setInternal(key K, value V, cost int64, expire int64, nvmClean bool) (*Shard[K, V], *Entry[K, V], bool) {
 	h, index := s.index(key)
 	shard := s.shards[index]
-	shard.mu.Lock()
-	if shard.closed {
-		shard.mu.Unlock()
-		return nil, nil, false
-	}
-
-	return s.setShard(shard, h, key, value, cost, expire, nvmClean)
-
+	result := s.setShard(shard, h, key, value, cost, expire, nvmClean)
+	s.toPolicy(result, shard, h, cost, expire, nvmClean)
+	return shard, result.entry, result.exists
 }
 
 func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
@@ -1154,7 +1175,8 @@ func (s *LoadingStore[K, V]) Get(ctx context.Context, key K) (V, error) {
 					return Loaded[V]{}, err
 				}
 				if ok {
-					_, _, _ = s.setShard(shard, h, key, vs, cost, expire, true)
+					result := s.setShard(shard, h, key, vs, cost, expire, true)
+					s.toPolicy(result, shard, h, cost, expire, true)
 					return Loaded[V]{Value: vs}, nil
 				}
 			}

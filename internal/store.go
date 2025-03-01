@@ -379,12 +379,17 @@ type setShardResult[K comparable, V any] struct {
 	entry   *Entry[K, V]
 	oldCost int64 // the old entry cost when updating entry
 	exists  bool
+	success bool
 }
 
 func (s *Store[K, V]) setShard(shard *Shard[K, V], hash uint64, key K, value V, cost int64, expire int64, nvmClean bool) *setShardResult[K, V] {
-	result := &setShardResult[K, V]{}
 	shard.mu.Lock()
 	defer shard.mu.Unlock()
+	return s.setShardWithoutLock(shard, hash, key, value, cost, expire, nvmClean)
+}
+
+func (s *Store[K, V]) setShardWithoutLock(shard *Shard[K, V], hash uint64, key K, value V, cost int64, expire int64, nvmClean bool) *setShardResult[K, V] {
+	result := &setShardResult[K, V]{success: true}
 	if shard.closed {
 		return result
 	}
@@ -407,6 +412,7 @@ func (s *Store[K, V]) setShard(shard *Shard[K, V], hash uint64, key K, value V, 
 		hit := shard.dookeeper.Insert(hash)
 		if !hit {
 			shard.counter += 1
+			result.success = false
 			return result
 		}
 	}
@@ -452,7 +458,7 @@ func (s *Store[K, V]) setInternal(key K, value V, cost int64, expire int64, nvmC
 	shard := s.shards[index]
 	result := s.setShard(shard, h, key, value, cost, expire, nvmClean)
 	s.toPolicy(result, shard, h, cost, expire, nvmClean)
-	return shard, result.entry, result.exists
+	return shard, result.entry, result.success
 }
 
 func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
@@ -659,7 +665,6 @@ func (s *Store[K, V]) sinkWrite(item WriteBufItem[K, V]) {
 				s.timerwheel.schedule(entry)
 			}
 		}
-
 		s.policy.sketch.Add(item.hash)
 		entry.policyWeight += item.costChange
 		s.policy.Set(entry)
@@ -1151,11 +1156,14 @@ func (s *LoadingStore[K, V]) Get(ctx context.Context, key K) (V, error) {
 	shard := s.shards[index]
 	shardEntry, ok := s.getFromShard(key, h, shard)
 	if !ok {
+		var result *setShardResult[K, V]
+		var entryCost int64
+		var entryExpire int64
 		loaded, err, _ := shard.group.Do(key, func() (Loaded[V], error) {
 			// load and store should be atomic
 			shard.mu.Lock()
+			defer shard.mu.Unlock()
 			if shard.closed {
-				shard.mu.Unlock()
 				return Loaded[V]{}, ErrCacheClosed
 			}
 
@@ -1164,12 +1172,12 @@ func (s *LoadingStore[K, V]) Get(ctx context.Context, key K) (V, error) {
 				vs, cost, expire, ok, err := s.secondaryCache.Get(key)
 				var notFound *NotFound
 				if err != nil && !errors.As(err, &notFound) {
-					shard.mu.Unlock()
 					return Loaded[V]{}, err
 				}
 				if ok {
-					result := s.setShard(shard, h, key, vs, cost, expire, true)
-					s.toPolicy(result, shard, h, cost, expire, true)
+					result = s.setShardWithoutLock(shard, h, key, vs, cost, expire, true)
+					entryCost = cost
+					entryExpire = expire
 					return Loaded[V]{Value: vs}, nil
 				}
 			}
@@ -1184,12 +1192,15 @@ func (s *LoadingStore[K, V]) Get(ctx context.Context, key K) (V, error) {
 			}
 
 			if err == nil {
-				s.setShard(shard, h, key, loaded.Value, loaded.Cost, expire, false)
-			} else {
-				shard.mu.Unlock()
+				result = s.setShardWithoutLock(shard, h, key, loaded.Value, loaded.Cost, expire, false)
+				entryCost = loaded.Cost
+				entryExpire = expire
 			}
 			return loaded, err
 		})
+		if result != nil {
+			s.toPolicy(result, shard, h, entryCost, entryExpire, true)
+		}
 		return loaded.Value, err
 	}
 	return shardEntry.value, nil

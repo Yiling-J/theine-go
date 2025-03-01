@@ -56,8 +56,8 @@ type Shard[K comparable, V any] struct {
 	// used to reset dookeeper
 	counter uint
 	// A read/write mutex that locks the shard when accessing the shard's hashmap.
-	// This mutex is only used for read, write, and delete operations on the shard's hashmap,
-	// as well as for shard close operations. Sending an entry to the policy and policy updating do not hold this lock.
+	// This mutex is only used for read, write, delete on the shard's hashmap, update entry value,
+	// as well as for shard close operations. Sending an entry to the policy and updating policy fields of entry do not hold this lock.
 	mu     *RBMutex
 	closed bool
 }

@@ -57,7 +57,10 @@ type Shard[K comparable, V any] struct {
 	counter uint
 	// A read/write mutex that locks the shard when accessing the shard's hashmap.
 	// This mutex is used for read, write, delete on the shard's hashmap, update some entry fields,
-	// as well as for shard close operations. Updating policy does not hold this lock.
+	// as well as for shard close operations. The policy has its own mutex and does not hold this lock, except in one case:
+	// The policy has its own mutex and does not hold this lock, except in one case:
+	// when the policy or timing wheel evicts entries, this mutex is also acquired
+	// because the hashmap needs to be updated.
 	mu     *RBMutex
 	closed bool
 }

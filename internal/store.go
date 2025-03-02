@@ -56,8 +56,8 @@ type Shard[K comparable, V any] struct {
 	// used to reset dookeeper
 	counter uint
 	// A read/write mutex that locks the shard when accessing the shard's hashmap.
-	// This mutex is only used for read, write, delete on the shard's hashmap, update entry value,
-	// as well as for shard close operations. Sending an entry to the policy and updating policy fields of entry do not hold this lock.
+	// This mutex is used for read, write, delete on the shard's hashmap, update some entry fields,
+	// as well as for shard close operations. Updating policy does not hold this lock.
 	mu     *RBMutex
 	closed bool
 }
@@ -355,20 +355,11 @@ func (s *Store[K, V]) policyNewEntry(hash uint64, shard *Shard[K, V], cost int64
 	}
 }
 
-func (s *Store[K, V]) policyUpdateEntry(entry *Entry[K, V], hash uint64, cost, old, expire int64) {
+func (s *Store[K, V]) policyUpdateEntry(entry *Entry[K, V], hash uint64, cost, old int64, reschedule bool) {
 	// create/update events order might change due to race,
 	// send cost change in event and apply them to entry policy weight
 	// so different order still works.
 	costChange := cost - old
-
-	var reschedule bool
-	if expire > 0 {
-		old := entry.expire.Swap(expire)
-		if old != expire {
-			reschedule = true
-		}
-	}
-
 	s.writeChan <- WriteBufItem[K, V]{
 		entry: entry, code: UPDATE, costChange: costChange, rechedule: reschedule,
 		hash: hash,
@@ -376,10 +367,11 @@ func (s *Store[K, V]) policyUpdateEntry(entry *Entry[K, V], hash uint64, cost, o
 }
 
 type setShardResult[K comparable, V any] struct {
-	entry   *Entry[K, V]
-	oldCost int64 // the old entry cost when updating entry
-	exists  bool
-	success bool
+	entry      *Entry[K, V]
+	oldCost    int64 // the old entry cost when updating entry
+	exists     bool
+	success    bool
+	reschedule bool
 }
 
 func (s *Store[K, V]) setShard(shard *Shard[K, V], hash uint64, key K, value V, cost int64, expire int64, nvmClean bool) *setShardResult[K, V] {
@@ -396,6 +388,13 @@ func (s *Store[K, V]) setShardWithoutLock(shard *Shard[K, V], hash uint64, key K
 	exist, ok := shard.get(key)
 	result.entry = exist
 	result.exists = ok
+
+	if ok && expire > 0 {
+		old := exist.expire.Swap(expire)
+		if old != expire {
+			result.reschedule = true
+		}
+	}
 
 	if ok {
 		exist.value = value
@@ -447,7 +446,7 @@ func (s *Store[K, V]) toPolicy(result *setShardResult[K, V], shard *Shard[K, V],
 		return
 	}
 	if result.exists {
-		s.policyUpdateEntry(result.entry, hash, cost, result.oldCost, expire)
+		s.policyUpdateEntry(result.entry, hash, cost, result.oldCost, result.reschedule)
 	} else {
 		s.policyNewEntry(hash, shard, cost, result.entry, nvmClean)
 	}

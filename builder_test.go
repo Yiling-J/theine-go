@@ -16,7 +16,7 @@ func TestBuilder(t *testing.T) {
 	require.Error(t, err)
 	builder := theine.NewBuilder[int, int](100)
 	builder = builder.Cost(func(v int) int64 { return 1 })
-	builder = builder.Doorkeeper(false)
+	builder = builder.Doorkeeper(false).UseEntryPool(true)
 	builder = builder.RemovalListener(func(key, value int, reason theine.RemoveReason) {})
 
 	cache, err := builder.Build()

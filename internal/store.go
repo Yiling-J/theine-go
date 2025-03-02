@@ -315,16 +315,18 @@ func (s *Store[K, V]) GetWithSecodary(key K) (V, bool, error) {
 		return shardEntry.value, true, nil
 	}
 
+	var result setShardResult[K, V]
+	var entryCost int64
+	var entryExpire int64
 	value, err, _ := shard.vgroup.Do(key, func() (v V, err error) {
 		// load and store should be atomic
 		shard.mu.Lock()
+		defer shard.mu.Unlock()
 		v, cost, expire, ok, err := s.secondaryCache.Get(key)
 		if err != nil {
-			shard.mu.Unlock()
 			return v, err
 		}
 		if !ok {
-			shard.mu.Unlock()
 			return v, &NotFound{}
 		}
 		if expire <= s.timerwheel.clock.NowNano() {
@@ -332,13 +334,13 @@ func (s *Store[K, V]) GetWithSecodary(key K) (V, bool, error) {
 			if err == nil {
 				err = &NotFound{}
 			}
-			shard.mu.Unlock()
 			return v, err
 		}
 
 		// insert to cache
-		result := s.setShard(shard, h, key, v, cost, expire, true)
-		s.toPolicy(result, shard, h, cost, expire, true)
+		result = s.setShardWithoutLock(shard, h, key, v, cost, expire, true)
+		entryCost = cost
+		entryExpire = expire
 		return v, err
 	})
 
@@ -348,6 +350,9 @@ func (s *Store[K, V]) GetWithSecodary(key K) (V, bool, error) {
 	}
 	if err != nil {
 		return value, false, err
+	}
+	if result.entry != nil {
+		s.toPolicy(result, shard, h, entryCost, entryExpire, true)
 	}
 	return value, true, nil
 }

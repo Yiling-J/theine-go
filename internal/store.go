@@ -295,9 +295,7 @@ func (s *Store[K, V]) Get(key K) (V, bool) {
 	idx := s.getReadBufferIdx()
 	var send ReadBufItem[K, V]
 	send.hash = h
-	if ok {
-		send.entry = shardEntry.entry
-	}
+	send.entry = shardEntry.entry
 
 	pb := s.stripedBuffer[idx].Add(send)
 	if pb != nil {
@@ -1163,6 +1161,7 @@ func (s *LoadingStore[K, V]) Get(ctx context.Context, key K) (V, error) {
 	shard := s.shards[index]
 	shardEntry, ok := s.getFromShard(key, h, shard)
 	if !ok {
+		s.policy.misses.Add(1)
 		var result setShardResult[K, V]
 		var entryCost int64
 		var entryExpire int64
@@ -1209,6 +1208,18 @@ func (s *LoadingStore[K, V]) Get(ctx context.Context, key K) (V, error) {
 			s.toPolicy(result, shard, h, entryCost, entryExpire, true)
 		}
 		return loaded.Value, err
+	} else {
+		s.policy.hits.Add(1)
+		idx := s.getReadBufferIdx()
+		var send ReadBufItem[K, V]
+		send.hash = h
+		send.entry = shardEntry.entry
+
+		pb := s.stripedBuffer[idx].Add(send)
+		if pb != nil {
+			s.drainRead(pb.Returned)
+			s.stripedBuffer[idx].Free()
+		}
 	}
 	return shardEntry.value, nil
 }

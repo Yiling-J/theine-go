@@ -344,3 +344,24 @@ func TestLoadingCache_GetSetDeleteNoRace(t *testing.T) {
 		client.Close()
 	}
 }
+
+func TestLoadingCache_Zipf(t *testing.T) {
+	client, err := theine.NewBuilder[uint64, uint64](50000).BuildWithLoader(func(ctx context.Context, key uint64) (theine.Loaded[uint64], error) {
+		return theine.Loaded[uint64]{Value: key, Cost: 1, TTL: 0}, nil
+	})
+	require.NoError(t, err)
+	defer client.Close()
+	r := rand.New(rand.NewSource(0))
+	z := rand.NewZipf(r, 1.01, 9.0, 50000*1000)
+	ctx := context.TODO()
+
+	for i := 0; i < 10000000; i++ {
+		key := z.Uint64()
+		v, err := client.Get(ctx, key)
+		require.NoError(t, err)
+		require.Equal(t, key, v)
+	}
+	stats := client.Stats()
+	require.True(t, stats.HitRatio() > 0.5, stats.HitRatio())
+	require.True(t, stats.HitRatio() < 0.6)
+}

@@ -407,3 +407,25 @@ func TestCache_StringKey(t *testing.T) {
 		}
 	}
 }
+
+func TestCache_Zipf(t *testing.T) {
+	client, err := theine.NewBuilder[uint64, uint64](50000).Build()
+	require.NoError(t, err)
+	defer client.Close()
+	r := rand.New(rand.NewSource(0))
+	z := rand.NewZipf(r, 1.01, 9.0, 50000*1000)
+
+	for i := 0; i < 10000000; i++ {
+		key := z.Uint64()
+		v, ok := client.Get(key)
+		if ok {
+			require.Equal(t, v, key)
+		} else {
+			success := client.Set(key, key, 1)
+			require.True(t, success)
+		}
+	}
+	stats := client.Stats()
+	require.True(t, stats.HitRatio() > 0.5)
+	require.True(t, stats.HitRatio() < 0.6)
+}

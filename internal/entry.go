@@ -35,7 +35,7 @@ type MetaData[K comparable, V any] struct {
 type Entry[K comparable, V any] struct {
 	key          K              // Protected by the shard mutex.
 	value        V              // Protected by the shard mutex.
-	meta         MetaData[K, V] // Used in the timing wheel, protected by the policy mutex.
+	meta         MetaData[K, V] // Used in the timing wheel and policy LRU, protected by the policy mutex.
 	weight       atomic.Int64   // Protected by the shard mutex.
 	policyWeight int64          // Protected by the policy mutex.
 	expire       atomic.Int64   // Protected by the shard mutex.

@@ -1,3 +1,12 @@
+## 0.6.1 (2025-03-02)
+
+### API Changes:
+-  the `StringKey` method is marked as deprecated starting from Go 1.24. See https://github.com/Yiling-J/theine-go/pull/61 for more details.
+
+### Enhancements:
+- Fix data race after `Close`: https://github.com/Yiling-J/theine-go/pull/60
+- Use `maphash.Comparable` as the hash function for Go 1.24 onward https://github.com/Yiling-J/theine-go/pull/61
+
 ## 0.6.0 (2024-10-29)
 
 ### API Changes:

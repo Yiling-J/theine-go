@@ -240,7 +240,7 @@ type shardEntry[K comparable, V any] struct {
 	value V
 }
 
-func (s *Store[K, V]) getFromShard(key K, hash uint64, shard *Shard[K, V]) (*shardEntry[K, V], bool) {
+func (s *Store[K, V]) getFromShard(key K, hash uint64, shard *Shard[K, V]) (shardEntry[K, V], bool) {
 	tk := shard.mu.RLock()
 	defer shard.mu.RUnlock(tk)
 	entry, ok := shard.get(key)
@@ -272,7 +272,7 @@ func (s *Store[K, V]) getFromShard(key K, hash uint64, shard *Shard[K, V]) (*sha
 			value = entry.value
 		}
 	}
-	return &shardEntry[K, V]{
+	return shardEntry[K, V]{
 		entry: entry,
 		value: value,
 	}, ok
@@ -374,14 +374,14 @@ type setShardResult[K comparable, V any] struct {
 	reschedule bool
 }
 
-func (s *Store[K, V]) setShard(shard *Shard[K, V], hash uint64, key K, value V, cost int64, expire int64, nvmClean bool) *setShardResult[K, V] {
+func (s *Store[K, V]) setShard(shard *Shard[K, V], hash uint64, key K, value V, cost int64, expire int64, nvmClean bool) setShardResult[K, V] {
 	shard.mu.Lock()
 	defer shard.mu.Unlock()
 	return s.setShardWithoutLock(shard, hash, key, value, cost, expire, nvmClean)
 }
 
-func (s *Store[K, V]) setShardWithoutLock(shard *Shard[K, V], hash uint64, key K, value V, cost int64, expire int64, nvmClean bool) *setShardResult[K, V] {
-	result := &setShardResult[K, V]{success: true}
+func (s *Store[K, V]) setShardWithoutLock(shard *Shard[K, V], hash uint64, key K, value V, cost int64, expire int64, nvmClean bool) setShardResult[K, V] {
+	result := setShardResult[K, V]{success: true}
 	if shard.closed {
 		return result
 	}
@@ -440,7 +440,7 @@ func (s *Store[K, V]) setShardWithoutLock(shard *Shard[K, V], hash uint64, key K
 	return result
 }
 
-func (s *Store[K, V]) toPolicy(result *setShardResult[K, V], shard *Shard[K, V], hash uint64, cost, expire int64, nvmClean bool) {
+func (s *Store[K, V]) toPolicy(result setShardResult[K, V], shard *Shard[K, V], hash uint64, cost, expire int64, nvmClean bool) {
 	// shard closed or rejected by doorkeeper
 	if result.entry == nil {
 		return
@@ -1155,7 +1155,7 @@ func (s *LoadingStore[K, V]) Get(ctx context.Context, key K) (V, error) {
 	shard := s.shards[index]
 	shardEntry, ok := s.getFromShard(key, h, shard)
 	if !ok {
-		var result *setShardResult[K, V]
+		var result setShardResult[K, V]
 		var entryCost int64
 		var entryExpire int64
 		loaded, err, _ := shard.group.Do(key, func() (Loaded[V], error) {
@@ -1197,7 +1197,7 @@ func (s *LoadingStore[K, V]) Get(ctx context.Context, key K) (V, error) {
 			}
 			return loaded, err
 		})
-		if result != nil {
+		if result.entry != nil {
 			s.toPolicy(result, shard, h, entryCost, entryExpire, true)
 		}
 		return loaded.Value, err

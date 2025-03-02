@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -409,18 +410,21 @@ func TestCache_StringKey(t *testing.T) {
 }
 
 func TestCache_Zipf(t *testing.T) {
+	var miss atomic.Uint64
 	client, err := theine.NewBuilder[uint64, uint64](50000).Build()
 	require.NoError(t, err)
 	defer client.Close()
 	r := rand.New(rand.NewSource(0))
 	z := rand.NewZipf(r, 1.01, 9.0, 50000*1000)
 
-	for i := 0; i < 10000000; i++ {
+	total := 10000000
+	for i := 0; i < total; i++ {
 		key := z.Uint64()
 		v, ok := client.Get(key)
 		if ok {
 			require.Equal(t, v, key)
 		} else {
+			miss.Add(1)
 			success := client.Set(key, key, 1)
 			require.True(t, success)
 		}
@@ -428,4 +432,6 @@ func TestCache_Zipf(t *testing.T) {
 	stats := client.Stats()
 	require.True(t, stats.HitRatio() > 0.5)
 	require.True(t, stats.HitRatio() < 0.6)
+	require.True(t, 1-float64(miss.Load())/float64(total) > 0.5)
+	require.True(t, 1-float64(miss.Load())/float64(total) < 0.6)
 }

@@ -346,7 +346,9 @@ func TestLoadingCache_GetSetDeleteNoRace(t *testing.T) {
 }
 
 func TestLoadingCache_Zipf(t *testing.T) {
+	var miss atomic.Uint64
 	client, err := theine.NewBuilder[uint64, uint64](50000).BuildWithLoader(func(ctx context.Context, key uint64) (theine.Loaded[uint64], error) {
+		miss.Add(1)
 		return theine.Loaded[uint64]{Value: key, Cost: 1, TTL: 0}, nil
 	})
 	require.NoError(t, err)
@@ -355,7 +357,8 @@ func TestLoadingCache_Zipf(t *testing.T) {
 	z := rand.NewZipf(r, 1.01, 9.0, 50000*1000)
 	ctx := context.TODO()
 
-	for i := 0; i < 10000000; i++ {
+	total := 10000000
+	for i := 0; i < total; i++ {
 		key := z.Uint64()
 		v, err := client.Get(ctx, key)
 		require.NoError(t, err)
@@ -364,4 +367,6 @@ func TestLoadingCache_Zipf(t *testing.T) {
 	stats := client.Stats()
 	require.True(t, stats.HitRatio() > 0.5, stats.HitRatio())
 	require.True(t, stats.HitRatio() < 0.6)
+	require.True(t, 1-float64(miss.Load())/float64(total) > 0.5)
+	require.True(t, 1-float64(miss.Load())/float64(total) < 0.6)
 }

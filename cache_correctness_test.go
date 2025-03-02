@@ -81,11 +81,9 @@ func getSet(t *testing.T, entrypool bool) {
 
 func TestCacheCorrectness_EntryPool_GetSet(t *testing.T) {
 	getSet(t, true)
-
 }
 func TestCacheCorrectness_NoPool_GetSet(t *testing.T) {
 	getSet(t, false)
-
 }
 
 func getSetDeleteExpire(t *testing.T, entrypool bool) {
@@ -147,7 +145,6 @@ func getSetDeleteExpire(t *testing.T, entrypool bool) {
 		})
 
 		client.Close()
-
 	}
 }
 

@@ -40,7 +40,6 @@ func TestPersist_Basic(t *testing.T) {
 	for k, v := range m {
 		require.Equal(t, k, v)
 	}
-
 }
 
 func TestPersist_LoadingBasic(t *testing.T) {
@@ -76,7 +75,6 @@ func TestPersist_LoadingBasic(t *testing.T) {
 	for k, v := range m {
 		require.Equal(t, k, v)
 	}
-
 }
 
 func TestPersist_TestVersionMismatch(t *testing.T) {

@@ -36,7 +36,7 @@ func TestDoErr(t *testing.T) {
 	v, err, _ := g.Do("key", func() (string, error) {
 		return "", someErr
 	})
-	if err != someErr {
+	if !errors.Is(err, someErr) {
 		t.Errorf("Do error = %v; want someErr %v", err, someErr)
 	}
 	if v != "" {
@@ -164,7 +164,6 @@ func TestGoexitDo(t *testing.T) {
 func BenchmarkDo(b *testing.B) {
 	keys := randKeys(b, 10240, 10)
 	benchDo(b, NewGroup[string, int](), keys)
-
 }
 
 func benchDo(b *testing.B, g *Group[string, int], keys []string) {

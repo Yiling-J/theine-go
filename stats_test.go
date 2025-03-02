@@ -40,5 +40,4 @@ func TestStats(t *testing.T) {
 	require.Equal(t, uint64(12000), st.Hits())
 	require.Equal(t, uint64(10000), st.Misses())
 	require.Equal(t, float64(12000)/float64(12000+10000), st.HitRatio())
-
 }

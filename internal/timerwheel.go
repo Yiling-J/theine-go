@@ -65,7 +65,6 @@ func NewTimerWheel[K comparable, V any](size uint) *TimerWheel[K, V] {
 		nanos:   clock.NowNano(),
 		clock:   clock,
 	}
-
 }
 
 func (tw *TimerWheel[K, V]) findIndex(expire int64) (int, int) {
@@ -132,7 +131,6 @@ func (tw *TimerWheel[K, V]) expire(index int, prevTicks int64, delta int64, remo
 				tw.schedule(entry)
 			}
 			entry = next
-
 		}
 	}
 }

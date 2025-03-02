@@ -66,7 +66,6 @@ func TestSecondaryCache_ErrorHandler(t *testing.T) {
 	}
 
 	require.True(t, secondary.ErrCounter.Load() > 0)
-
 }
 
 func TestSecondaryCache_GetSetNoRace(t *testing.T) {
@@ -137,5 +136,4 @@ func TestSecondaryCache_LoadingCache(t *testing.T) {
 	require.Nil(t, err)
 	success = client.SetWithTTL(999, 999, 1, 5*time.Second)
 	require.True(t, success)
-
 }

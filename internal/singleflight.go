@@ -99,10 +99,10 @@ func (g *Group[K, V]) Do(key K, fn func() (V, error)) (v V, err error, shared bo
 		_ = c.dups.Add(1)
 		g.mu.Unlock()
 		c.wg.Wait()
-
-		if e, ok := c.err.(*panicError); ok {
-			panic(e)
-		} else if c.err == errGoexit {
+		var perr *panicError
+		if errors.As(c.err, &perr) {
+			panic(c.err)
+		} else if errors.Is(c.err, errGoexit) {
 			runtime.Goexit()
 		}
 		// assign value/err before put back to pool to avoid race
@@ -149,9 +149,9 @@ func (g *Group[K, V]) doCall(c *call[V], key K, fn func() (V, error)) {
 		if g.m[key] == c {
 			delete(g.m, key)
 		}
-
-		if e, ok := c.err.(*panicError); ok {
-			panic(e)
+		var perr *panicError
+		if errors.As(c.err, &perr) {
+			panic(c.err)
 		}
 	}()
 

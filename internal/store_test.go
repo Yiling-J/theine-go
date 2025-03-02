@@ -11,7 +11,7 @@ import (
 )
 
 func TestStore_WindowExpire(t *testing.T) {
-	store := NewStore[int, int](5000, false, true, nil, nil, nil, 0, 0, nil)
+	store := NewStore[int, int](&StoreOptions[int, int]{MaxSize: 5000})
 	defer store.Close()
 
 	expired := map[int]int{}
@@ -37,7 +37,7 @@ func TestStore_WindowExpire(t *testing.T) {
 }
 
 func TestStore_Window(t *testing.T) {
-	store := NewStore[int, int](1000, false, true, nil, nil, nil, 0, 0, nil)
+	store := NewStore[int, int](&StoreOptions[int, int]{MaxSize: 1000})
 	defer store.Close()
 
 	evicted := map[int]int{}
@@ -66,7 +66,7 @@ func TestStore_Window(t *testing.T) {
 	store.Wait()
 }
 func TestStore_WindowEvict(t *testing.T) {
-	store := NewStore[int, int](1000, false, true, nil, nil, nil, 0, 0, nil)
+	store := NewStore[int, int](&StoreOptions[int, int]{MaxSize: 1000})
 	store.policy.sketch.EnsureCapacity(1000)
 	defer store.Close()
 
@@ -103,7 +103,7 @@ func TestStore_WindowEvict(t *testing.T) {
 }
 
 func TestStore_DoorKeeperDynamicSize(t *testing.T) {
-	store := NewStore[int, int](200000, true, true, nil, nil, nil, 0, 0, nil)
+	store := NewStore[int, int](&StoreOptions[int, int]{MaxSize: 200000, Doorkeeper: true})
 	defer store.Close()
 	shard := store.shards[0]
 	require.True(t, shard.dookeeper.Capacity == 512)
@@ -114,7 +114,7 @@ func TestStore_DoorKeeperDynamicSize(t *testing.T) {
 }
 
 func TestStore_PolicyCounter(t *testing.T) {
-	store := NewStore[int, int](1000, false, true, nil, nil, nil, 0, 0, nil)
+	store := NewStore[int, int](&StoreOptions[int, int]{MaxSize: 1000})
 	defer store.Close()
 	for i := 0; i < 1000; i++ {
 		store.Set(i, i, 1, 0)
@@ -133,7 +133,7 @@ func TestStore_PolicyCounter(t *testing.T) {
 }
 
 func TestStore_GetExpire(t *testing.T) {
-	store := NewStore[int, int](1000, false, true, nil, nil, nil, 0, 0, nil)
+	store := NewStore[int, int](&StoreOptions[int, int]{MaxSize: 1000})
 	defer store.Close()
 
 	_, i := store.index(123)
@@ -172,7 +172,7 @@ func TestStore_GetExpire(t *testing.T) {
 }
 
 func TestStore_SinkWritePolicyWeight(t *testing.T) {
-	store := NewStore[int, int](10000, false, true, nil, nil, nil, 0, 0, nil)
+	store := NewStore[int, int](&StoreOptions[int, int]{MaxSize: 10000})
 	defer store.Close()
 
 	entry := &Entry[int, int]{key: 1, value: 1}
@@ -201,11 +201,10 @@ func TestStore_SinkWritePolicyWeight(t *testing.T) {
 	})
 
 	require.Equal(t, 8, int(store.policy.weightedSize))
-
 }
 
 func TestStore_CloseRace(t *testing.T) {
-	store := NewStore[int, int](1000, false, true, nil, nil, nil, 0, 0, nil)
+	store := NewStore[int, int](&StoreOptions[int, int]{MaxSize: 1000})
 
 	var wg sync.WaitGroup
 	var closed atomic.Bool
@@ -248,7 +247,7 @@ func TestStore_CloseRace(t *testing.T) {
 }
 
 func TestStore_CloseRaceLoadingCache(t *testing.T) {
-	store := NewStore[int, int](1000, false, true, nil, nil, nil, 0, 0, nil)
+	store := NewStore[int, int](&StoreOptions[int, int]{MaxSize: 1000})
 	loadingStore := NewLoadingStore(store)
 	loadingStore.loader = func(ctx context.Context, key int) (Loaded[int], error) {
 		return Loaded[int]{Value: 100, Cost: 1}, nil

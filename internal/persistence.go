@@ -59,7 +59,6 @@ func (b *DataBlock[V]) Write(item V) (full bool, err error) {
 		return true, err
 	}
 	return false, nil
-
 }
 
 func (b *DataBlock[V]) MarkDirty() {

@@ -51,7 +51,6 @@ func NewTinyLfu[K comparable, V any](size uint, hasher *hasher.Hasher[K]) *TinyL
 }
 
 func (t *TinyLfu[K, V]) increaseWindow(amount int) int {
-
 	// try move from protected/probation to window
 	for {
 		probation := true
@@ -80,7 +79,6 @@ func (t *TinyLfu[K, V]) increaseWindow(amount int) int {
 }
 
 func (t *TinyLfu[K, V]) decreaseWindow(amount int) int {
-
 	// try move from window to probation
 	for {
 		entry := t.window.Back()
@@ -99,7 +97,6 @@ func (t *TinyLfu[K, V]) decreaseWindow(amount int) int {
 }
 
 func (t *TinyLfu[K, V]) resizeWindow() {
-
 	t.window.capacity += uint(t.amount)
 	t.slru.protected.capacity -= uint(t.amount)
 	// demote first to make sure policy size is right
@@ -109,7 +106,6 @@ func (t *TinyLfu[K, V]) resizeWindow() {
 	if t.amount > 0 {
 		remain = t.increaseWindow(t.amount)
 		t.amount = remain
-
 	} else if t.amount < 0 {
 		remain = t.decreaseWindow(-t.amount)
 		t.amount = -remain
@@ -117,11 +113,9 @@ func (t *TinyLfu[K, V]) resizeWindow() {
 
 	t.window.capacity -= uint(t.amount)
 	t.slru.protected.capacity += uint(t.amount)
-
 }
 
 func (t *TinyLfu[K, V]) climb() {
-
 	var delta float32
 	if t.hitsInSample+t.missesInSample == 0 {
 		delta = 0
@@ -221,7 +215,6 @@ func (t *TinyLfu[K, V]) Remove(entry *Entry[K, V], callback bool) {
 }
 
 func (t *TinyLfu[K, V]) UpdateCost(entry *Entry[K, V], weightChange int64) {
-
 	// entry's policy weigh already updated
 	// so update weightedSize to keep sync
 	t.weightedSize += uint(weightChange)
@@ -243,7 +236,6 @@ func (t *TinyLfu[K, V]) UpdateCost(entry *Entry[K, V], weightChange int64) {
 		} else {
 			t.slru.access(entry)
 		}
-
 	}
 
 	if t.weightedSize > t.capacity {
@@ -268,7 +260,6 @@ func (t *TinyLfu[K, V]) evictFromWindow() *Entry[K, V] {
 			}
 			t.slru.insert(victim)
 		}
-
 	}
 	return first
 }
@@ -288,11 +279,10 @@ func (t *TinyLfu[K, V]) admit(candidateKey, victimKey K) bool {
 	return false
 }
 
-// comapre and evict entries until cache size fit.
+// compare and evict entries until cache size fit.
 // candidate is the first entry evicted from window,
 // if head is null, start from last entry from window.
 func (t *TinyLfu[K, V]) evictFromMain(candidate *Entry[K, V]) {
-
 	victimQueue := LIST_PROBATION
 	candidateQueue := LIST_PROBATION
 	victim := t.slru.probation.Back()
@@ -354,7 +344,6 @@ func (t *TinyLfu[K, V]) evictFromMain(candidate *Entry[K, V]) {
 			t.Remove(evict, true)
 		}
 	}
-
 }
 
 func (t *TinyLfu[K, V]) EvictEntries() {

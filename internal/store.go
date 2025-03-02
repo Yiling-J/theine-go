@@ -49,11 +49,20 @@ func init() {
 type Shard[K comparable, V any] struct {
 	hashmap   map[K]*Entry[K, V]
 	dookeeper *bf.Bloomfilter
-	group     *Group[K, Loaded[V]]
-	vgroup    *Group[K, V] // used in secondary cache
-	counter   uint
-	mu        *RBMutex
-	closed    bool
+	// singleflight group used in loading cache, avoid load same key multiple times concurrently
+	group *Group[K, Loaded[V]]
+	// singleflight group used in secondary cache, avoid get same key from secondary cache multiple times concurrently
+	vgroup *Group[K, V]
+	// used to reset dookeeper
+	counter uint
+	// A read/write mutex that locks the shard when accessing the shard's hashmap.
+	// This mutex is used for read, write, delete on the shard's hashmap, update some entry fields,
+	// as well as for shard close operations. The policy has its own mutex and does not hold this lock, except in one case:
+	// The policy has its own mutex and does not hold this lock, except in one case:
+	// when the policy or timing wheel evicts entries, this mutex is also acquired
+	// because the hashmap needs to be updated.
+	mu     *RBMutex
+	closed bool
 }
 
 func NewShard[K comparable, V any](doorkeeper bool) *Shard[K, V] {
@@ -136,12 +145,22 @@ type Store[K comparable, V any] struct {
 	waitChan          chan bool
 }
 
+type StoreOptions[K comparable, V any] struct {
+	MaxSize        int64                                               // max size of the cache store
+	Doorkeeper     bool                                                // use doorkeeper or not
+	EntryPool      bool                                                // enable entry pool or not, entry pool is a sync pool and can reduce memory allocations under heavy write loads
+	Listener       func(key K, value V, reason RemoveReason)           // entry evicted callback function
+	Cost           func(v V) int64                                     // entry cost function, default is 1
+	SecondaryCache SecondaryCache[K, V]                                // the SecondaryCache instance to use
+	Workers        int                                                 // count of SecondaryCache sync workers
+	Probability    float32                                             // SecondaryCache acceptance probability
+	StringKeyFunc  func(k K) string                                    // a function to handle struct with string hash bug before Go 1.24
+	Loader         func(ctx context.Context, key K) (Loaded[V], error) // load function used in loading cache
+}
+
 // New returns a new data struct with the specified capacity
-func NewStore[K comparable, V any](
-	maxsize int64, doorkeeper bool, entryPool bool, listener func(key K, value V, reason RemoveReason),
-	cost func(v V) int64, secondaryCache SecondaryCache[K, V], workers int, probability float32, stringKeyFunc func(k K) string,
-) *Store[K, V] {
-	hasher := hasher.NewHasher(stringKeyFunc)
+func NewStore[K comparable, V any](options *StoreOptions[K, V]) *Store[K, V] {
+	hasher := hasher.NewHasher(options.StringKeyFunc)
 	shardCount := 1
 	for shardCount < runtime.GOMAXPROCS(0)*2 {
 		shardCount *= 2
@@ -154,8 +173,8 @@ func NewStore[K comparable, V any](
 	}
 
 	costfn := func(v V) int64 { return 1 }
-	if cost != nil {
-		costfn = cost
+	if options.Cost != nil {
+		costfn = options.Cost
 	}
 
 	stripedBuffer := make([]*Buffer[K, V], 0, StripedBufferSize)
@@ -164,28 +183,28 @@ func NewStore[K comparable, V any](
 	}
 
 	s := &Store[K, V]{
-		cap:           uint(maxsize),
+		cap:           uint(options.MaxSize),
 		hasher:        hasher,
-		policy:        NewTinyLfu[K, V](uint(maxsize), hasher),
+		policy:        NewTinyLfu[K, V](uint(options.MaxSize), hasher),
 		stripedBuffer: stripedBuffer,
 		mask:          uint32(StripedBufferSize - 1),
 		writeChan:     make(chan WriteBufItem[K, V], WriteChanSize),
 		writeBuffer:   make([]WriteBufItem[K, V], 0, WriteBufferSize),
 		shardCount:    uint(shardCount),
-		doorkeeper:    doorkeeper,
+		doorkeeper:    options.Doorkeeper,
 		kvBuilder: func(entry *Entry[K, V]) dequeKV[K, V] {
 			return dequeKV[K, V]{
 				k: entry.key,
 				v: entry.value,
 			}
 		},
-		removalListener: listener,
+		removalListener: options.Listener,
 		cost:            costfn,
-		secondaryCache:  secondaryCache,
-		probability:     probability,
+		secondaryCache:  options.SecondaryCache,
+		probability:     options.Probability,
 		waitChan:        make(chan bool),
 	}
-	if entryPool {
+	if options.EntryPool {
 		s.entryPool = &sync.Pool{New: func() any { return &Entry[K, V]{} }}
 	}
 
@@ -198,20 +217,20 @@ func NewStore[K comparable, V any](
 
 	s.shards = make([]*Shard[K, V], 0, s.shardCount)
 	for i := 0; i < int(s.shardCount); i++ {
-		s.shards = append(s.shards, NewShard[K, V](doorkeeper))
+		s.shards = append(s.shards, NewShard[K, V](options.Doorkeeper))
 	}
 	s.policy.removeCallback = func(entry *Entry[K, V]) {
 		s.removeEntry(entry, EVICTED)
 	}
 
 	s.ctx, s.cancel = context.WithCancel(context.Background())
-	s.timerwheel = NewTimerWheel[K, V](uint(maxsize))
+	s.timerwheel = NewTimerWheel[K, V](uint(options.MaxSize))
 	s.timerwheel.clock.RefreshNowCache()
 
 	go s.maintenance()
 	if s.secondaryCache != nil {
 		s.secondaryCacheBuf = make(chan SecondaryCacheItem[K, V], 256)
-		for i := 0; i < workers; i++ {
+		for i := 0; i < options.Workers; i++ {
 			go s.processSecondary()
 		}
 		s.rg = rand.New(rand.New(rand.NewSource(0)))
@@ -219,8 +238,14 @@ func NewStore[K comparable, V any](
 	return s
 }
 
-func (s *Store[K, V]) getFromShard(key K, hash uint64, shard *Shard[K, V]) (V, bool) {
+type shardEntry[K comparable, V any] struct {
+	entry *Entry[K, V]
+	value V
+}
+
+func (s *Store[K, V]) getFromShard(key K, hash uint64, shard *Shard[K, V]) (shardEntry[K, V], bool) {
 	tk := shard.mu.RLock()
+	defer shard.mu.RUnlock(tk)
 	entry, ok := shard.get(key)
 	var value V
 	if ok {
@@ -250,54 +275,56 @@ func (s *Store[K, V]) getFromShard(key K, hash uint64, shard *Shard[K, V]) (V, b
 			value = entry.value
 		}
 	}
-	shard.mu.RUnlock(tk)
+	return shardEntry[K, V]{
+		entry: entry,
+		value: value,
+	}, ok
+}
 
+func (s *Store[K, V]) Get(key K) (V, bool) {
+	h, index := s.index(key)
+	shard := s.shards[index]
+	shardEntry, ok := s.getFromShard(key, h, shard)
 	if ok {
 		s.policy.hits.Add(1)
 	} else {
 		s.policy.misses.Add(1)
-		return value, false
+		return shardEntry.value, false
 	}
 
 	idx := s.getReadBufferIdx()
 	var send ReadBufItem[K, V]
-	send.hash = hash
-	if ok {
-		send.entry = entry
-	}
+	send.hash = h
+	send.entry = shardEntry.entry
 
 	pb := s.stripedBuffer[idx].Add(send)
 	if pb != nil {
 		s.drainRead(pb.Returned)
 		s.stripedBuffer[idx].Free()
 	}
-	return value, ok
+	return shardEntry.value, ok
 }
 
-func (s *Store[K, V]) Get(key K) (V, bool) {
+func (s *Store[K, V]) GetWithSecodary(key K) (V, bool, error) {
 	h, index := s.index(key)
 	shard := s.shards[index]
-	return s.getFromShard(key, h, shard)
-}
-
-func (s *Store[K, V]) GetWithSecodary(key K) (value V, ok bool, err error) {
-	h, index := s.index(key)
-	shard := s.shards[index]
-	value, ok = s.getFromShard(key, h, shard)
+	shardEntry, ok := s.getFromShard(key, h, shard)
 	if ok {
-		return value, true, nil
+		return shardEntry.value, true, nil
 	}
 
-	value, err, _ = shard.vgroup.Do(key, func() (v V, err error) {
+	var result setShardResult[K, V]
+	var entryCost int64
+	var entryExpire int64
+	value, err, _ := shard.vgroup.Do(key, func() (v V, err error) {
 		// load and store should be atomic
 		shard.mu.Lock()
+		defer shard.mu.Unlock()
 		v, cost, expire, ok, err := s.secondaryCache.Get(key)
 		if err != nil {
-			shard.mu.Unlock()
 			return v, err
 		}
 		if !ok {
-			shard.mu.Unlock()
 			return v, &NotFound{}
 		}
 		if expire <= s.timerwheel.clock.NowNano() {
@@ -305,12 +332,13 @@ func (s *Store[K, V]) GetWithSecodary(key K) (value V, ok bool, err error) {
 			if err == nil {
 				err = &NotFound{}
 			}
-			shard.mu.Unlock()
 			return v, err
 		}
 
 		// insert to cache
-		_, _, _ = s.setShard(shard, h, key, v, cost, expire, true)
+		result = s.setShardWithoutLock(shard, h, key, v, cost, expire, true)
+		entryCost = cost
+		entryExpire = expire
 		return v, err
 	})
 
@@ -321,44 +349,64 @@ func (s *Store[K, V]) GetWithSecodary(key K) (value V, ok bool, err error) {
 	if err != nil {
 		return value, false, err
 	}
+	if result.entry != nil {
+		s.toPolicy(result, shard, h, entryCost, entryExpire, true)
+	}
 	return value, true, nil
 }
 
-func (s *Store[K, V]) setEntry(hash uint64, shard *Shard[K, V], cost int64, entry *Entry[K, V], fromNVM bool) {
-	shard.set(entry.key, entry)
-	shard.mu.Unlock()
+func (s *Store[K, V]) policyNewEntry(hash uint64, shard *Shard[K, V], cost int64, entry *Entry[K, V], fromNVM bool) {
 	s.writeChan <- WriteBufItem[K, V]{
 		code: NEW, entry: entry, hash: hash, fromNVM: fromNVM, costChange: cost,
 	}
-
 }
 
-func (s *Store[K, V]) setShard(shard *Shard[K, V], hash uint64, key K, value V, cost int64, expire int64, nvmClean bool) (*Shard[K, V], *Entry[K, V], bool) {
+func (s *Store[K, V]) policyUpdateEntry(entry *Entry[K, V], hash uint64, cost, old int64, reschedule bool) {
+	// create/update events order might change due to race,
+	// send cost change in event and apply them to entry policy weight
+	// so different order still works.
+	costChange := cost - old
+	s.writeChan <- WriteBufItem[K, V]{
+		entry: entry, code: UPDATE, costChange: costChange, rechedule: reschedule,
+		hash: hash,
+	}
+}
+
+type setShardResult[K comparable, V any] struct {
+	entry      *Entry[K, V]
+	oldCost    int64 // the old entry cost when updating entry
+	exists     bool
+	success    bool
+	reschedule bool
+}
+
+func (s *Store[K, V]) setShard(shard *Shard[K, V], hash uint64, key K, value V, cost int64, expire int64, nvmClean bool) setShardResult[K, V] {
+	shard.mu.Lock()
+	defer shard.mu.Unlock()
+	return s.setShardWithoutLock(shard, hash, key, value, cost, expire, nvmClean)
+}
+
+func (s *Store[K, V]) setShardWithoutLock(shard *Shard[K, V], hash uint64, key K, value V, cost int64, expire int64, nvmClean bool) setShardResult[K, V] {
+	result := setShardResult[K, V]{success: true}
+	if shard.closed {
+		return result
+	}
 	exist, ok := shard.get(key)
+	result.entry = exist
+	result.exists = ok
+
+	if ok && expire > 0 {
+		old := exist.expire.Swap(expire)
+		if old != expire {
+			result.reschedule = true
+		}
+	}
 
 	if ok {
 		exist.value = value
 		old := exist.weight.Swap(cost)
-
-		// create/update events order might change due to race,
-		// send cost change in event and apply them to entry policy weight
-		// so different order still works.
-		costChange := cost - old
-		shard.mu.Unlock()
-
-		var reschedule bool
-		if expire > 0 {
-			old := exist.expire.Swap(expire)
-			if old != expire {
-				reschedule = true
-			}
-		}
-
-		s.writeChan <- WriteBufItem[K, V]{
-			entry: exist, code: UPDATE, costChange: costChange, rechedule: reschedule,
-			hash: hash,
-		}
-		return shard, exist, true
+		result.oldCost = old
+		return result
 	}
 
 	if s.doorkeeper {
@@ -369,8 +417,8 @@ func (s *Store[K, V]) setShard(shard *Shard[K, V], hash uint64, key K, value V, 
 		hit := shard.dookeeper.Insert(hash)
 		if !hit {
 			shard.counter += 1
-			shard.mu.Unlock()
-			return shard, nil, false
+			result.success = false
+			return result
 		}
 	}
 	var entry *Entry[K, V]
@@ -392,22 +440,30 @@ func (s *Store[K, V]) setShard(shard *Shard[K, V], hash uint64, key K, value V, 
 	entry.expire.Store(expire)
 	entry.weight.Store(cost)
 	entry.policyWeight = 0
-	s.setEntry(hash, shard, cost, entry, nvmClean)
-	return shard, entry, true
+	shard.set(entry.key, entry)
+	result.entry = entry
+	result.exists = false
+	return result
+}
 
+func (s *Store[K, V]) toPolicy(result setShardResult[K, V], shard *Shard[K, V], hash uint64, cost, expire int64, nvmClean bool) {
+	// shard closed or rejected by doorkeeper
+	if result.entry == nil {
+		return
+	}
+	if result.exists {
+		s.policyUpdateEntry(result.entry, hash, cost, result.oldCost, result.reschedule)
+	} else {
+		s.policyNewEntry(hash, shard, cost, result.entry, nvmClean)
+	}
 }
 
 func (s *Store[K, V]) setInternal(key K, value V, cost int64, expire int64, nvmClean bool) (*Shard[K, V], *Entry[K, V], bool) {
 	h, index := s.index(key)
 	shard := s.shards[index]
-	shard.mu.Lock()
-	if shard.closed {
-		shard.mu.Unlock()
-		return nil, nil, false
-	}
-
-	return s.setShard(shard, h, key, value, cost, expire, nvmClean)
-
+	result := s.setShard(shard, h, key, value, cost, expire, nvmClean)
+	s.toPolicy(result, shard, h, cost, expire, nvmClean)
+	return shard, result.entry, result.success
 }
 
 func (s *Store[K, V]) Set(key K, value V, cost int64, ttl time.Duration) bool {
@@ -607,7 +663,6 @@ func (s *Store[K, V]) sinkWrite(item WriteBufItem[K, V]) {
 	case NEW:
 		entry.flag.SetRemoved(false)
 		if expire := entry.expire.Load(); expire != 0 {
-
 			if expire <= s.timerwheel.clock.NowNano() {
 				s.removeEntry(entry, EXPIRED)
 				return
@@ -615,7 +670,6 @@ func (s *Store[K, V]) sinkWrite(item WriteBufItem[K, V]) {
 				s.timerwheel.schedule(entry)
 			}
 		}
-
 		s.policy.sketch.Add(item.hash)
 		entry.policyWeight += item.costChange
 		s.policy.Set(entry)
@@ -654,7 +708,6 @@ func (s *Store[K, V]) sinkWrite(item WriteBufItem[K, V]) {
 }
 
 func (s *Store[K, V]) drainWrite() {
-
 	var wait bool
 	for _, item := range s.writeBuffer {
 		if item.code == WAIT {
@@ -668,11 +721,9 @@ func (s *Store[K, V]) drainWrite() {
 	if wait {
 		s.waitChan <- true
 	}
-
 }
 
 func (s *Store[K, V]) maintenance() {
-
 	go func() {
 		s.policyMu.Lock()
 		s.maintenanceTicker = time.NewTicker(time.Second)
@@ -932,7 +983,7 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 			for {
 				pentry := &Pentry[K, V]{}
 				err := entryDecoder.Decode(pentry)
-				if err == io.EOF {
+				if errors.Is(err, io.EOF) {
 					break
 				}
 				if err != nil {
@@ -957,7 +1008,7 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 			for {
 				pentry := &Pentry[K, V]{}
 				err := entryDecoder.Decode(pentry)
-				if err == io.EOF {
+				if errors.Is(err, io.EOF) {
 					break
 				}
 				if err != nil {
@@ -984,7 +1035,7 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 			for {
 				pentry := &Pentry[K, V]{}
 				err := entryDecoder.Decode(pentry)
-				if err == io.EOF {
+				if errors.Is(err, io.EOF) {
 					break
 				}
 				if err != nil {
@@ -1005,7 +1056,6 @@ func (s *Store[K, V]) Recover(version uint64, reader io.Reader) error {
 					s.policy.weightedSize += uint(entry.policyWeight)
 				}
 			}
-
 		}
 	}
 	return nil
@@ -1050,7 +1100,6 @@ func (i debugInfo) TotalWeight() int64 {
 
 // used for test, only
 func (s *Store[K, V]) DebugInfo() debugInfo {
-
 	var windowSum int64
 	var windowCount int64
 	s.policy.window.rangef(func(e *Entry[K, V]) {
@@ -1084,7 +1133,6 @@ func (s *Store[K, V]) DebugInfo() debugInfo {
 		ProtectedWeightField: int64(s.policy.slru.protected.Len()),
 		ProtectedCount:       protectedCount,
 	}
-
 }
 
 type Loaded[V any] struct {
@@ -1111,13 +1159,17 @@ func (s *LoadingStore[K, V]) Loader(loader func(ctx context.Context, key K) (Loa
 func (s *LoadingStore[K, V]) Get(ctx context.Context, key K) (V, error) {
 	h, index := s.index(key)
 	shard := s.shards[index]
-	v, ok := s.getFromShard(key, h, shard)
+	shardEntry, ok := s.getFromShard(key, h, shard)
 	if !ok {
+		s.policy.misses.Add(1)
+		var result setShardResult[K, V]
+		var entryCost int64
+		var entryExpire int64
 		loaded, err, _ := shard.group.Do(key, func() (Loaded[V], error) {
 			// load and store should be atomic
 			shard.mu.Lock()
+			defer shard.mu.Unlock()
 			if shard.closed {
-				shard.mu.Unlock()
 				return Loaded[V]{}, ErrCacheClosed
 			}
 
@@ -1126,11 +1178,12 @@ func (s *LoadingStore[K, V]) Get(ctx context.Context, key K) (V, error) {
 				vs, cost, expire, ok, err := s.secondaryCache.Get(key)
 				var notFound *NotFound
 				if err != nil && !errors.As(err, &notFound) {
-					shard.mu.Unlock()
 					return Loaded[V]{}, err
 				}
 				if ok {
-					_, _, _ = s.setShard(shard, h, key, vs, cost, expire, true)
+					result = s.setShardWithoutLock(shard, h, key, vs, cost, expire, true)
+					entryCost = cost
+					entryExpire = expire
 					return Loaded[V]{Value: vs}, nil
 				}
 			}
@@ -1145,15 +1198,30 @@ func (s *LoadingStore[K, V]) Get(ctx context.Context, key K) (V, error) {
 			}
 
 			if err == nil {
-				s.setShard(shard, h, key, loaded.Value, loaded.Cost, expire, false)
-			} else {
-				shard.mu.Unlock()
+				result = s.setShardWithoutLock(shard, h, key, loaded.Value, loaded.Cost, expire, false)
+				entryCost = loaded.Cost
+				entryExpire = expire
 			}
 			return loaded, err
 		})
+		if result.entry != nil {
+			s.toPolicy(result, shard, h, entryCost, entryExpire, true)
+		}
 		return loaded.Value, err
+	} else {
+		s.policy.hits.Add(1)
+		idx := s.getReadBufferIdx()
+		var send ReadBufItem[K, V]
+		send.hash = h
+		send.entry = shardEntry.entry
+
+		pb := s.stripedBuffer[idx].Add(send)
+		if pb != nil {
+			s.drainRead(pb.Returned)
+			s.stripedBuffer[idx].Free()
+		}
 	}
-	return v, nil
+	return shardEntry.value, nil
 }
 
 type NotFound struct{}

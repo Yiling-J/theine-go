@@ -132,6 +132,7 @@ func (b *Buffer[K, V]) items() []ReadBufItem[K, V] {
 	returned := []ReadBufItem[K, V]{}
 	// try return new buffer
 	for _, pt := range b.buffer {
+		// #nosec G601
 		v := atomic.LoadPointer(&pt)
 		if v != nil {
 			returned = append(returned, *castToPointer[K, V](v))

@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"fmt"
 	"math/rand"
 	"testing"
 	"time"
@@ -77,6 +78,30 @@ func TestSchedule(t *testing.T) {
 	require.True(t, found)
 }
 
+func TestAdvanceCompact(t *testing.T) {
+	tw := NewTimerWheel[string, string](5000000)
+	entries := make([]*Entry[string, string], 5000000)
+	for i := 0; i < 5000000; i++ {
+		entries[i] = NewEntry(fmt.Sprintf("k%d", i+1), "", 1, expire(tw.clock.NowNano(), int64(i+1)))
+		tw.schedule(entries[i])
+	}
+	now := tw.clock.NowNano()
+
+	evicted := []string{}
+	prev := 0
+	counter := 0
+	for second := 1; second <= 5000005; second++ {
+		tw.advance(now+(time.Second*time.Duration(second)).Nanoseconds(), func(entry *Entry[string, string], reason RemoveReason) {
+			counter += 1
+			evicted = append(evicted, entry.key)
+		})
+		require.True(t, counter-prev >= 0 && counter-prev <= 5, counter-prev)
+		prev = counter
+	}
+
+	require.Len(t, evicted, 5000000)
+}
+
 func TestAdvance(t *testing.T) {
 	tw := NewTimerWheel[string, string](1000)
 	entries := []*Entry[string, string]{
@@ -98,7 +123,7 @@ func TestAdvance(t *testing.T) {
 	})
 	require.ElementsMatch(t, []string{"k1", "k2", "k3"}, evicted)
 
-	tw.advance(tw.clock.NowNano()+(time.Second*time.Duration(200)).Nanoseconds(), func(entry *Entry[string, string], reason RemoveReason) {
+	tw.advance(tw.clock.NowNano()+(time.Second*time.Duration(121)).Nanoseconds(), func(entry *Entry[string, string], reason RemoveReason) {
 		evicted = append(evicted, entry.key)
 	})
 

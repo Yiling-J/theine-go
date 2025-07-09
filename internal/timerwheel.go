@@ -113,10 +113,7 @@ func (tw *TimerWheel[K, V]) advance(now int64, remove func(entry *Entry[K, V], r
 
 func (tw *TimerWheel[K, V]) expire(index int, prevTicks int64, delta int64, remove func(entry *Entry[K, V], reason RemoveReason)) {
 	mask := tw.buckets[index] - 1
-	steps := tw.buckets[index]
-	if delta < int64(steps) {
-		steps = uint(delta)
-	}
+	steps := min(uint(1+int(delta)), tw.buckets[index])
 	start := prevTicks & int64(mask)
 	end := start + int64(steps)
 	for i := start; i < end; i++ {

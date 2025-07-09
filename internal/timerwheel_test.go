@@ -80,12 +80,12 @@ func TestSchedule(t *testing.T) {
 
 func TestAdvanceCompact(t *testing.T) {
 	tw := NewTimerWheel[string, string](5000000)
+	now := tw.clock.NowNano()
 	entries := make([]*Entry[string, string], 5000000)
 	for i := 0; i < 5000000; i++ {
-		entries[i] = NewEntry(fmt.Sprintf("k%d", i+1), "", 1, expire(tw.clock.NowNano(), int64(i+1)))
+		entries[i] = NewEntry(fmt.Sprintf("k%d", i+1), "", 1, expire(now, int64(i+1)))
 		tw.schedule(entries[i])
 	}
-	now := tw.clock.NowNano()
 
 	evicted := []string{}
 	prev := 0
@@ -95,7 +95,7 @@ func TestAdvanceCompact(t *testing.T) {
 			counter += 1
 			evicted = append(evicted, entry.key)
 		})
-		require.True(t, counter-prev >= 0 && counter-prev <= 5, counter-prev)
+		require.True(t, counter-prev >= 0 && counter-prev <= 2, counter-prev)
 		prev = counter
 	}
 

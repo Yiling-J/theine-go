@@ -435,3 +435,34 @@ func TestCache_Zipf(t *testing.T) {
 	require.True(t, 1-float64(miss.Load())/float64(total) > 0.5)
 	require.True(t, 1-float64(miss.Load())/float64(total) < 0.6)
 }
+
+func TestCache_Wait(t *testing.T) {
+	const n = 1000
+
+	client, err := theine.NewBuilder[int, int](2 * n).Build()
+	require.Nil(t, err)
+	defer client.Close()
+
+	wg := sync.WaitGroup{}
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		ii := i
+		go func() {
+			client.Set(ii, ii, 1)
+			client.Wait()
+			wg.Done()
+		}()
+	}
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-time.After(10 * time.Second):
+		require.FailNow(t, "test timed out after 10s")
+	case <-done:
+	}
+}

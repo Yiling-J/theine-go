@@ -708,17 +708,17 @@ func (s *Store[K, V]) sinkWrite(item WriteBufItem[K, V]) {
 }
 
 func (s *Store[K, V]) drainWrite() {
-	var wait bool
+	var wait int
 	for _, item := range s.writeBuffer {
 		if item.code == WAIT {
-			wait = true
+			wait += 1
 			continue
 		}
 		s.sinkWrite(item)
 	}
 
 	s.writeBuffer = s.writeBuffer[:0]
-	if wait {
+	for i := 0; i < wait; i++ {
 		s.waitChan <- true
 	}
 }

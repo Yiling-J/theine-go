@@ -10,8 +10,8 @@ func BenchmarkPolicy_Read(b *testing.B) {
 	r := rand.New(rand.NewSource(0))
 	z := rand.NewZipf(r, 1.4, 9.0, 100000)
 
-	witems := []WriteBufItem[uint64, bool]{}
-	ritems := []ReadBufItem[uint64, bool]{}
+	witems := make([]WriteBufItem[uint64, bool], 0, 100000)
+	ritems := make([]ReadBufItem[uint64, bool], 0, 100000)
 	for i := 0; i < 100000; i++ {
 		k := z.Uint64()
 		e := &Entry[uint64, bool]{
